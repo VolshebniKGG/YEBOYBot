@@ -1,0 +1,18 @@
+
+
+
+
+{
+    "servers": {
+        "983379337430585344": {
+            "current_song": "https://www.youtube.com/watch?v=example",
+            "queue": [
+                "https://www.youtube.com/watch?v=example2",
+                "https://www.youtube.com/watch?v=example3"
+            ]
+        }
+    }
+}
+
+
+

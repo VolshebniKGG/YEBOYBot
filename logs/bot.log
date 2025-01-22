@@ -1,0 +1,17 @@
+2025-01-22 21:47:29,909 [INFO] Логування налаштовано.
+2025-01-22 21:47:29,911 [INFO] Завантаження розширення extensions.admin...
+2025-01-22 21:47:29,912 [INFO] Розширення extensions.admin завантажено успішно.
+2025-01-22 21:47:29,912 [INFO] Завантаження розширення extensions.moderation...
+2025-01-22 21:47:29,913 [INFO] Loaded Moderation extension
+2025-01-22 21:47:29,913 [INFO] Розширення extensions.moderation завантажено успішно.
+2025-01-22 21:47:29,913 [INFO] Завантаження розширення extensions.user...
+2025-01-22 21:47:29,913 [INFO] Loaded User extension
+2025-01-22 21:47:29,914 [INFO] Розширення extensions.user завантажено успішно.
+2025-01-22 21:47:29,914 [INFO] Завантаження розширення commands.help...
+2025-01-22 21:47:29,914 [INFO] Loaded Help extension
+2025-01-22 21:47:29,915 [INFO] Розширення commands.help завантажено успішно.
+2025-01-22 21:47:29,915 [INFO] Завантаження розширення commands.music...
+2025-01-22 21:47:30,415 [INFO] Music Cog successfully loaded.
+2025-01-22 21:47:30,415 [INFO] Розширення commands.music завантажено успішно.
+2025-01-22 21:47:30,416 [INFO] Усі розширення завантажено.
+2025-01-22 21:48:01,044 [INFO] Help command used by volshebnik_
