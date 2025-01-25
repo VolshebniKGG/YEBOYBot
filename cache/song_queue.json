@@ -1,18 +1,12 @@
 
 
-
-
 {
     "servers": {
-        "983379337430585344": {
-            "current_song": "https://www.youtube.com/watch?v=example",
+        "123456789": {
+            "current_song": {"url": "https://www.youtube.com/watch?v=example", "title": "Example Song"},
             "queue": [
-                "https://www.youtube.com/watch?v=example2",
-                "https://www.youtube.com/watch?v=example3"
+                {"url": "https://www.youtube.com/watch?v=example2", "title": "Another Song"}
             ]
         }
     }
 }
-
-
-

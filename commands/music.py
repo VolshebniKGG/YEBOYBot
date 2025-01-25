@@ -3,7 +3,6 @@
 
 import discord
 from discord.ext import commands
-from collections import deque
 import yt_dlp as youtube_dl
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
@@ -11,23 +10,21 @@ import os
 import json
 import asyncio
 import logging
-import shutil
+import time
 
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.music_queue = {}
-        self.base_path = "data/music"
-        os.makedirs(self.base_path, exist_ok=True)
+        self.queues = {}
+        self.data_path = "data/music"
+        self.processed_tracks = []  # Список для оброблених треків
+        self.unavailable_log_path = "logs/unavailable_videos.json"
+        os.makedirs(self.data_path, exist_ok=True)
 
-        # Явно задаємо шлях до FFmpeg
-        os.environ["FFMPEG_PATH"] = r"E:\Discord Bot\Bot\bin\ffmpeg.exe"
-        ffmpeg_path = os.getenv("FFMPEG_PATH", "ffmpeg")
-
-        # Перевірка наявності FFmpeg
-        if not os.path.isfile(ffmpeg_path):
-            raise FileNotFoundError(f"FFmpeg not found at {ffmpeg_path}. Please ensure the file exists.")
-        logging.info(f"FFmpeg found at: {ffmpeg_path}")
+        self.ffmpeg_path = os.getenv("FFMPEG_PATH", "ffmpeg")
+        if not os.path.isfile(self.ffmpeg_path):
+            raise FileNotFoundError(f"FFmpeg not found at {self.ffmpeg_path}. Ensure it is installed.")
+        logging.info(f"FFmpeg found at: {self.ffmpeg_path}")
 
         self.ytdl = youtube_dl.YoutubeDL({
             "format": "bestaudio/best",
@@ -37,118 +34,212 @@ class Music(commands.Cog):
                 "preferredquality": "192",
             }],
             "quiet": True,
+            "default_search": "auto",
+            "extract_flat": False,          # Зменшення кількості обробки плейлистів
+            "no_color": True,               # Уникаємо кольорових кодів у помилках
+            "ignoreerrors": True,           # Пропуск помилкових треків
+            "extractor_retries": 5,         # Додає повторні спроби у разі помилок
+            "jsinterp_max_recursion": 50,   # Обмеження рекурсії
         })
 
-        self.ffmpeg_options = {"options": "-vn", "executable": ffmpeg_path}
 
+        self.spotify = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+            client_id=os.getenv("SPOTIPY_CLIENT_ID"),
+            client_secret=os.getenv("SPOTIPY_CLIENT_SECRET")
+        ))
+
+    def _log_processed_track(self, source, title, elapsed_time):
+        """Логування та збереження інформації про оброблений трек."""
+        track_info = {
+            "source": source,
+            "title": title,
+            "elapsed_time": elapsed_time
+        }
+        self.processed_tracks.append(track_info)
+        if len(self.processed_tracks) > 5:  # Обмеження на 5 елементів
+            self.processed_tracks.pop(0)
+        logging.info(f"[{source}] Processed track '{title}' in {elapsed_time:.2f} seconds.")
+
+    def _log_unavailable_videos(self, playlist_url, total, skipped, skipped_titles):
+        """Логування пропущених відео у файл."""
+        log_data = {
+            "playlist_url": playlist_url,
+            "total_videos": total,
+            "skipped_videos": skipped,
+            "skipped_titles": skipped_titles
+        }
+
+        # Завантажуємо існуючі дані
+        if os.path.exists(self.unavailable_log_path):
+            try:
+                with open(self.unavailable_log_path, "r", encoding="utf-8") as file:
+                    logs = json.load(file)
+            except json.JSONDecodeError:
+                logs = []
+        else:
+            logs = []
+
+        # Додаємо новий запис і зберігаємо
+        logs.append(log_data)
+        with open(self.unavailable_log_path, "w", encoding="utf-8") as file:
+            json.dump(logs, file, indent=4)
+        logging.info(f"Logged {skipped} unavailable videos from playlist: {playlist_url}")
+
+    def _queue_file(self, guild_id):
+        """Отримує шлях до файлу черги для сервера."""
+        return os.path.join(self.data_path, f"{guild_id}_queue.json")
+
+    def _load_queue(self, guild_id):
+        """Завантажити чергу з файлу."""
         try:
-            self.spotify = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
-                client_id=os.getenv("SPOTIPY_CLIENT_ID"),
-                client_secret=os.getenv("SPOTIPY_CLIENT_SECRET")
-            ))
-        except Exception as e:
-            logging.error(f"Failed to initialize Spotify credentials: {e}")
-            self.spotify = None
-
-    def get_queue_file(self, guild_id):
-        return os.path.join(self.base_path, f"{guild_id}_queue.json")
-
-    def load_queue(self, guild_id):
-        try:
-            with open(self.get_queue_file(guild_id), "r", encoding="utf-8") as f:
-                return deque(json.load(f))
+            with open(self._queue_file(guild_id), "r", encoding="utf-8") as file:
+                self.queues[guild_id] = json.load(file)
         except (FileNotFoundError, json.JSONDecodeError):
-            return deque()
+            self.queues[guild_id] = []
 
-    def save_queue(self, guild_id, queue):
+    def _save_queue(self, guild_id):
+        """Зберегти чергу в файл."""
+        os.makedirs(self.data_path, exist_ok=True)
         try:
-            with open(self.get_queue_file(guild_id), "w", encoding="utf-8") as f:
-                json.dump(list(queue), f, indent=4)
+            with open(self._queue_file(guild_id), "w", encoding="utf-8") as file:
+                json.dump(self.queues[guild_id], file, indent=4)
         except Exception as e:
             logging.error(f"Error saving queue for guild {guild_id}: {e}")
 
     @commands.command()
-    async def play(self, ctx, *, url):
-        """Adds a track to the queue or plays it."""
+    async def play(self, ctx, *, query):
+        """Add a track or play immediately."""
         guild_id = ctx.guild.id
-        if not ctx.author.voice or not ctx.author.voice.channel:
-            await ctx.send("❌ You must be in a voice channel to play music!")
-            return
 
+        # Ensure voice client
         if not ctx.voice_client:
             await ctx.author.voice.channel.connect()
 
-        queue = self.music_queue.setdefault(guild_id, self.load_queue(guild_id))
+        # Load queue
+        if guild_id not in self.queues:
+            self._load_queue(guild_id)
 
-        if "open.spotify.com" in url:
-            if self.spotify:
-                await self._handle_spotify_url(ctx, url, queue)
-            else:
-                await ctx.send("❌ Spotify support is not configured properly.")
+        # Handle query
+        if "spotify.com" in query:
+            await self._handle_spotify(ctx, query, guild_id)
         else:
-            await self._handle_youtube_url(ctx, url, queue)
+            await self._handle_youtube(ctx, query, guild_id)
 
-        self.save_queue(guild_id, queue)
+        # Save queue and play if idle
+        self._save_queue(guild_id)
         if not ctx.voice_client.is_playing():
             await self._play_next(ctx)
 
-    async def _handle_spotify_url(self, ctx, url, queue):
-        """Handles Spotify URLs."""
+    @commands.command()
+    async def play_playlist(self, ctx, *, url):
+        """Команда для відтворення плейлисту."""
+        guild_id = ctx.guild.id
+
+        # Ensure voice client
+        if not ctx.voice_client:
+            await ctx.author.voice.channel.connect()
+
+        # Handle URL
+        if "spotify.com" in url:
+            await self._handle_spotify(ctx, url, guild_id)
+        else:
+            await self._handle_youtube(ctx, url, guild_id)
+
+        # Play if idle
+        if not ctx.voice_client.is_playing():
+            await self._play_next(ctx)
+
+    async def _handle_spotify(self, ctx, query, guild_id):
+        """Handles Spotify URLs, including playlists and individual tracks."""
         try:
-            if "playlist" in url:
-                results = self.spotify.playlist_tracks(url)
-                for item in results["items"]:
-                    track = item["track"]
+            semaphore = asyncio.Semaphore(5)
+
+            async def process_track(track):
+                start_time = time.time()
+                async with semaphore:
                     title = f"{track['name']} - {track['artists'][0]['name']}"
                     search_result = self.ytdl.extract_info(f"ytsearch:{title}", download=False)["entries"][0]
-                    queue.append({"title": search_result["title"], "url": search_result["webpage_url"]})
+                    elapsed_time = time.time() - start_time
+                    self._log_processed_track("Spotify", title, elapsed_time)
+                    return {"title": search_result["title"], "url": search_result["webpage_url"]}
+
+            if "playlist" in query:
+                results = self.spotify.playlist_tracks(query)
+                tasks = [process_track(item["track"]) for item in results["items"]]
+                tracks = await asyncio.gather(*tasks)
+                self.queues[guild_id].extend(tracks)
             else:
-                result = self.spotify.track(url)
-                title = f"{result['name']} - {result['artists'][0]['name']}"
-                search_result = self.ytdl.extract_info(f"ytsearch:{title}", download=False)["entries"][0]
-                queue.append({"title": search_result["title"], "url": search_result["webpage_url"]})
+                track = self.spotify.track(query)
+                processed_track = await process_track(track)
+                self.queues[guild_id].append(processed_track)
+
             await ctx.send("🎵 Tracks from Spotify added to the queue!")
         except Exception as e:
-            await ctx.send(f"❌ Error processing Spotify URL: {e}")
+            await ctx.send(f"❌ Spotify error: {e}")
+        
+    async def _handle_youtube(self, ctx, query, guild_id):
+    """Handles YouTube queries or playlists with error handling."""
+    try:
+        semaphore = asyncio.Semaphore(10)
+        added_count = 0
+        skipped_count = 0
+        skipped_titles = []
 
-    async def _handle_youtube_url(self, ctx, url, queue):
-        """Handles YouTube URLs."""
-        try:
-            info = self.ytdl.extract_info(url, download=False)
-            if "entries" in info:
-                for entry in info["entries"]:
-                    queue.append({"title": entry["title"], "url": entry["url"]})
-            else:
-                queue.append({"title": info["title"], "url": info["url"]})
-            await ctx.send("🎵 Tracks added to the queue!")
-        except Exception as e:
-            await ctx.send(f"❌ Error processing YouTube URL: {e}")
+        async def process_entry(entry):
+            """Processes a single track entry with timeout."""
+            nonlocal added_count, skipped_count
+            async with semaphore:
+                try:
+                    if entry.get("is_live") or entry.get("availability") != "public":
+                        skipped_count += 1
+                        skipped_titles.append(entry.get("title", "Unknown"))
+                        return None
+                    return {"title": entry["title"], "url": entry["url"]}
+                except Exception as e:
+                    skipped_count += 1
+                    logging.warning(f"Skipping video: {entry.get('title', 'Unknown')} - {e}")
+                    return None
+
+        info = self.ytdl.extract_info(query, download=False)
+        if "entries" in info:
+            entries = info["entries"]
+            tasks = [process_entry(entry) for entry in entries]
+            tracks = await asyncio.gather(*tasks, return_exceptions=True)
+            available_tracks = [track for track in tracks if track]
+            self.queues[guild_id].extend(available_tracks)
+            added_count += len(available_tracks)
+
+        await ctx.send(f"🎵 Added {added_count} tracks. Skipped {skipped_count} unavailable tracks.")
+    except Exception as e:
+        await ctx.send(f"❌ Error processing YouTube playlist: {e}")
 
     async def _play_next(self, ctx):
         """Plays the next track in the queue."""
         guild_id = ctx.guild.id
-        queue = self.music_queue.setdefault(guild_id, self.load_queue(guild_id))
-        if queue:
-            track = queue.popleft()
-            self.save_queue(guild_id, queue)
-            try:
-                ctx.voice_client.play(
-                    discord.FFmpegPCMAudio(track["url"], **self.ffmpeg_options),
-                    after=lambda e: asyncio.run_coroutine_threadsafe(self._play_next(ctx), self.bot.loop)
-                )
-                await ctx.send(f"🎶 Now playing: **{track['title']}**")
-            except Exception as e:
-                await ctx.send(f"❌ Error playing track: {e}")
-                logging.error(f"Error playing track: {e}")
-        else:
-            await ctx.send("✅ The queue is empty.")
+        if not self.queues.get(guild_id):
+            await ctx.send("✅ Queue is empty!")
+            return
+
+        track = self.queues[guild_id].pop(0)
+        self._save_queue(guild_id)
+
+        try:
+            ctx.voice_client.play(
+                discord.FFmpegPCMAudio(track["url"], executable=self.ffmpeg_path),
+                after=lambda e: asyncio.run_coroutine_threadsafe(self._play_next(ctx), self.bot.loop)
+            )
+            await ctx.send(f"🎶 Now playing: **{track['title']}**")
+        except Exception as e:
+            await ctx.send(f"❌ Error playing track: {e}. Skipping to the next one...")
+            await self._play_next(ctx)
 
     @commands.command()
     async def stop(self, ctx):
         """Stops music and clears the queue."""
+        guild_id = ctx.guild.id
         if ctx.voice_client:
-            self.music_queue[ctx.guild.id] = deque()
-            self.save_queue(ctx.guild.id, deque())
+            self.queues[guild_id] = []  # Очищення черги
+            self._save_queue(guild_id)  # Збереження оновленої черги
             ctx.voice_client.stop()
             await ctx.send("⏹️ Playback stopped and queue cleared.")
         else:
@@ -184,9 +275,16 @@ class Music(commands.Cog):
     @commands.command()
     async def queue(self, ctx):
         """Displays the queue."""
-        queue = self.music_queue.get(ctx.guild.id, deque())
+        guild_id = ctx.guild.id
+        queue = self.queues.get(guild_id, [])
         if queue:
-            await ctx.send("📜 Track queue:\n" + "\n".join([f"{i+1}. {track['title']}" for i, track in enumerate(queue)]))
+            displayed_queue = queue[:10]  # Відображаємо максимум 10 треків
+            message = "📜 **Track Queue:**\n" + "\n".join(
+                [f"{i+1}. {track['title']}" for i, track in enumerate(displayed_queue)]
+            )
+            if len(queue) > 10:
+                message += f"\n...and {len(queue) - 10} more tracks."
+            await ctx.send(message)
         else:
             await ctx.send("❌ The queue is empty.")
 
@@ -197,5 +295,6 @@ async def setup(bot):
         logger.info("Music Cog successfully loaded.")
     except Exception as e:
         logger.error(f"Failed to load Music Cog: {e}")
+        raise  # Повторне підняття помилки для повідомлення про критичну проблему
 
 
