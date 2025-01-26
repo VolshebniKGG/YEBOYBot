@@ -11,17 +11,22 @@ import json
 import asyncio
 import logging
 import time
+import configparser
 
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.queues = {}
         self.data_path = "data/music"
+        self.cache_path = "cache/track_cache.json"
+        self.semaphore = asyncio.Semaphore(10)
         self.processed_tracks = []  # Список для оброблених треків
+        self.cache = self._load_cache()  # Завантажуємо кеш із файлу
         self.unavailable_log_path = "logs/unavailable_videos.json"
         os.makedirs(self.data_path, exist_ok=True)
+        os.makedirs("cache", exist_ok=True)
 
-        self.ffmpeg_path = os.getenv("FFMPEG_PATH", "ffmpeg")
+        self.ffmpeg_path = r"E:\Discord Bot\Bot\bin\ffmpeg.exe"  # Абсолютний шлях до ffmpeg
         if not os.path.isfile(self.ffmpeg_path):
             raise FileNotFoundError(f"FFmpeg not found at {self.ffmpeg_path}. Ensure it is installed.")
         logging.info(f"FFmpeg found at: {self.ffmpeg_path}")
@@ -43,9 +48,88 @@ class Music(commands.Cog):
         })
 
 
+        # Створення кешу, якщо він не існує
+        if not os.path.exists(self.cache_path):
+            with open(self.cache_path, "w", encoding="utf-8") as f:
+                json.dump({}, f)
+
+    def _load_cache(self):
+        """Завантаження кешу треків."""
+        try:
+            with open(self.cache_path, "r", encoding="utf-8") as file:
+                return json.load(file)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    def _save_cache(self):
+        """Збереження кешу треків."""
+        with open(self.cache_path, "w", encoding="utf-8") as file:
+            json.dump(self.cache, file, indent=4)
+
+    async def _get_from_cache(self, key):
+        """Перевіряє трек у кеші."""
+        cache = await self._load_cache()
+        return cache.get(key)
+
+    async def _add_to_cache(self, key, value):
+        """Додає трек до кешу."""
+        cache = await self._load_cache()
+        cache[key] = value
+        await self._save_cache(cache)
+
+    async def _process_spotify_track(self, track):
+        """Обробка Spotify треку із кешуванням."""
+        title = f"{track['name']} - {track['artists'][0]['name']}"
+        if title in self.cache:
+            logging.info(f"Track found in cache: {title}")
+            return self.cache[title]
+
+        try:
+            search_result = self.ytdl.extract_info(f"ytsearch:{title}", download=False)["entries"][0]
+            track_data = {"title": search_result["title"], "url": search_result["webpage_url"]}
+            self.cache[title] = track_data  # Додаємо до кешу
+            self._save_cache()
+            return track_data
+        except Exception as e:
+            logging.warning(f"Failed to process Spotify track: {title} - {e}")
+            return None
+
+
+    async def _process_youtube_entry(self, entry):
+        """Обробка YouTube треку із кешуванням."""
+        track_key = entry.get("url") or entry.get("id")
+        if track_key in self.cache:
+            logging.info(f"Track found in cache: {track_key}")
+            return self.cache[track_key]
+
+        try:
+            track_data = {
+                "title": entry.get("title", "Unknown"),
+                "url": entry.get("url")
+            }
+            if entry.get("is_live"):
+                track_data["title"] += " [Live Stream]"
+            self.cache[track_key] = track_data  # Додаємо до кешу
+            self._save_cache()
+            return track_data
+        except Exception as e:
+            logging.warning(f"Failed to process YouTube entry: {entry.get('title', 'Unknown')} - {e}")
+            return None
+
+
+        # Читання конфігурації для Spotify
+        config = configparser.ConfigParser()
+        config.read("config/options.ini")
+        client_id = config.get("Spotify", "Client_ID", fallback=None)
+        client_secret = config.get("Spotify", "Client_Secret", fallback=None)
+
+        if not client_id or not client_secret:
+            raise ValueError("Spotify Client_ID and Client_Secret must be provided in config/options.ini")
+
+        # Ініціалізація Spotify API
         self.spotify = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
-            client_id=os.getenv("SPOTIPY_CLIENT_ID"),
-            client_secret=os.getenv("SPOTIPY_CLIENT_SECRET")
+            client_id=client_id,
+            client_secret=client_secret
         ))
 
     def _log_processed_track(self, source, title, elapsed_time):
@@ -178,46 +262,65 @@ class Music(commands.Cog):
             await ctx.send(f"❌ Spotify error: {e}")
         
     async def _handle_youtube(self, ctx, query, guild_id):
-    """Handles YouTube queries or playlists with error handling."""
-    try:
-        semaphore = asyncio.Semaphore(10)
-        added_count = 0
-        skipped_count = 0
-        skipped_titles = []
+        """Handles YouTube queries or playlists with error handling."""
+        try:
+            semaphore = asyncio.Semaphore(10)
+            added_count = 0
+            skipped_count = 0
+            skipped_titles = []
 
-        async def process_entry(entry):
-            """Processes a single track entry with timeout."""
-            nonlocal added_count, skipped_count
-            async with semaphore:
-                try:
-                    if entry.get("is_live") or entry.get("availability") != "public":
+            async def process_entry(entry):
+                """Processes a single track entry with timeout."""
+                nonlocal skipped_count, skipped_titles, added_count
+                async with semaphore:
+                    try:
+                        # Пропускаємо недоступні відео
+                        if entry.get("availability") != "public":
+                            skipped_count += 1
+                            skipped_titles.append(entry.get("title", "Unknown"))
+                            return None
+                        # Додаємо підтримку прямих трансляцій
+                        if entry.get("is_live"):
+                            return {
+                                "title": f"{entry['title']} [Live Stream]",
+                                "url": entry["url"]
+                            }
+                        # Звичайні треки
+                        return {"title": entry["title"], "url": entry["url"]}
+                    except Exception as e:
                         skipped_count += 1
                         skipped_titles.append(entry.get("title", "Unknown"))
+                        logging.warning(f"Skipping video: {entry.get('title', 'Unknown')} - {e}")
                         return None
-                    return {"title": entry["title"], "url": entry["url"]}
-                except Exception as e:
-                    skipped_count += 1
-                    logging.warning(f"Skipping video: {entry.get('title', 'Unknown')} - {e}")
-                    return None
 
-        info = self.ytdl.extract_info(query, download=False)
-        if "entries" in info:
-            entries = info["entries"]
-            tasks = [process_entry(entry) for entry in entries]
-            tracks = await asyncio.gather(*tasks, return_exceptions=True)
-            available_tracks = [track for track in tracks if track]
-            self.queues[guild_id].extend(available_tracks)
-            added_count += len(available_tracks)
+            info = self.ytdl.extract_info(query, download=False)
+            if "entries" in info:
+                entries = info["entries"]
+                tasks = [process_entry(entry) for entry in entries]
+                tracks = await asyncio.gather(*tasks, return_exceptions=True)
+                available_tracks = [track for track in tracks if track]
+                self.queues[guild_id].extend(available_tracks)
+                added_count += len(available_tracks)
+            else:
+                # Обробка одного треку
+                track = await process_entry(info)
+                if track:
+                    self.queues[guild_id].append(track)
+                    added_count += 1
 
-        await ctx.send(f"🎵 Added {added_count} tracks. Skipped {skipped_count} unavailable tracks.")
-    except Exception as e:
-        await ctx.send(f"❌ Error processing YouTube playlist: {e}")
+            if added_count > 0:
+                await ctx.send(f"🎵 Added {added_count} tracks. Skipped {skipped_count} unavailable tracks.")
+            else:
+                await ctx.send(f"❌ No playable tracks found. Skipped {skipped_count} videos.")
+        except Exception as e:
+            await ctx.send(f"❌ Error processing YouTube playlist: {e}")
+
 
     async def _play_next(self, ctx):
         """Plays the next track in the queue."""
         guild_id = ctx.guild.id
         if not self.queues.get(guild_id):
-            await ctx.send("✅ Queue is empty!")
+            await ctx.send("✅ Queue is empty! Add more tracks to play.")
             return
 
         track = self.queues[guild_id].pop(0)

@@ -1,11 +1,31 @@
-
-
 {
     "servers": {
         "123456789": {
-            "current_song": {"url": "https://www.youtube.com/watch?v=example", "title": "Example Song"},
+            "current_song": {
+                "url": "https://www.youtube.com/watch?v=example",
+                "title": "Example Song"
+            },
             "queue": [
-                {"url": "https://www.youtube.com/watch?v=example2", "title": "Another Song"}
+                {
+                    "url": "https://www.youtube.com/watch?v=example2",
+                    "title": "Another Song"
+                },
+                {
+                    "url": "https://www.youtube.com/watch?v=example",
+                    "title": "Example Song"
+                },
+                {
+                    "url": "https://www.youtube.com/watch?v=example",
+                    "title": "Example Song"
+                },
+                {
+                    "url": "https://www.youtube.com/watch?v=example",
+                    "title": "Example Song"
+                },
+                {
+                    "url": "https://www.youtube.com/watch?v=example",
+                    "title": "Example Song"
+                }
             ]
         }
     }

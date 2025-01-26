@@ -2,31 +2,12 @@
 
 import discord
 from discord.ext import commands
-from song_queue_handler import EnhancedCache  # Використовуємо кеш
-from data_manager import DataManager
+from cache.song_queue_handler import EnhancedCache
 import configparser
 import logging
 import asyncio
 import os
-
-# Ініціалізація керування даними
-bot.data_manager = DataManager()
-
-@bot.event
-async def on_ready():
-    logger.info(f"Бот запущено як {bot.user}")
-
-    # Приклад роботи з даними серверів
-    server_id = "123456789"
-    bot.data_manager.save_data("servers", server_id, {"name": "Test Server", "id": server_id})
-
-    # Приклад роботи з чергою
-    bot.data_manager.save_data("queues", server_id, {
-        "current_song": {"url": "https://www.youtube.com/watch?v=example", "title": "Example Song"},
-        "queue": [{"url": "https://www.youtube.com/watch?v=example2", "title": "Another Song"}]
-    })
-    queue = bot.data_manager.load_data("queues", server_id)
-    logger.info(f"Черга пісень для сервера {server_id}: {queue}")
+import time
 
 # Налаштування логування
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -44,25 +25,35 @@ config.read(config_path)
 
 try:
     TOKEN = config.get("Bot", "Token")
-except (configparser.NoSectionError, configparser.NoOptionError) as e:
+    if not TOKEN:
+        raise ValueError("Токен не вказано у файлі конфігурації.")
+except (configparser.NoSectionError, configparser.NoOptionError, ValueError) as e:
     logger.error(f"Помилка у файлі конфігурації: {e}")
     exit(1)
 
 # Ініціалізація інтенцій та бота
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix=config.get("Bot", "PREFIX", fallback="!"), intents=intents)
 
 # Додаємо кеш до бота
 bot.song_queue = EnhancedCache()
 
+# Прив'язка токена до об'єкта `bot`
+bot.token = TOKEN
+
+# Очищення застарілих записів у кеші при запуску
+def clean_cache():
+    expiration_time = 30 * 24 * 60 * 60  # 30 днів у секундах
+    current_time = time.time()
+    bot.song_queue.cache = {
+        key: value for key, value in bot.song_queue.cache.items()
+        if current_time - value.get("timestamp", current_time) < expiration_time
+    }
+    bot.song_queue.save_cache()
+
 @bot.event
 async def on_ready():
     logger.info(f"Бот запущено як {bot.user}")
-
-    # Додавання тестових даних до черги
-    bot.song_queue.add_to_queue("123456789", "https://www.youtube.com/watch?v=example", "Example Song")
-    queue = bot.song_queue.get_queue("123456789")
-    logger.info(f"Черга пісень для сервера 123456789: {queue}")
 
 async def load_extensions():
     """Завантаження всіх розширень."""
@@ -82,10 +73,10 @@ async def load_extensions():
 
 # Головна функція запуску
 async def main():
+    clean_cache()  # Очищення кешу перед запуском
     async with bot:
         await load_extensions()
         await bot.start(TOKEN)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
