@@ -3,50 +3,45 @@
 import json
 import os
 import logging
+from discord.ext.commands import Cog
+from typing import Any, Dict
 
 logger = logging.getLogger("bot")
 
-class DataManager:
-    def __init__(self, base_path="data"):
-        self.base_path = base_path
-        self.paths = {
-            "servers": os.path.join(self.base_path, "servers"),
-            "users": os.path.join(self.base_path, "users"),
-            "queues": os.path.join(self.base_path, "queues"),
-        }
-        self._ensure_directories()
+class DataManager(Cog):
+    def __init__(self, bot, base_path: str = "data"):
+        self.bot = bot
+        self.base_path = os.path.join(base_path, "servers")
+        os.makedirs(self.base_path, exist_ok=True)
 
-    def _ensure_directories(self):
-        """Створити потрібні папки, якщо вони не існують."""
-        for path in self.paths.values():
-            os.makedirs(path, exist_ok=True)
+    def _get_file_path(self, server_id: int) -> str:
+        """Отримати шлях до файлу для заданого сервера."""
+        return os.path.join(self.base_path, f"{server_id}.json")
 
-    def _get_file_path(self, category, identifier):
-        """Отримати шлях до файлу для заданої категорії та ідентифікатора."""
-        if category not in self.paths:
-            raise ValueError(f"Невідома категорія: {category}")
-        return os.path.join(self.paths[category], f"{identifier}.json")
-
-    def load_data(self, category, identifier):
-        """Завантажити дані з файлу."""
-        file_path = self._get_file_path(category, identifier)
+    def load_server_data(self, server_id: int) -> Dict[str, Any]:
+        """Завантажити дані сервера з файлу."""
+        file_path = self._get_file_path(server_id)
         if os.path.exists(file_path):
             try:
                 with open(file_path, "r", encoding="utf-8") as file:
                     return json.load(file)
             except json.JSONDecodeError:
-                logger.error(f"Файл пошкоджено: {file_path}. Повертаю порожній об'єкт.")
+                logger.warning(f"Файл пошкоджено: {file_path}. Повертаю порожній об'єкт.")
         return {}
 
-    def save_data(self, category, identifier, data):
-        """Зберегти дані до файлу."""
-        file_path = self._get_file_path(category, identifier)
+    def save_server_data(self, server_id: int, data: Dict[str, Any]) -> None:
+        """Зберегти дані сервера у файл."""
+        file_path = self._get_file_path(server_id)
         try:
             with open(file_path, "w", encoding="utf-8") as file:
                 json.dump(data, file, indent=4)
-            logger.info(f"Дані збережено у файл: {file_path}")
+            logger.info(f"Дані збережено для сервера {server_id} у файл {file_path}.")
         except Exception as e:
             logger.error(f"Не вдалося записати файл {file_path}: {e}")
+
+async def setup(bot):
+    await bot.add_cog(DataManager(bot))
+    logger.info("DataManager успішно завантажено.")
 
 # Приклад використання
 if __name__ == "__main__":

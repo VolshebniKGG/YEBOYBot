@@ -1,24 +1,24 @@
 
 
 @echo off
-:: Перехід до директорії проекту
+:: ЏҐаҐе?¤ ¤® ¤ЁаҐЄв®а?х Їа®ҐЄвг
 cd /d "E:\Discord Bot\Bot"
 
-:: Перевірка наявності Python
+:: ЏҐаҐў?аЄ  ­ пў­®бв? Python
 python --version >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     pause
     exit /b
 )
 
-:: Перевірка встановлених залежностей
+:: ЏҐаҐў?аЄ  ўбв ­®ў«Ґ­Ёе § «Ґ¦­®бвҐ©
 pip freeze > requirements.txt
 fc requirements.txt requirements.txt >nul
 if %ERRORLEVEL% neq 0 (
     pip install -r requirements.txt
 )
 
-:: Запуск бота
+:: ‡ ЇгбЄ Ў®в 
 python run.py
 
 pause

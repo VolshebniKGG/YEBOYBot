@@ -6,6 +6,7 @@ from discord.ext import commands
 import yt_dlp as youtube_dl
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
+from yeboybot.data_manager import DataManager
 import os
 import json
 import asyncio
@@ -16,21 +17,27 @@ import configparser
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.queues = {}
+        self.queues = {}  # Черги серверів
         self.data_path = "data/music"
-        self.cache_path = "cache/track_cache.json"
-        self.semaphore = asyncio.Semaphore(10)
-        self.processed_tracks = []  # Список для оброблених треків
-        self.cache = self._load_cache()  # Завантажуємо кеш із файлу
-        self.unavailable_log_path = "logs/unavailable_videos.json"
+        self.queue_path = "data/queues"
+        self.cache_path = os.path.join(self.data_path, "cache.json")  # Доданий шлях для кешу
+        self.track_cache_path = os.path.join(self.data_path, "track_cache.json")
+        self.processed_tracks = []  # Логовані треки
+
+        # Забезпечення існування папок
         os.makedirs(self.data_path, exist_ok=True)
-        os.makedirs("cache", exist_ok=True)
+        os.makedirs(self.queue_path, exist_ok=True)
 
-        self.ffmpeg_path = r"E:\Discord Bot\Bot\bin\ffmpeg.exe"  # Абсолютний шлях до ffmpeg
+        # Завантаження кешу
+        self.cache = self._load_cache()
+
+        # Налаштування FFmpeg
+        self.ffmpeg_path = r"E:\Discord Bot\Bot\bin\ffmpeg.exe"
         if not os.path.isfile(self.ffmpeg_path):
-            raise FileNotFoundError(f"FFmpeg not found at {self.ffmpeg_path}. Ensure it is installed.")
-        logging.info(f"FFmpeg found at: {self.ffmpeg_path}")
+            raise FileNotFoundError(f"FFmpeg не знайдено за адресою: {self.ffmpeg_path}. Переконайтеся, що він встановлений.")
+        logging.info(f"FFmpeg знайдено: {self.ffmpeg_path}")
 
+        # Налаштування yt-dlp
         self.ytdl = youtube_dl.YoutubeDL({
             "format": "bestaudio/best",
             "postprocessors": [{
@@ -40,11 +47,12 @@ class Music(commands.Cog):
             }],
             "quiet": True,
             "default_search": "auto",
-            "extract_flat": False,          # Зменшення кількості обробки плейлистів
-            "no_color": True,               # Уникаємо кольорових кодів у помилках
-            "ignoreerrors": True,           # Пропуск помилкових треків
-            "extractor_retries": 5,         # Додає повторні спроби у разі помилок
-            "jsinterp_max_recursion": 50,   # Обмеження рекурсії
+            "noplaylist": False,
+            "extract_flat": False,
+            "ignoreerrors": True,
+            "nocheckcertificate": True,
+            "geo_bypass": True,
+            "extractor_retries": 3,
         })
 
 
@@ -56,14 +64,14 @@ class Music(commands.Cog):
     def _load_cache(self):
         """Завантаження кешу треків."""
         try:
-            with open(self.cache_path, "r", encoding="utf-8") as file:
+            with open(self.track_cache_path, "r", encoding="utf-8") as file:
                 return json.load(file)
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
     def _save_cache(self):
         """Збереження кешу треків."""
-        with open(self.cache_path, "w", encoding="utf-8") as file:
+        with open(self.track_cache_path, "w", encoding="utf-8") as file:
             json.dump(self.cache, file, indent=4)
 
     async def _get_from_cache(self, key):
@@ -170,25 +178,26 @@ class Music(commands.Cog):
         logging.info(f"Logged {skipped} unavailable videos from playlist: {playlist_url}")
 
     def _queue_file(self, guild_id):
-        """Отримує шлях до файлу черги для сервера."""
-        return os.path.join(self.data_path, f"{guild_id}_queue.json")
+        """Отримання шляху до файлу черги для серверу."""
+        return os.path.join(self.queue_path, f"{guild_id}_queue.json")
 
     def _load_queue(self, guild_id):
-        """Завантажити чергу з файлу."""
-        try:
-            with open(self._queue_file(guild_id), "r", encoding="utf-8") as file:
-                self.queues[guild_id] = json.load(file)
-        except (FileNotFoundError, json.JSONDecodeError):
-            self.queues[guild_id] = []
+        """Завантаження черги серверу."""
+        queue_file = self._queue_file(guild_id)
+        if os.path.exists(queue_file):
+            try:
+                with open(queue_file, "r", encoding="utf-8") as file:
+                    return json.load(file)
+            except json.JSONDecodeError:
+                logging.warning(f"Черга для сервера {guild_id} пошкоджена. Починаємо з нової черги.")
+        return []
 
-    def _save_queue(self, guild_id):
-        """Зберегти чергу в файл."""
-        os.makedirs(self.data_path, exist_ok=True)
-        try:
-            with open(self._queue_file(guild_id), "w", encoding="utf-8") as file:
-                json.dump(self.queues[guild_id], file, indent=4)
-        except Exception as e:
-            logging.error(f"Error saving queue for guild {guild_id}: {e}")
+    def _save_queue(self, guild_id, queue):
+        """Збереження черги серверу."""
+        queue_file = self._queue_file(guild_id)
+        os.makedirs(os.path.dirname(queue_file), exist_ok=True)
+        with open(queue_file, "w", encoding="utf-8") as file:
+            json.dump(queue, file, indent=4)
 
     @commands.command()
     async def play(self, ctx, *, query):
@@ -201,7 +210,7 @@ class Music(commands.Cog):
 
         # Load queue
         if guild_id not in self.queues:
-            self._load_queue(guild_id)
+            self.queues[guild_id] = self._load_queue(guild_id)
 
         # Handle query
         if "spotify.com" in query:
@@ -210,7 +219,7 @@ class Music(commands.Cog):
             await self._handle_youtube(ctx, query, guild_id)
 
         # Save queue and play if idle
-        self._save_queue(guild_id)
+        self._save_queue(guild_id, self.queues[guild_id])
         if not ctx.voice_client.is_playing():
             await self._play_next(ctx)
 
@@ -319,21 +328,46 @@ class Music(commands.Cog):
     async def _play_next(self, ctx):
         """Plays the next track in the queue."""
         guild_id = ctx.guild.id
-        if not self.queues.get(guild_id):
+        if not self.queues.get(guild_id):  # Якщо черга пуста
             await ctx.send("✅ Queue is empty! Add more tracks to play.")
             return
 
         track = self.queues[guild_id].pop(0)
-        self._save_queue(guild_id)
+        self._save_queue(guild_id, self.queues[guild_id])
 
         try:
-            ctx.voice_client.play(
-                discord.FFmpegPCMAudio(track["url"], executable=self.ffmpeg_path),
-                after=lambda e: asyncio.run_coroutine_threadsafe(self._play_next(ctx), self.bot.loop)
+            process = discord.FFmpegPCMAudio(
+                track["url"], executable=self.ffmpeg_path, options="-vn"
             )
+
+            def after_playing(error):
+                if error:
+                    logging.error(f"Error after playing: {error}")
+                asyncio.run_coroutine_threadsafe(self._play_next(ctx), self.bot.loop)
+
+            ctx.voice_client.play(process, after=after_playing)
             await ctx.send(f"🎶 Now playing: **{track['title']}**")
+
         except Exception as e:
+            logging.error(f"Error playing track: {track['title']} - {e}")
             await ctx.send(f"❌ Error playing track: {e}. Skipping to the next one...")
+            await self._play_next(ctx)
+
+
+    async def monitor_ffmpeg(ctx, duration):
+        """Моніторинг відтворення треку."""
+        await asyncio.sleep(duration)
+        if ctx.voice_client.is_playing():
+            return  # Трек все ще грає
+        await ctx.send("⚠️ The track stopped unexpectedly. Attempting to restart...")
+        await self._play_next(ctx)
+
+    async def _monitor_playing(self, ctx, title, duration):
+        """Моніторинг програвання треку."""
+        await asyncio.sleep(duration)
+        if ctx.voice_client and not ctx.voice_client.is_playing():
+            logging.warning(f"⚠️ Track '{title}' stopped unexpectedly. Attempting to restart...")
+            await ctx.send(f"⚠️ Track '{title}' stopped unexpectedly. Attempting to restart...")
             await self._play_next(ctx)
 
     @commands.command()

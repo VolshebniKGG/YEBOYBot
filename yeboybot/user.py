@@ -8,28 +8,36 @@ import os
 class User(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.cache_path = "cache/user_data.json"
-        os.makedirs("cache", exist_ok=True)
-        if not os.path.exists(self.cache_path):
-            with open(self.cache_path, "w", encoding="utf-8") as file:
-                json.dump({}, file, indent=4)
+        self.user_data_path = os.path.join("data", "user")
+        os.makedirs(self.user_data_path, exist_ok=True)
 
-    def _load_user_data(self):
-        """Завантажити дані користувачів з файлу."""
-        with open(self.cache_path, "r", encoding="utf-8") as file:
-            return json.load(file)
+    def _get_user_file_path(self, user_id: int) -> str:
+        """Отримати шлях до файлу користувача за його ID."""
+        return os.path.join(self.user_data_path, f"{user_id}.json")
 
-    def _save_user_data(self, data):
-        """Зберегти дані користувачів у файл."""
-        with open(self.cache_path, "w", encoding="utf-8") as file:
+    def _load_user_data(self, user_id: int) -> dict:
+        """Завантажити дані користувача з файлу."""
+        file_path = self._get_user_file_path(user_id)
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as file:
+                    return json.load(file)
+            except json.JSONDecodeError:
+                return {}
+        return {}
+
+    def _save_user_data(self, user_id: int, data: dict) -> None:
+        """Зберегти дані користувача до файлу."""
+        file_path = self._get_user_file_path(user_id)
+        with open(file_path, "w", encoding="utf-8") as file:
             json.dump(data, file, indent=4)
 
     @commands.command(name='info', help="Показує інформацію про користувача")
     async def info(self, ctx, member: discord.Member = None):
         """Показує докладну інформацію про користувача."""
         member = member or ctx.author
-        user_data = self._load_user_data()
-        warnings = user_data.get(str(member.id), {}).get("warnings", 0)
+        user_data = self._load_user_data(member.id)
+        warnings = user_data.get("warnings", 0)
         roles = [role.mention for role in member.roles if role != ctx.guild.default_role]
 
         embed = discord.Embed(title=f"Інформація про {member.display_name}", color=member.color)
@@ -49,28 +57,26 @@ class User(commands.Cog):
     @commands.has_permissions(manage_messages=True)
     async def add_warning(self, ctx, member: discord.Member, *, reason="Немає причини"):
         """Додає попередження користувачу."""
-        user_data = self._load_user_data()
-        user_info = user_data.setdefault(str(member.id), {"warnings": 0, "reasons": []})
-        user_info["warnings"] += 1
-        user_info["reasons"].append(reason)
-        self._save_user_data(user_data)
+        user_data = self._load_user_data(member.id)
+        user_data["warnings"] = user_data.get("warnings", 0) + 1
+        user_data.setdefault("reasons", []).append(reason)
+        self._save_user_data(member.id, user_data)
 
-        await ctx.send(f"⚠️ {member.mention} отримав попередження. Причина: {reason}.\nЗагальна кількість попереджень: {user_info['warnings']}")
+        await ctx.send(f"⚠️ {member.mention} отримав попередження. Причина: {reason}.\nЗагальна кількість попереджень: {user_data['warnings']}")
 
     @commands.command(name='clear_warnings', help="Очищає всі попередження користувача")
     @commands.has_permissions(manage_messages=True)
     async def clear_warnings(self, ctx, member: discord.Member):
         """Очищає всі попередження користувача."""
-        user_data = self._load_user_data()
-        if str(member.id) in user_data:
-            user_data[str(member.id)]["warnings"] = 0
-            user_data[str(member.id)]["reasons"] = []
-            self._save_user_data(user_data)
+        user_data = self._load_user_data(member.id)
+        if "warnings" in user_data:
+            user_data["warnings"] = 0
+            user_data["reasons"] = []
+            self._save_user_data(member.id, user_data)
             await ctx.send(f"✅ Усі попередження для {member.mention} очищено.")
         else:
             await ctx.send(f"❌ У {member.mention} немає жодного попередження.")
 
 async def setup(bot):
     await bot.add_cog(User(bot))
-
 
