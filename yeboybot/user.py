@@ -77,6 +77,15 @@ class User(commands.Cog):
         else:
             await ctx.send(f"❌ У {member.mention} немає жодного попередження.")
 
+    @commands.command(name='avatar', help="Показує аватар користувача")
+    async def avatar(self, ctx, member: discord.Member = None):
+        """Відправляє аватар вибраного користувача."""
+        member = member or ctx.author
+        embed = discord.Embed(title=f"Аватар {member.display_name}", color=member.color)
+        embed.set_image(url=member.display_avatar.url)
+        embed.set_footer(text=f"Запитано {ctx.author.display_name}", icon_url=ctx.author.display_avatar.url)
+        await ctx.send(embed=embed)
+
 async def setup(bot):
     await bot.add_cog(User(bot))
 
