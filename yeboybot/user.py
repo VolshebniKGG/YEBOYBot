@@ -37,8 +37,13 @@ class User(commands.Cog):
         """Показує докладну інформацію про користувача."""
         member = member or ctx.author
         user_data = self._load_user_data(member.id)
+
         warnings = user_data.get("warnings", 0)
         roles = [role.mention for role in member.roles if role != ctx.guild.default_role]
+
+        # Перевіряємо, чи є у користувача роль Muted
+        is_muted = discord.utils.get(member.roles, name="Muted")
+        mute_reason = user_data.get("mute_reason", "Немає даних")
 
         embed = discord.Embed(title=f"Інформація про {member.display_name}", color=member.color)
         embed.add_field(name="Ім'я", value=member.name, inline=True)
@@ -48,6 +53,11 @@ class User(commands.Cog):
         embed.add_field(name="Дата приєднання", value=member.joined_at.strftime("%Y-%m-%d %H:%M:%S"), inline=True)
         embed.add_field(name="Ролі", value=", ".join(roles) if roles else "Немає ролей", inline=False)
         embed.add_field(name="Попередження", value=f"{warnings} попередження(нь)", inline=True)
+        
+        # Якщо користувач зараз зам'ючений, додамо поле з причиною
+        if is_muted:
+            embed.add_field(name="Mute Reason", value=mute_reason, inline=False)
+
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.set_footer(text=f"Запитано {ctx.author.display_name}", icon_url=ctx.author.display_avatar.url)
 
