@@ -1,4 +1,2 @@
-2025-02-01 22:28:51,068 [INFO] Логування налаштовано.
-2025-02-01 22:28:51,132 [INFO] Music Cog successfully loaded.
-2025-02-01 22:28:51,133 [INFO] Loaded Help extension
-2025-02-01 22:28:54,386 [INFO] Бот запущено як YEBOYBot#9525
+2025-02-01 22:58:09,019 [INFO] Логування налаштовано.
+2025-02-01 22:58:09,084 [ERROR] Failed to load Music Cog: FFmpegExtractAudioPP.__init__() got an unexpected keyword argument 'postprocessor_args'

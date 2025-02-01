@@ -70,7 +70,24 @@ class Moderation(commands.Cog):
             user_data["mute_reason"] = reason if reason else "Не вказано причини"
             self._save_user_data(member.id, user_data)
 
-            await ctx.send(f"✅ {member.mention} був зам'ючений. Причина: {reason}")
+            # Створюємо Embed для повідомлення
+            embed = discord.Embed(
+                title="Користувач зам'ючений",
+                description=f"{member.mention} тепер не може писати повідомлення.",
+                color=discord.Color.red()
+            )
+            # Додаємо поле з причиною (якщо вона вказана)
+            embed.add_field(
+                name="Причина",
+                value=reason if reason else "Не вказано причини",
+                inline=False
+            )
+            embed.set_footer(
+                text=f"Виконав: {ctx.author}",
+                icon_url=ctx.author.display_avatar.url
+            )
+
+            await ctx.send(embed=embed)
             logger.info(f"{ctx.author} зам'ютив користувача {member} | Причина: {reason}")
 
         except Exception as e:
@@ -95,7 +112,18 @@ class Moderation(commands.Cog):
                     del user_data["mute_reason"]
                 self._save_user_data(member.id, user_data)
 
-                await ctx.send(f"✅ {member.mention} був розм'ючений.")
+                # Створюємо Embed для повідомлення про розм'ют
+                embed = discord.Embed(
+                    title="Користувач розм'ючений",
+                    description=f"{member.mention} тепер може знову писати повідомлення.",
+                    color=discord.Color.green()
+                )
+                embed.set_footer(
+                    text=f"Виконав: {ctx.author}",
+                    icon_url=ctx.author.display_avatar.url
+                )
+
+                await ctx.send(embed=embed)
                 logger.info(f"{ctx.author} розм'ютив користувача {member}")
             else:
                 await ctx.send(f"❌ {member.mention} не має ролі Muted.")
@@ -114,7 +142,9 @@ class Moderation(commands.Cog):
         if isinstance(error, commands.MissingPermissions):
             await ctx.send("❌ У вас немає прав для використання цієї команди.")
         elif isinstance(error, commands.MissingRequiredArgument):
-            await ctx.send(f"❌ Ви пропустили обов'язковий аргумент. Використайте: {ctx.prefix}{ctx.command} {ctx.command.signature}")
+            await ctx.send(
+                f"❌ Ви пропустили обов'язковий аргумент. Використайте: {ctx.prefix}{ctx.command} {ctx.command.signature}"
+            )
         elif isinstance(error, commands.BadArgument):
             await ctx.send("❌ Невірний аргумент. Перевірте введені дані.")
         else:
@@ -123,4 +153,5 @@ class Moderation(commands.Cog):
 async def setup(bot: commands.Bot):
     await bot.add_cog(Moderation(bot))
     logger.info('✅ Cog Moderation успішно завантажено')
+
     
