@@ -1,28 +1,32 @@
 
 
-import discord
-from discord.ext import commands
-import logging
 import os
 import json
+import logging
+import discord
+from discord.ext import commands
 
 # Налаштування логування
-logger = logging.getLogger('moderation_bot')
+logger = logging.getLogger("moderation_bot")
 logger.setLevel(logging.INFO)
 
-# Створимо хендлер для виводу в консоль
 console_handler = logging.StreamHandler()
 console_format = logging.Formatter(
-    '%(asctime)s %(levelname)s:%(name)s: %(message)s'
+    "%(asctime)s %(levelname)s:%(name)s: %(message)s"
 )
 console_handler.setFormatter(console_format)
 logger.addHandler(console_handler)
 
 class Moderation(commands.Cog):
+    """
+    Cog для команд модерації (mute/unmute), а також обробки помилок.
+    Працює з JSON-файлом, де зберігається причина мута користувача.
+    """
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         # Папка, де зберігатимуться JSON-файли користувачів
-        self.user_data_path = os.path.join("data", "user")
+        self.user_data_path: str = os.path.join("data", "user")
         os.makedirs(self.user_data_path, exist_ok=True)
 
     def _get_user_file_path(self, user_id: int) -> str:
@@ -30,53 +34,55 @@ class Moderation(commands.Cog):
         return os.path.join(self.user_data_path, f"{user_id}.json")
 
     def _load_user_data(self, user_id: int) -> dict:
-        """Завантажити дані користувача з файлу."""
+        """Завантажити дані користувача з файлу JSON."""
         file_path = self._get_user_file_path(user_id)
         if os.path.exists(file_path):
             try:
-                with open(file_path, "r", encoding="utf-8") as file:
-                    return json.load(file)
+                with open(file_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
             except json.JSONDecodeError:
                 return {}
         return {}
 
     def _save_user_data(self, user_id: int, data: dict) -> None:
-        """Зберегти дані користувача до файлу."""
+        """Зберегти дані користувача до файлу JSON."""
         file_path = self._get_user_file_path(user_id)
-        with open(file_path, "w", encoding="utf-8") as file:
-            json.dump(data, file, indent=4)
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
 
-    @commands.command(name='mute', help="Зам'ючує користувача")
+    @commands.command(name="mute", help="Зам'ючує користувача")
     @commands.has_permissions(manage_roles=True)
-    async def mute(self, ctx, member: discord.Member, *, reason=None):
-        """Команда для видачі ролі Muted користувачу."""
+    async def mute(self, ctx: commands.Context, member: discord.Member, *, reason: str = None):
+        """
+        Видає роль Muted користувачу, зберігає в JSON причину мута.
+        Якщо ролі Muted немає — створює її та забороняє відправку повідомлень і голосових.
+        """
         try:
-            guild = ctx.guild
+            guild: discord.Guild = ctx.guild
 
-            # Шукаємо роль Muted
+            # Шукаємо чи існує роль Muted
             mute_role = discord.utils.get(guild.roles, name="Muted")
 
-            # Якщо роли немає - створимо
+            # Якщо немає — створюємо
             if not mute_role:
                 mute_role = await guild.create_role(name="Muted")
                 for channel in guild.channels:
                     await channel.set_permissions(mute_role, send_messages=False, speak=False)
 
-            # Додаємо роль Muted
+            # Додаємо роль Muted користувачу
             await member.add_roles(mute_role, reason=reason)
 
-            # Зберігаємо причину муту у JSON-файл користувача
+            # Зберігаємо причину муту у JSON-файл
             user_data = self._load_user_data(member.id)
             user_data["mute_reason"] = reason if reason else "Не вказано причини"
             self._save_user_data(member.id, user_data)
 
-            # Створюємо Embed для повідомлення
+            # Формуємо Embed-повідомлення
             embed = discord.Embed(
                 title="Користувач зам'ючений",
                 description=f"{member.mention} тепер не може писати повідомлення.",
                 color=discord.Color.red()
             )
-            # Додаємо поле з причиною (якщо вона вказана)
             embed.add_field(
                 name="Причина",
                 value=reason if reason else "Не вказано причини",
@@ -88,31 +94,35 @@ class Moderation(commands.Cog):
             )
 
             await ctx.send(embed=embed)
-            logger.info(f"{ctx.author} зам'ютив користувача {member} | Причина: {reason}")
+            logger.info(f"{ctx.author} зам'ютив {member} | Причина: {reason}")
 
         except Exception as e:
-            logger.error(f"Помилка під час виконання команди mute: {e}")
-            await ctx.send(f"❌ Не вдалося зам'ютити {member.mention}. Перевірте права та спробуйте ще раз.")
+            logger.error(f"Помилка в команді mute: {e}")
+            await ctx.send(
+                f"❌ Не вдалося зам'ютити {member.mention}. "
+                "Перевірте права та спробуйте ще раз."
+            )
 
-    @commands.command(name='unmute', help="Розм'ючує користувача")
+    @commands.command(name="unmute", help="Розм'ючує користувача")
     @commands.has_permissions(manage_roles=True)
-    async def unmute(self, ctx, member: discord.Member):
-        """Команда для зняття ролі Muted з користувача."""
+    async def unmute(self, ctx: commands.Context, member: discord.Member):
+        """
+        Знімає роль Muted у користувача та очищає mute_reason у JSON-файлі.
+        """
         try:
-            guild = ctx.guild
+            guild: discord.Guild = ctx.guild
             mute_role = discord.utils.get(guild.roles, name="Muted")
 
+            # Якщо роль існує і справді додана користувачу
             if mute_role and mute_role in member.roles:
-                # Видаляємо роль
                 await member.remove_roles(mute_role)
 
-                # Очищаємо інформацію про мут (щоб не відображалося в info)
+                # Очищаємо mute_reason у JSON
                 user_data = self._load_user_data(member.id)
                 if "mute_reason" in user_data:
                     del user_data["mute_reason"]
                 self._save_user_data(member.id, user_data)
 
-                # Створюємо Embed для повідомлення про розм'ют
                 embed = discord.Embed(
                     title="Користувач розм'ючений",
                     description=f"{member.mention} тепер може знову писати повідомлення.",
@@ -124,18 +134,21 @@ class Moderation(commands.Cog):
                 )
 
                 await ctx.send(embed=embed)
-                logger.info(f"{ctx.author} розм'ютив користувача {member}")
+                logger.info(f"{ctx.author} розм'ютив {member}")
             else:
                 await ctx.send(f"❌ {member.mention} не має ролі Muted.")
+
         except Exception as e:
-            logger.error(f"Помилка під час виконання команди unmute: {e}")
-            await ctx.send(f"❌ Не вдалося розм'ютити {member.mention}. Перевірте права та спробуйте ще раз.")
+            logger.error(f"Помилка в команді unmute: {e}")
+            await ctx.send(
+                f"❌ Не вдалося розм'ютити {member.mention}. "
+                "Перевірте права та спробуйте ще раз."
+            )
 
     @commands.Cog.listener()
-    async def on_command_error(self, ctx, error):
+    async def on_command_error(self, ctx: commands.Context, error: commands.CommandError):
         """
-        Слухач подій, що автоматично викликається,
-        коли у межах цієї Cog виникає помилка виконання команди.
+        Слухач подій, що викликається при винятках у межах цього Cog.
         """
         logger.error(f"Помилка в команді {ctx.command}: {error}")
 
@@ -143,15 +156,22 @@ class Moderation(commands.Cog):
             await ctx.send("❌ У вас немає прав для використання цієї команди.")
         elif isinstance(error, commands.MissingRequiredArgument):
             await ctx.send(
-                f"❌ Ви пропустили обов'язковий аргумент. Використайте: {ctx.prefix}{ctx.command} {ctx.command.signature}"
+                f"❌ Ви пропустили обов'язковий аргумент. "
+                f"Використайте: {ctx.prefix}{ctx.command} {ctx.command.signature}"
             )
         elif isinstance(error, commands.BadArgument):
             await ctx.send("❌ Невірний аргумент. Перевірте введені дані.")
         else:
             await ctx.send("❌ Сталася помилка при виконанні команди. Перевірте лог для подробиць.")
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(Moderation(bot))
-    logger.info('✅ Cog Moderation успішно завантажено')
+# У py-cord метод add_cog(...) синхронний, тому setup-метод має бути теж синхронним
+def setup(bot: commands.Bot):
+    """
+    Функція підключення Cog до бота. Використовується
+    при виклику bot.load_extension('moderation').
+    """
+    bot.add_cog(Moderation(bot))
+    logger.info("✅ Cog Moderation успішно завантажено")
+
 
     

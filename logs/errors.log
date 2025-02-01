@@ -1,1 +1,0 @@
-2025-02-01 22:58:09,084 [ERROR] Failed to load Music Cog: FFmpegExtractAudioPP.__init__() got an unexpected keyword argument 'postprocessor_args'

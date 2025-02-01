@@ -6,66 +6,108 @@ import discord
 from discord.ext import commands
 import logging
 
-logger = logging.getLogger('bot')
+logger = logging.getLogger("bot")
 
 class Help(commands.Cog):
-    def __init__(self, bot):
+    """
+    Клас-ког для виведення довідкової інформації (списку команд).
+    """
+
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.command(name='helpme', help='Показує список команд')
-    async def helpme(self, ctx):
-        embed = discord.Embed(title="Список команд за категоріями", color=0x00ff00)
+    @commands.command(name="helpme", help="Показує список команд")
+    async def helpme(self, ctx: commands.Context):
+        """
+        Формує Embed зі списком команд і категорій,
+        надає короткі описи та показує, де знайти докладніше.
+        """
+        embed = discord.Embed(
+            title="Список команд за категоріями",
+            color=discord.Color.green()
+        )
 
         # Категорія Admin
-        embed.add_field(name="**Admin**", value="""
-        `ban` - Забороняє доступ користувачу на сервер
-        `kick` - Виключає користувача з сервера
-        `unban` - Розблоковує доступ користувачу
-        """, inline=False)
+        embed.add_field(
+            name="**Admin**",
+            value=(
+                "`ban` - Забороняє доступ користувачу на сервер\n"
+                "`kick` - Виключає користувача з сервера\n"
+                "`unban` - Розблоковує доступ користувачу\n"
+            ),
+            inline=False
+        )
 
         # Категорія Help
-        embed.add_field(name="**Help**", value="""
-        `helpme` - Показує список команд
-        """, inline=False)
+        embed.add_field(
+            name="**Help**",
+            value="`helpme` - Показує список команд",
+            inline=False
+        )
 
         # Категорія Moderation
-        embed.add_field(name="**Moderation**", value="""
-        `mute` - Зам'ючує користувача
-        `unmute` - Розм'ючує користувача
-        """, inline=False)
+        embed.add_field(
+            name="**Moderation**",
+            value=(
+                "`mute` - Зам'ючує користувача\n"
+                "`unmute` - Розм'ючує користувача\n"
+            ),
+            inline=False
+        )
 
         # Категорія Music
-        embed.add_field(name="**Music**", value="""
-        `pause` - Pauses playback
-        `play` - Add a track or play immediately
-        `play_playlist` - Команда для відтворення плейлисту
-        `queue` - Displays the queue
-        `resume` - Resumes playback
-        `skip` - Skips the current track
-        `stop` - Stops music and clears the queue
-        """, inline=False)
+        embed.add_field(
+            name="**Music**",
+            value=(
+                "`pause` - Pauses playback\n"
+                "`play` - Add a track or play immediately\n"
+                "`play_playlist` - Команда для відтворення плейлисту\n"
+                "`queue` - Displays the queue\n"
+                "`resume` - Resumes playback\n"
+                "`skip` - Skips the current track\n"
+                "`stop` - Stops music and clears the queue\n"
+            ),
+            inline=False
+        )
 
         # Категорія User
-        embed.add_field(name="**User**", value="""
-        `add_warning` - Додає попередження користувачу
-        `clear_warnings` - Очищає всі попередження користувача
-        `info` - Показує інформацію про користувача
-        """, inline=False)
+        embed.add_field(
+            name="**User**",
+            value=(
+                "`add_warning` - Додає попередження користувачу\n"
+                "`clear_warnings` - Очищає всі попередження користувача\n"
+                "`info` - Показує інформацію про користувача\n"
+                "`avatar` - Показує аватар користувача\n"
+            ),
+            inline=False
+        )
 
         # No Category
-        embed.add_field(name="**No Category**", value="""
-        `help` - Shows this message
-        """, inline=False)
+        embed.add_field(
+            name="**No Category**",
+            value="`help` - Shows this message",
+            inline=False
+        )
 
         # Додаткова інформація
-        embed.set_footer(text="Type !help command for more info on a command.\nYou can also type !help category for more info on a category.")
+        embed.set_footer(
+            text=(
+                "Type !help <command> for more info on a command.\n"
+                "You can also type !help <category> for more info on a category."
+            )
+        )
 
         await ctx.send(embed=embed)
-        logger.info(f'Help command used by {ctx.author}')
+        logger.info(f"Help command used by {ctx.author} ({ctx.author.id})")
 
-async def setup(bot):
-    await bot.add_cog(Help(bot))
-    logger.info('Loaded Help extension')
+def setup(bot: commands.Bot):
+    """
+    Функція підключення ког-а до бота (py-cord).
+    Використовується при виклику: bot.load_extension('help')
+    """
+    bot.add_cog(Help(bot))
+    logger.info("Loaded Help extension")
+
     
     
     

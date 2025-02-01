@@ -1,12 +1,15 @@
 
 
-import discord
-from discord.ext import commands
-import configparser
+import os
 import logging
 import asyncio
-import os
+import configparser
+
+import discord
+from discord.ext import commands
+
 from yeboybot.logging_setup import setup_logging
+
 from yeboybot.admin import setup as setup_admin
 from yeboybot.moderation import setup as setup_moderation
 from yeboybot.user import setup as setup_user
@@ -19,7 +22,9 @@ logger = logging.getLogger("bot")
 
 # Читання конфігурації
 config = configparser.ConfigParser()
-config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config", "options.ini"))
+config_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "config", "options.ini")
+)
 
 if not os.path.exists(config_path):
     logger.error(f"Файл конфігурації {config_path} не знайдено.")
@@ -37,26 +42,31 @@ except (configparser.NoSectionError, configparser.NoOptionError, ValueError) as 
 
 # Ініціалізація інтенцій та бота
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix=config.get("Bot", "PREFIX", fallback="!"), intents=intents)
+bot = commands.Bot(
+    command_prefix=config.get("Bot", "PREFIX", fallback="!"),
+    intents=intents
+)
 
 @bot.event
 async def on_ready():
-    logger.info(f"Бот запущено як {bot.user}")
+    logger.info(f"Бот запущено як {bot.user} ({bot.user.id})")
 
-async def load_extensions(bot):
-    """Ручне завантаження всіх розширень."""
-    await setup_admin(bot)
-    await setup_moderation(bot)
-    await setup_user(bot)
-    await setup_music(bot)
-    await setup_help(bot)
+def load_extensions(bot_instance: commands.Bot):
+    """Ручне завантаження всіх когів (extension setup)."""
+    setup_admin(bot_instance)
+    setup_moderation(bot_instance)
+    setup_user(bot_instance)
+    setup_music(bot_instance)
+    setup_help(bot_instance)
+    logger.info("Усі розширення (Cog-и) завантажено успішно.")
 
-# Головна функція запуску
-async def main():
-    async with bot:
-        await load_extensions(bot)
-        await bot.start(TOKEN)
+def main():
+    """Головна функція запуску бота."""
+    load_extensions(bot)
+    # Запускаємо бота (блокуючий виклик)
+    bot.run(TOKEN)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
+
 
