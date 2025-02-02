@@ -15,6 +15,7 @@ from yeboybot.moderation import setup as setup_moderation
 from yeboybot.user import setup as setup_user
 from yeboybot.music import setup as setup_music
 from yeboybot.help import setup as setup_help
+from yeboybot.rank import setup as setup_rank
 
 # Налаштування логування
 setup_logging()
@@ -58,6 +59,7 @@ def load_extensions(bot_instance: commands.Bot):
     setup_user(bot_instance)
     setup_music(bot_instance)
     setup_help(bot_instance)
+    setup_rank(bot_instance)
     logger.info("Усі розширення (Cog-и) завантажено успішно.")
 
 def main():
