@@ -274,6 +274,40 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, f"❌ Помилка при обробці запиту: {e}")
 
     # -----------------------------------------------------
+    #  Команда jump: запуск треку з черги за заданим індексом
+    # -----------------------------------------------------
+    @commands.command(help="Запускає трек з черги за заданим індексом (пропускає попередні).")
+    async def jump(self, ctx: commands.Context, index: int):
+        """
+        Команда jump видаляє з черги всі треки перед вказаним індексом
+        та зупиняє поточний трек (якщо грає), що викликає відтворення наступного.
+        """
+        guild_id = ctx.guild.id
+        queue_ = self.ensure_queue(guild_id)
+
+        if not queue_:
+            await self._send_embed_footer(ctx, "❌ Черга порожня.")
+            return
+
+        if index < 1 or index > len(queue_):
+            await self._send_embed_footer(ctx, f"❌ Невірний індекс треку. Введіть число від 1 до {len(queue_)}.")
+            return
+
+        # Видаляємо з черги (пропускаємо) попередні треки
+        skipped = index - 1
+        for _ in range(skipped):
+            queue_.pop(0)
+        self._save_queue(guild_id, queue_)
+
+        # Зупиняємо поточний трек, щоб викликати _play_next (якщо він грає)
+        if ctx.voice_client and ctx.voice_client.is_playing():
+            ctx.voice_client.stop()
+        else:
+            await self._play_next(ctx)
+
+        await self._send_embed_footer(ctx, f"⏭️ Перехід до треку: {queue_[0]['title']} (пропущено {skipped} трек(ів))")
+
+    # -----------------------------------------------------
     #  Обробка Spotify
     # -----------------------------------------------------
 
@@ -622,16 +656,4 @@ def setup(bot: commands.Bot):
     except Exception as e:
         logger.error(f"Failed to load Music Cog: {e}", exc_info=True)
         raise
-
-
-
-
-
-
-
-
-
-
-
-
 

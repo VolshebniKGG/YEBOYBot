@@ -59,14 +59,25 @@ class Help(commands.Cog):
         embed.add_field(
             name="**Music**",
             value=(
-                "`pause` - Pauses playback\n"
-                "`play` - Add a track or play immediately\n"
-                "`play_playlist` - Команда для відтворення плейлисту\n"
-                "`queue` - Displays the queue\n"
-                "`resume` - Resumes playback\n"
-                "`skip` - Skips the current track\n"
-                "`stop` - Stops music and clears the queue\n"
+                "`clearqueue` - Очистити всю чергу, не зупиняючи поточний трек\n"
+                "`nowplaying` - Показати зараз відтворюваний трек\n"
+                "`pause` - Призупинити відтворення\n"
+                "`play` - Додати трек або пошуковий запит у чергу та відтворити (YouTube/Spotify)\n"
+                "`queue` - Показати перелік треків у черзі\n"
+                "`remove` - Видалити трек з черги за індексом\n"
+                "`resume` - Продовжити відтворення\n"
+                "`shuffle` - Перемішати чергу\n"
+                "`skip` - Пропустити поточний трек\n"
+                "`stop` - Зупинити музику і очистити чергу\n"
+                "`volume` - Встановити гучність відтворення (0-100%)\n"
             ),
+            inline=False
+        )
+
+        # Категорія RankCog
+        embed.add_field(
+            name="**RankCog**",
+            value="`rank` - Показує ранг користувача",
             inline=False
         )
 
@@ -75,9 +86,9 @@ class Help(commands.Cog):
             name="**User**",
             value=(
                 "`add_warning` - Додає попередження користувачу\n"
+                "`avatar` - Показує аватар користувача\n"
                 "`clear_warnings` - Очищає всі попередження користувача\n"
                 "`info` - Показує інформацію про користувача\n"
-                "`avatar` - Показує аватар користувача\n"
             ),
             inline=False
         )
@@ -107,6 +118,7 @@ def setup(bot: commands.Bot):
     """
     bot.add_cog(Help(bot))
     logger.info("Loaded Help extension")
+
 
     
     

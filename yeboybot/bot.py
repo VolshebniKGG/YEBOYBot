@@ -10,7 +10,6 @@ from discord.ext import commands
 
 from yeboybot.logging_setup import setup_logging
 
-from yeboybot.admin import setup as setup_admin
 from yeboybot.moderation import setup as setup_moderation
 from yeboybot.user import setup as setup_user
 from yeboybot.music import setup as setup_music
@@ -54,7 +53,6 @@ async def on_ready():
 
 def load_extensions(bot_instance: commands.Bot):
     """Ручне завантаження всіх когів (extension setup)."""
-    setup_admin(bot_instance)
     setup_moderation(bot_instance)
     setup_user(bot_instance)
     setup_music(bot_instance)
