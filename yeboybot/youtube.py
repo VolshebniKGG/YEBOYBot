@@ -5,7 +5,14 @@ from discord.ext import commands
 import logging
 import yt_dlp as youtube_dl
 
+# Налаштування логування: повідомлення будуть виводитися в консоль.
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s:%(levelname)s:%(name)s: %(message)s',
+    handlers=[logging.StreamHandler()]
+)
 logger = logging.getLogger('bot')
+
 
 class YouTubeAPI(commands.Cog):
     """
@@ -70,13 +77,12 @@ class YouTubeAPI(commands.Cog):
                 logger.error(f"Error fetching video info: {e}")
                 return None
 
-# Для py-cord метод add_cog(...) — синхронний, тож не використовуємо await.
+
 def setup(bot: commands.Bot):
     """
-    Підключення Cog до бота. 
+    Підключення Cog до бота.
     """
     bot.add_cog(YouTubeAPI(bot))
     logger.info("YouTubeAPI Cog successfully loaded.")
-
 
 

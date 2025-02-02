@@ -19,6 +19,7 @@ console_handler.setFormatter(console_format)
 logger.addHandler(console_handler)
 logger.propagate = False
 
+
 class Moderation(commands.Cog):
     """
     Cog для адміністративних та модераційних команд:
@@ -55,7 +56,8 @@ class Moderation(commands.Cog):
         Перетворює рядок типу "1m", "1h", "1d", "1w", "1mo"/"1міс", "1y" або "1 год"
         на кількість секунд. Повертає ціле число або None, якщо формат невірний.
         """
-        pattern = r"(\d+)\s*(m|h|d|w|mo|міс|y|год)"
+        duration_str = duration_str.strip()
+        pattern = r"^(\d+)\s*(m|h|d|w|mo|міс|y|год)$"
         match = re.match(pattern, duration_str, re.IGNORECASE)
         if not match:
             return None
@@ -329,7 +331,6 @@ class Moderation(commands.Cog):
             if time_arg:
                 seconds = self.parse_duration(time_arg)
                 if seconds is None:
-                    # Якщо не вдалося розпізнати час – вважати його частиною причини
                     final_reason = f"{time_arg} {reason}" if reason else time_arg
                     seconds = None
                 else:
@@ -369,14 +370,12 @@ class Moderation(commands.Cog):
             limit = 100
             check = None
             if not args:
-                # Якщо немає аргументів, очищаємо за замовчуванням
                 pass
             elif args[0].lower() == "bots":
                 if len(args) > 1 and args[1].isdigit():
                     limit = int(args[1])
                 check = lambda m: m.author.bot
             else:
-                # Спроба перетворити перший аргумент у користувача
                 member = None
                 try:
                     member = await commands.MemberConverter().convert(ctx, args[0])
@@ -388,7 +387,6 @@ class Moderation(commands.Cog):
                     check = lambda m: m.author.id == member.id
                 elif args[0].isdigit():
                     limit = int(args[0])
-            # Якщо check залишається None, встановлюємо його як функцію, яка завжди повертає True
             if check is None:
                 check = lambda m: True
 
@@ -405,7 +403,6 @@ class Moderation(commands.Cog):
     async def move(self, ctx: commands.Context, target: str, *, destination: str = None):
         try:
             if target.lower() == "all":
-                # Переміщення всіх учасників з каналу командивника
                 if ctx.author.voice and destination:
                     dest_channel = discord.utils.find(lambda c: c.name.lower() == destination.lower(), ctx.guild.voice_channels)
                     if not dest_channel:
@@ -419,7 +416,6 @@ class Moderation(commands.Cog):
                 else:
                     await ctx.send("❌ Для команди 'all' необхідно, щоб ви були у голосовому каналі та вказали цільовий канал.")
             else:
-                # Переміщення окремого користувача
                 member = await commands.MemberConverter().convert(ctx, target)
                 if destination:
                     dest_channel = discord.utils.find(lambda c: c.name.lower() == destination.lower(), ctx.guild.voice_channels)
@@ -444,7 +440,6 @@ class Moderation(commands.Cog):
     @commands.has_permissions(manage_roles=True)
     async def роль(self, ctx: commands.Context, target: str, *, roles_str: str):
         try:
-            # Визначаємо цільову групу: окремий користувач, усі, боти або люди
             targets = []
             if target.lower() in ["усі", "боти", "люди"]:
                 if target.lower() == "боти":
@@ -456,11 +451,9 @@ class Moderation(commands.Cog):
             else:
                 member = await commands.MemberConverter().convert(ctx, target)
                 targets = [member]
-            # Розділяємо ролі за комами або пробілами
             roles_names = [r.strip() for r in re.split(r",|\s+", roles_str) if r.strip()]
             changes = []
             for role_name in roles_names:
-                # Перевіряємо перший символ: + (додати), - (зняти) або ! (перемкнути)
                 action = "add"
                 if role_name[0] in "+-!":
                     if role_name[0] == "-":
@@ -501,7 +494,6 @@ class Moderation(commands.Cog):
         try:
             pts = self.load_points()
             if not args:
-                # Показати список всіх користувачів з балами
                 if not pts:
                     await ctx.send("ℹ️ Балів ще не встановлено.")
                     return
@@ -518,17 +510,14 @@ class Moderation(commands.Cog):
                     self.save_points(pts)
                     await ctx.send("✅ Всі бали скинуто.")
                 else:
-                    # Спроба обробити команду для конкретного користувача або ролі
                     try:
                         member = await commands.MemberConverter().convert(ctx, args[0])
                         uid = str(member.id)
                         if len(args) > 1:
-                            # Наприклад, !points @User +1 / -1 / 0 / 1 (встановити)
                             try:
                                 delta = int(args[1])
                                 pts[uid] = delta
                             except ValueError:
-                                # Якщо починається з + або -
                                 if args[1][0] in "+-":
                                     change = int(args[1])
                                     pts[uid] = pts.get(uid, 0) + change
@@ -539,7 +528,6 @@ class Moderation(commands.Cog):
                         else:
                             await ctx.send(f"ℹ️ Бал {member.display_name}: {pts.get(uid,0)}")
                     except Exception:
-                        # Можливо, це назва ролі – фільтрація балів
                         role = discord.utils.get(ctx.guild.roles, name=args[0])
                         if role:
                             msg = f"Бал для учасників з роллю {role.name}:\n"
@@ -582,12 +570,11 @@ class Moderation(commands.Cog):
     async def removewarn(self, ctx: commands.Context, target: str):
         try:
             warns = self.load_warnings()
-            if target.lower() == "all" or target.lower() == "все":
+            if target.lower() in ["all", "все"]:
                 warns = []
                 self.save_warnings(warns)
                 await ctx.send("✅ Всі попередження видалено.")
             else:
-                # Спробуємо сприйняти як warnID
                 try:
                     warn_id = int(target)
                     new_warns = [w for w in warns if w["id"] != warn_id]
@@ -597,7 +584,6 @@ class Moderation(commands.Cog):
                         self.save_warnings(new_warns)
                         await ctx.send(f"✅ Попередження {warn_id} видалено.")
                 except ValueError:
-                    # Можливо, це користувач – видалити всі попередження для нього
                     member = await commands.MemberConverter().convert(ctx, target)
                     new_warns = [w for w in warns if w["user_id"] != member.id]
                     self.save_warnings(new_warns)
@@ -698,7 +684,7 @@ class Moderation(commands.Cog):
             await ctx.send("❌ Не вдалося встановити повільний режим.")
             logger.error(f"slowmode error: {e}")
 
-    # 23. reset — скидання даних (реалізовано приклад для скидання балів)
+    # 23. reset — скидання даних (наприклад, скидання балів)
     @commands.command(name="reset", help="Скинути дані. Використання: !reset [категорія] [усі/користувач]")
     @commands.has_permissions(administrator=True)
     async def reset(self, ctx: commands.Context, category: str, target: str = "усі"):
@@ -736,6 +722,7 @@ class Moderation(commands.Cog):
             await ctx.send("❌ Невірний аргумент. Перевірте введені дані.")
         else:
             await ctx.send("❌ Сталася помилка при виконанні команди. Перевірте лог для подробиць.")
+
 
 def setup(bot: commands.Bot):
     bot.add_cog(Moderation(bot))

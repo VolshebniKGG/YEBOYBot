@@ -16,6 +16,12 @@ import yt_dlp as youtube_dl
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 
+# Налаштування логування: повідомлення виводитимуться у консоль.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()]
+)
 logger = logging.getLogger("bot")
 
 # Скільки треків додавати за один раз
@@ -84,12 +90,12 @@ class Music(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-        # Усі черги зберігаються у пам'яті: {guild_id: [ {title, url}, ... ]}
+        # Усі черги зберігаються у пам'яті: {guild_id: [ {title, url}, ... ]} 
         self.queues = {}
         # Дані про поточний трек, що грає: {guild_id: {title, duration}}
         self.current_tracks = {}
 
-        # Шлях, де зберігаються кеш і черги
+        # Шляхи до даних
         self.data_path = "data/music"
         self.queue_path = "data/queues"
         self.cache_path = os.path.join(self.data_path, "cache.json")
@@ -157,9 +163,8 @@ class Music(commands.Cog):
         )
 
     # -----------------------------------------------------
-    #  Допоміжні методи для роботи з кешем і чергою
+    # Допоміжні методи для роботи з кешем і чергою
     # -----------------------------------------------------
-
     def _load_cache(self) -> dict:
         """Завантаження JSON‑кешу треків із track_cache_path."""
         try:
@@ -216,9 +221,8 @@ class Music(commands.Cog):
         return self.queues[guild_id]
 
     # -----------------------------------------------------
-    #   Допоміжний метод для Embed-відповідей
+    # Допоміжний метод для Embed-відповідей
     # -----------------------------------------------------
-
     async def _send_embed_footer(self, ctx: commands.Context, text: str):
         """Відправити повідомлення, де текст міститься у footer Embed."""
         embed = discord.Embed()
@@ -226,9 +230,8 @@ class Music(commands.Cog):
         await ctx.send(embed=embed)
 
     # -----------------------------------------------------
-    #  Перевірка/підключення до голосового каналу
+    # Перевірка/підключення до голосового каналу
     # -----------------------------------------------------
-
     async def ensure_voice(self, ctx: commands.Context) -> bool:
         """
         Перевірка підключення користувача до голосового каналу.
@@ -244,9 +247,8 @@ class Music(commands.Cog):
         return True
 
     # -----------------------------------------------------
-    #              Команда  !play
+    # Команда  !play
     # -----------------------------------------------------
-
     @commands.command(help="Додати трек або пошуковий запит у чергу та відтворити (YouTube / Spotify).")
     async def play(self, ctx: commands.Context, *, query: str):
         """Одна команда для будь-яких запитів і плейлистів."""
@@ -274,7 +276,7 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, f"❌ Помилка при обробці запиту: {e}")
 
     # -----------------------------------------------------
-    #  Команда jump: запуск треку з черги за заданим індексом
+    # Команда jump: запуск треку з черги за заданим індексом
     # -----------------------------------------------------
     @commands.command(help="Запускає трек з черги за заданим індексом (пропускає попередні).")
     async def jump(self, ctx: commands.Context, index: int):
@@ -293,8 +295,8 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, f"❌ Невірний індекс треку. Введіть число від 1 до {len(queue_)}.")
             return
 
-        # Видаляємо з черги (пропускаємо) попередні треки
         skipped = index - 1
+        # Видаляємо всі треки перед заданим індексом
         for _ in range(skipped):
             queue_.pop(0)
         self._save_queue(guild_id, queue_)
@@ -308,9 +310,8 @@ class Music(commands.Cog):
         await self._send_embed_footer(ctx, f"⏭️ Перехід до треку: {queue_[0]['title']} (пропущено {skipped} трек(ів))")
 
     # -----------------------------------------------------
-    #  Обробка Spotify
+    # Обробка Spotify
     # -----------------------------------------------------
-
     async def _handle_spotify(self, ctx: commands.Context, query: str, guild_id: int):
         logger.debug(f"_handle_spotify called with query: {query}")
         queue_ = self.ensure_queue(guild_id)
@@ -387,9 +388,8 @@ class Music(commands.Cog):
             return None
 
     # -----------------------------------------------------
-    #  Обробка YouTube
+    # Обробка YouTube
     # -----------------------------------------------------
-
     async def _handle_youtube(self, ctx: commands.Context, query: str, guild_id: int):
         logger.debug(f"_handle_youtube called with query: {query}")
         queue_ = self.ensure_queue(guild_id)
@@ -450,9 +450,8 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, f"❌ YouTube error: {e}")
 
     # -----------------------------------------------------
-    #  Відтворення наступного треку
+    # Відтворення наступного треку
     # -----------------------------------------------------
-
     async def _play_next(self, ctx: commands.Context):
         guild_id = ctx.guild.id
         queue_ = self.ensure_queue(guild_id)
@@ -522,13 +521,11 @@ class Music(commands.Cog):
             await self._play_next(ctx)
 
     # -----------------------------------------------------
-    #             Інші команди (stop, pause тощо)
+    # Інші команди (stop, pause, resume, skip, queue, volume, nowplaying, remove, shuffle, clearqueue)
     # -----------------------------------------------------
-
     @commands.command(help="Зупинити музику і очистити чергу.")
     async def stop(self, ctx: commands.Context):
         guild_id = ctx.guild.id
-        # Завантажимо чергу, якщо її ще не було
         queue_ = self.ensure_queue(guild_id)
 
         if ctx.voice_client:
@@ -572,7 +569,6 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, "❌ Черга порожня.")
             return
 
-        # Використовуємо інтерактивну пагінацію для відображення черги
         view = QueueView(ctx, queue_, items_per_page=10)
         embed = view.get_embed()
         await ctx.send(embed=embed, view=view)
@@ -642,9 +638,8 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, "🗑️ Вся черга успішно очищена!")
 
 # -----------------------------------------------------
-#          Підключення до бота (setup)
+# Підключення до бота (setup)
 # -----------------------------------------------------
-
 def setup(bot: commands.Bot):
     """
     Підключення Music Cog до бота (py-cord).
@@ -656,4 +651,5 @@ def setup(bot: commands.Bot):
     except Exception as e:
         logger.error(f"Failed to load Music Cog: {e}", exc_info=True)
         raise
+
 

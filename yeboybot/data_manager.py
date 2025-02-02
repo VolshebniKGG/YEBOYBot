@@ -8,6 +8,12 @@ from typing import Any, Dict
 import discord
 from discord.ext import commands
 
+# Налаштування логування: повідомлення виводитимуться у консоль
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s:%(name)s: %(message)s",
+    handlers=[logging.StreamHandler()]
+)
 logger = logging.getLogger("bot")
 
 class DataManager(commands.Cog):
@@ -32,9 +38,9 @@ class DataManager(commands.Cog):
     def load_server_data(self, server_id: int) -> Dict[str, Any]:
         """
         Завантажити дані сервера з файлу JSON.
-        Якщо файл відсутній або пошкоджений - повертає порожній словник.
+        Якщо файл відсутній або пошкоджений – повертає порожній словник.
         :param server_id: ID сервера (Guild).
-        :return: Дані в словнику.
+        :return: Дані у форматі словника.
         """
         file_path = self._get_file_path(server_id)
         if os.path.exists(file_path):
@@ -49,7 +55,7 @@ class DataManager(commands.Cog):
         """
         Зберегти дані сервера у файл JSON.
         :param server_id: ID сервера (Guild).
-        :param data: Дані у форматі словника (dict).
+        :param data: Дані у форматі словника.
         """
         file_path = self._get_file_path(server_id)
         try:
@@ -59,7 +65,6 @@ class DataManager(commands.Cog):
         except Exception as e:
             logger.error(f"Не вдалося записати файл {file_path}: {e}")
 
-
 def setup(bot: commands.Bot):
     """
     Функція підключення Cog до бота (py-cord).
@@ -67,23 +72,5 @@ def setup(bot: commands.Bot):
     """
     bot.add_cog(DataManager(bot))
     logger.info("DataManager успішно завантажено.")
-
-
-# Приклад використання (поза ботом - для тесту)
-if __name__ == "__main__":
-    dm = DataManager(bot=None, base_path="data")  # bot=None, оскільки не в контексті справжнього бота
-    server_id = 123456789
-
-    # Збереження даних
-    server_data = {
-        "name": "My Guild",
-        "prefix": "!",
-        "welcome_channel": 987654321
-    }
-    dm.save_server_data(server_id, server_data)
-
-    # Завантаження даних
-    loaded_data = dm.load_server_data(server_id)
-    print("Loaded server data:", loaded_data)
 
     

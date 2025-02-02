@@ -6,7 +6,14 @@ import discord
 from discord.ext import commands
 import logging
 
+# Налаштування логування: повідомлення будуть виводитись у консоль.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s:%(name)s: %(message)s",
+    handlers=[logging.StreamHandler()]
+)
 logger = logging.getLogger("bot")
+
 
 class Help(commands.Cog):
     """
@@ -110,6 +117,7 @@ class Help(commands.Cog):
 
         await ctx.send(embed=embed)
         logger.info(f"Help command used by {ctx.author} ({ctx.author.id})")
+
 
 def setup(bot: commands.Bot):
     """

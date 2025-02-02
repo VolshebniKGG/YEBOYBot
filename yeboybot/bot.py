@@ -1,6 +1,7 @@
 
 
 import os
+import sys
 import logging
 import asyncio
 import configparser
@@ -8,15 +9,22 @@ import configparser
 import discord
 from discord.ext import commands
 
+# Налаштування логування: встановлюємо рівень для модуля discord на WARNING,
+# щоб прибрати INFO-повідомлення від бібліотеки discord.py.
+logging.getLogger('discord').setLevel(logging.WARNING)
+
+# Імпортуємо функцію налаштування логування з вашого модуля
 from yeboybot.logging_setup import setup_logging
 
+# Імпортуємо функції підключення ког-ів
 from yeboybot.moderation import setup as setup_moderation
 from yeboybot.user import setup as setup_user
 from yeboybot.music import setup as setup_music
 from yeboybot.help import setup as setup_help
 from yeboybot.rank import setup as setup_rank
 
-# Налаштування логування
+# Налаштування логування: функція setup_logging налаштовує логування з файловими
+# та консольними обробниками.
 setup_logging()
 logger = logging.getLogger("bot")
 
@@ -28,7 +36,7 @@ config_path = os.path.abspath(
 
 if not os.path.exists(config_path):
     logger.error(f"Файл конфігурації {config_path} не знайдено.")
-    exit(1)
+    sys.exit(1)
 
 config.read(config_path)
 
@@ -38,7 +46,7 @@ try:
         raise ValueError("Токен не вказано у файлі конфігурації.")
 except (configparser.NoSectionError, configparser.NoOptionError, ValueError) as e:
     logger.error(f"Помилка у файлі конфігурації: {e}")
-    exit(1)
+    sys.exit(1)
 
 # Ініціалізація інтенцій та бота
 intents = discord.Intents.all()
@@ -51,8 +59,8 @@ bot = commands.Bot(
 async def on_ready():
     logger.info(f"Бот запущено як {bot.user} ({bot.user.id})")
 
-def load_extensions(bot_instance: commands.Bot):
-    """Ручне завантаження всіх когів (extension setup)."""
+def load_extensions(bot_instance: commands.Bot) -> None:
+    """Ручне завантаження всіх ког-ів (extension setup)."""
     setup_moderation(bot_instance)
     setup_user(bot_instance)
     setup_music(bot_instance)
@@ -60,13 +68,17 @@ def load_extensions(bot_instance: commands.Bot):
     setup_rank(bot_instance)
     logger.info("Усі розширення (Cog-и) завантажено успішно.")
 
-def main():
+def main() -> None:
     """Головна функція запуску бота."""
     load_extensions(bot)
-    # Запускаємо бота (блокуючий виклик)
-    bot.run(TOKEN)
+    try:
+        bot.run(TOKEN)
+    except Exception as e:
+        logger.error(f"Помилка при запуску бота: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
+
 
 

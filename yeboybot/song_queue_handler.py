@@ -10,14 +10,20 @@ from typing import Dict, Any, Optional, List
 import discord
 from discord.ext import commands
 
+# Налаштування логування: повідомлення будуть виводитись у консоль.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()]
+)
 logger = logging.getLogger("bot")
+
 
 class EnhancedCache:
     """
     Клас для керування кешем пісень (чергою) у JSON-файлі
     з автоматичним резервним копіюванням і видаленням старих бекапів.
     """
-
     def __init__(
         self,
         file_path: str = "cache/song_queue.json",
@@ -79,7 +85,7 @@ class EnhancedCache:
             os.replace(self.file_path, backup_file)
             logger.info(f"Резервну копію створено: {backup_file}")
 
-        # Пишемо нові дані
+        # Записуємо нові дані
         try:
             with open(self.file_path, "w", encoding="utf-8") as file:
                 json.dump(self.cache, file, indent=4)
@@ -115,6 +121,7 @@ class EnhancedCache:
             "url": url,
             "title": title or url
         })
+        logger.info(f"Додано пісню до черги сервера {server_id}: {title or url}")
         self._save_cache()
 
     def get_queue(self, server_id: str) -> List[Dict[str, str]]:
@@ -133,6 +140,7 @@ class EnhancedCache:
         if server_data and server_data["queue"]:
             next_song = server_data["queue"].pop(0)
             server_data["current_song"] = next_song
+            logger.info(f"Переміщено наступну пісню в current_song для сервера {server_id}: {next_song}")
             self._save_cache()
             return next_song
         return None
@@ -142,6 +150,7 @@ class EnhancedCache:
         server_data = self.cache.get("servers", {}).get(server_id)
         if server_data:
             server_data["queue"] = []
+            logger.info(f"Черга очищена для сервера {server_id}")
             self._save_cache()
 
     def get_current_song(self, server_id: str) -> Optional[Dict[str, str]]:
@@ -156,7 +165,7 @@ class EnhancedCache:
         if (time.time() - self.last_save_time) > self.save_interval:
             self._save_cache()
 
-# Нижче — опційний Cog, який ви можете підключити в боті, якщо хочете управляти чергою через команди
+
 class SongQueueHandler(commands.Cog):
     """
     Простий приклад Cog, який може використовувати EnhancedCache
@@ -166,13 +175,14 @@ class SongQueueHandler(commands.Cog):
         self.bot = bot
         # Ініціалізуємо наш кеш
         self.cache = EnhancedCache(file_path="cache/song_queue.json")
+        logger.info("SongQueueHandler ініціалізовано.")
 
     @commands.command(name="sq_add", help="Додати пісню до черги (демо-команда).")
     async def sq_add(self, ctx: commands.Context, url: str, *, title: str = None):
         """
         Додати URL (і опційний заголовок) до черги поточного сервера.
         Приклад використання:
-        !sq_add https://youtube.com/... \"My Song\"
+        !sq_add https://youtube.com/... "My Song"
         """
         server_id = str(ctx.guild.id)
         self.cache.add_to_queue(server_id, url, title)
@@ -211,10 +221,11 @@ class SongQueueHandler(commands.Cog):
         else:
             await ctx.send("Наразі не відтворюється жодного треку.")
 
+
 def setup(bot: commands.Bot):
     """
     Функція підключення Cog до бота (py-cord).
-    Викликається, коли у вашому коді ви робите: bot.load_extension('song_queue_handler')
+    Викликається, коли ви робите: bot.load_extension('song_queue_handler')
     """
     bot.add_cog(SongQueueHandler(bot))
     logger.info("SongQueueHandler Cog loaded.")

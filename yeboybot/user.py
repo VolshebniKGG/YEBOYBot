@@ -4,6 +4,16 @@ import discord
 from discord.ext import commands
 import json
 import os
+import logging
+
+# Налаштування логування для виведення повідомлень в консоль.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger("UserCog")
+
 
 class User(commands.Cog):
     """
@@ -18,43 +28,58 @@ class User(commands.Cog):
         # Шлях до папки, де зберігаються JSON-файли з даними
         self.user_data_path: str = os.path.join("data", "user")
         os.makedirs(self.user_data_path, exist_ok=True)
+        logger.info("User Cog ініціалізовано. Шлях до даних: %s", self.user_data_path)
 
     def _get_user_file_path(self, user_id: int) -> str:
         """Отримати шлях до файлу користувача (JSON) за його ID."""
         return os.path.join(self.user_data_path, f"{user_id}.json")
 
     def _load_user_data(self, user_id: int) -> dict:
-        """Завантажити дані користувача з файлу (JSON). Якщо файл відсутній — повертаємо порожній словник."""
+        """
+        Завантажити дані користувача з файлу (JSON).
+        Якщо файл відсутній або містить помилкові дані — повертається порожній словник.
+        """
         file_path = self._get_user_file_path(user_id)
         if os.path.exists(file_path):
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    logger.info("Дані користувача (ID: %s) успішно завантажено.", user_id)
+                    return data
             except json.JSONDecodeError:
+                logger.warning("Помилка JSONDecodeError для користувача (ID: %s). Повертаємо порожній словник.", user_id)
                 return {}
+        logger.info("Файл даних для користувача (ID: %s) не знайдено. Повертаємо порожній словник.", user_id)
         return {}
 
     def _save_user_data(self, user_id: int, data: dict) -> None:
-        """Зберегти (перезаписати) дані користувача у JSON-файл."""
+        """
+        Зберегти (перезаписати) дані користувача у JSON-файл.
+        """
         file_path = self._get_user_file_path(user_id)
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+            logger.info("Дані користувача (ID: %s) успішно збережено.", user_id)
+        except Exception as e:
+            logger.error("Помилка при збереженні даних користувача (ID: %s): %s", user_id, e)
 
     @commands.command(name="info", help="Показує інформацію про користувача")
     async def info(self, ctx: commands.Context, member: discord.Member = None):
         """
-        Показує докладну інформацію про користувача:
+        Показує детальну інформацію про користувача:
         - Ім’я, ID, ролі, дати створення та приєднання
         - Кількість попереджень
-        - Чи користувач зам’ючений (Mute Reason)
+        - Причина мута (якщо застосовано)
         """
         member = member or ctx.author
+        logger.info("Команда info викликана користувачем %s для %s", ctx.author, member)
         user_data = self._load_user_data(member.id)
 
         warnings = user_data.get("warnings", 0)
         roles = [role.mention for role in member.roles if role != ctx.guild.default_role]
 
-        # Перевіряємо, чи є в користувача роль Muted
+        # Перевіряємо, чи має користувач роль Muted
         is_muted = discord.utils.get(member.roles, name="Muted")
         mute_reason = user_data.get("mute_reason", "Немає даних")
 
@@ -86,7 +111,6 @@ class User(commands.Cog):
             value=f"{warnings} попередження(нь)",
             inline=True
         )
-        # Якщо користувач має роль Muted — показуємо причину
         if is_muted:
             embed.add_field(name="Mute Reason", value=mute_reason, inline=False)
 
@@ -100,8 +124,9 @@ class User(commands.Cog):
     async def add_warning(self, ctx: commands.Context, member: discord.Member, *, reason="Немає причини"):
         """
         Додає попередження користувачу.
-        Зберігає загальну кількість у JSON-файлі. Для кожного попередження — reason.
+        Збільшує загальну кількість попереджень та зберігає інформацію у JSON-файлі.
         """
+        logger.info("Команда add_warning викликана %s для користувача %s. Причина: %s", ctx.author, member, reason)
         user_data = self._load_user_data(member.id)
         user_data["warnings"] = user_data.get("warnings", 0) + 1
         user_data.setdefault("reasons", []).append(reason)
@@ -116,11 +141,12 @@ class User(commands.Cog):
     @commands.has_permissions(manage_messages=True)
     async def clear_warnings(self, ctx: commands.Context, member: discord.Member):
         """
-        Видаляє всі попередження (warnings) у користувача,
-        обнуляючи відповідні поля у JSON-файлі.
+        Очищає всі попередження користувача,
+        обнуляючи відповідні дані у JSON-файлі.
         """
+        logger.info("Команда clear_warnings викликана %s для користувача %s", ctx.author, member)
         user_data = self._load_user_data(member.id)
-        if "warnings" in user_data:
+        if "warnings" in user_data and user_data["warnings"] > 0:
             user_data["warnings"] = 0
             user_data["reasons"] = []
             self._save_user_data(member.id, user_data)
@@ -131,10 +157,11 @@ class User(commands.Cog):
     @commands.command(name="avatar", help="Показує аватар користувача")
     async def avatar(self, ctx: commands.Context, member: discord.Member = None):
         """
-        Відправляє аватар вибраного користувача (або того,
-        хто викликає команду, якщо не вказано користувача).
+        Відправляє аватар вибраного користувача або того,
+        хто викликає команду, якщо не вказано користувача.
         """
         member = member or ctx.author
+        logger.info("Команда avatar викликана %s для користувача %s", ctx.author, member)
         embed = discord.Embed(
             title=f"Аватар {member.display_name}",
             color=member.color
@@ -147,12 +174,12 @@ class User(commands.Cog):
         await ctx.send(embed=embed)
 
 
-# У py-cord метод add_cog(...) — синхронний, тому setup-метод робимо теж синхронним.
 def setup(bot: commands.Bot):
     """
     Підключення Cog до бота.
-    Викликається, коли робимо bot.load_extension("user").
+    Викликається при завантаженні розширення (bot.load_extension).
     """
     bot.add_cog(User(bot))
+    logger.info("User Cog успішно завантажено.")
 
 
