@@ -23,6 +23,58 @@ CHUNK_SIZE = 25
 # Затримка (секунди) між чанками, щоб не «фризити» бота
 CHUNK_DELAY = 0.1
 
+# =================================================================
+# Клас для пагінації черги треків за допомогою кнопок (discord.ui.View)
+# =================================================================
+class QueueView(discord.ui.View):
+    def __init__(self, ctx: commands.Context, queue: list, items_per_page: int = 10):
+        super().__init__(timeout=60)  # View буде активною 60 секунд
+        self.ctx = ctx
+        self.queue = queue
+        self.items_per_page = items_per_page
+        self.current_page = 0
+
+    def get_page_count(self) -> int:
+        return (len(self.queue) - 1) // self.items_per_page + 1
+
+    def get_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="📜 Черга треків")
+        start = self.current_page * self.items_per_page
+        end = start + self.items_per_page
+        page_items = self.queue[start:end]
+        if page_items:
+            description = "\n".join(f"{start + i + 1}. {track['title']}" for i, track in enumerate(page_items))
+            embed.description = description
+        else:
+            embed.description = "Черга порожня."
+        embed.set_footer(text=f"Сторінка {self.current_page + 1}/{self.get_page_count()}")
+        return embed
+
+    @discord.ui.button(label="⏪", style=discord.ButtonStyle.primary, custom_id="first_page")
+    async def first_page(self, button: discord.ui.Button, interaction: discord.Interaction):
+        self.current_page = 0
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.primary, custom_id="previous_page")
+    async def previous_page(self, button: discord.ui.Button, interaction: discord.Interaction):
+        if self.current_page > 0:
+            self.current_page -= 1
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.primary, custom_id="next_page")
+    async def next_page(self, button: discord.ui.Button, interaction: discord.Interaction):
+        if self.current_page < self.get_page_count() - 1:
+            self.current_page += 1
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+    @discord.ui.button(label="⏩", style=discord.ButtonStyle.primary, custom_id="last_page")
+    async def last_page(self, button: discord.ui.Button, interaction: discord.Interaction):
+        self.current_page = self.get_page_count() - 1
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+# =================================================================
+# Music Cog
+# =================================================================
 class Music(commands.Cog):
     """
     Ког для відтворення музики з YouTube/Spotify із покращеним функціоналом,
@@ -435,8 +487,6 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, f"❌ Помилка відтворення: {title}. Переходимо до наступного...")
             await self._play_next(ctx)
 
-
-
     # -----------------------------------------------------
     #             Інші команди (stop, pause тощо)
     # -----------------------------------------------------
@@ -484,18 +534,14 @@ class Music(commands.Cog):
         guild_id = ctx.guild.id
         queue_ = self.ensure_queue(guild_id)
 
-        if queue_:
-            displayed = queue_[:10]
-            lines = []
-            for i, trk in enumerate(displayed, start=1):
-                lines.append(f"{i}. {trk['title']}")
-            if len(queue_) > 10:
-                lines.append(f"...і ще {len(queue_) - 10} трек(ів).")
-
-            text = " | ".join(lines)
-            await self._send_embed_footer(ctx, f"📜 Черга треків: {text}")
-        else:
+        if not queue_:
             await self._send_embed_footer(ctx, "❌ Черга порожня.")
+            return
+
+        # Використовуємо інтерактивну пагінацію для відображення черги
+        view = QueueView(ctx, queue_, items_per_page=10)
+        embed = view.get_embed()
+        await ctx.send(embed=embed, view=view)
 
     @commands.command(help="Встановити гучність відтворення (0-100%).")
     async def volume(self, ctx: commands.Context, volume: int):
@@ -576,6 +622,7 @@ def setup(bot: commands.Bot):
     except Exception as e:
         logger.error(f"Failed to load Music Cog: {e}", exc_info=True)
         raise
+
 
 
 

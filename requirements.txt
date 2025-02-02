@@ -8,6 +8,7 @@ charset-normalizer==3.4.1
 frozenlist==1.5.0
 idna==3.10
 multidict==6.1.0
+phantomjs==1.4.1
 pillow==11.1.0
 propcache==0.2.1
 py-cord==2.6.1
