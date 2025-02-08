@@ -16,7 +16,6 @@ MUSICBOT_USER_AGENT_AIOHTTP: str = f"YEBOYBot"
 # Константи шляху до файлу
 DEFAULT_OPTIONS_FILE: str = "config/options.ini"
 DEFAULT_PERMS_FILE: str = "config/permissions.ini"
-DEFAULT_I18N_FILE: str = "config/i18n/en.json"
 DEFAULT_COMMAND_ALIAS_FILE: str = "config/aliases.json"
 DEFAULT_USER_BLOCKLIST_FILE: str = "config/blocklist_users.txt"
 DEFAULT_SONG_BLOCKLIST_FILE: str = "config/blocklist_songs.txt"
@@ -111,15 +110,3 @@ YTDLP_OAUTH2_CLIENTS: List[str] = ["mweb"]
 
 # Discord та інші константи API
 DISCORD_MSG_CHAR_LIMIT: int = 2000
-
-
-EMOJI_CHECK_MARK_BUTTON: str = "\u2705"
-EMOJI_CROSS_MARK_BUTTON: str = "\u274E"
-EMOJI_STOP_SIGN: str = "\U0001F6D1"
-EMOJI_IDLE_ICON: str = "\U0001f634"  # same as \N{SLEEPING FACE}
-EMOJI_PLAY_ICON: str = "\u25B6"  # add \uFE0F to make button
-EMOJI_PAUSE_ICON: str = "\u23F8\uFE0F"  # add \uFE0F to make button
-EMOJI_LAST_ICON: str = "\u23ED\uFE0F"  # next track button
-EMOJI_FIRST_ICON: str = "\u23EE\uFE0F"  # last track button
-EMOJI_NEXT_ICON: str = "\u23E9"  # fast-forward button
-EMOJI_PREV_ICON: str = "\u23EA"  # rewind button
