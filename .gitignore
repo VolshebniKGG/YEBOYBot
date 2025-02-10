@@ -1,11 +1,6 @@
 .idea/
 *.pyc
 ~*/
-.vscode/
-*.service
-
-audio_cache/
-dectalk/
 
 discord.log
 logs/
