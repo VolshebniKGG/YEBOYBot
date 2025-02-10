@@ -1,13 +1,19 @@
 .idea/
 *.pyc
 ~*/
+.vscode/
+*.service
 
-bin/ffmpeg.exe
-bin/ffprobe.exe
+audio_cache/
+dectalk/
 
+# Ігнорування папки
 discord.log
+bin/
 logs/
 data/
+
+# Ігнорування конфігураційного файлу
 config/options.ini
 config/permissions.ini
 config/aliases.json
@@ -20,6 +26,7 @@ config/blocklist_users.txt
 config/blocklist_songs.txt
 config/playlists/
 media/
+
 
 docker-compose.yml
 config/autoplaylist.cachemap.json
