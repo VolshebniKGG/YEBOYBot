@@ -2,12 +2,13 @@
 
 
 import os
+import pathlib
 import json
 import asyncio
 import logging
 import configparser
 import random
-import subprocess
+from typing import Any, Dict, List, Optional
 
 import discord
 from discord.ext import commands
@@ -15,8 +16,10 @@ from discord.ext import commands
 import yt_dlp as youtube_dl
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
+from yeboybot.autoplaylist import AutoPlaylistManager
+from yeboybot.ytdlp_oauth2_plugin import YouTubeOAuth2Handler
 
-# Налаштування логування: повідомлення виводитимуться у консоль.
+# Налаштування логування: повідомлення виводитимуться в консоль.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -24,17 +27,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bot")
 
-# Скільки треків додавати за один раз
+# Константи для обробки чанків
 CHUNK_SIZE = 25
-# Затримка (секунди) між чанками, щоб не «фризити» бота
 CHUNK_DELAY = 0.1
+
 
 # =================================================================
 # Клас для пагінації черги треків за допомогою кнопок (discord.ui.View)
 # =================================================================
 class QueueView(discord.ui.View):
-    def __init__(self, ctx: commands.Context, queue: list, items_per_page: int = 10):
-        super().__init__(timeout=60)  # View буде активною 60 секунд
+    """View для перегляду (пагінації) черги треків."""
+    def __init__(self, ctx: commands.Context, queue: List[Dict[str, Any]], items_per_page: int = 10):
+        super().__init__(timeout=60)  # Активність View – 60 секунд
         self.ctx = ctx
         self.queue = queue
         self.items_per_page = items_per_page
@@ -49,7 +53,10 @@ class QueueView(discord.ui.View):
         end = start + self.items_per_page
         page_items = self.queue[start:end]
         if page_items:
-            description = "\n".join(f"{start + i + 1}. {track['title']}" for i, track in enumerate(page_items))
+            description = "\n".join(
+                f"{start + i + 1}. {track.get('title', 'Unknown')}"
+                for i, track in enumerate(page_items)
+            )
             embed.description = description
         else:
             embed.description = "Черга порожня."
@@ -78,22 +85,33 @@ class QueueView(discord.ui.View):
         self.current_page = self.get_page_count() - 1
         await interaction.response.edit_message(embed=self.get_embed(), view=self)
 
+
 # =================================================================
 # Music Cog
 # =================================================================
 class Music(commands.Cog):
     """
-    Ког для відтворення музики з YouTube/Spotify із покращеним функціоналом,
+    Cog для відтворення музики з YouTube/Spotify із розширеним функціоналом,
     кешуванням треків, керуванням чергою, регулюванням гучності та автовідключенням.
-    Працює з py-cord[voice] та використовує ffmpeg.exe та ffprobe.exe.
+    
+    Використовує py-cord[voice], ffmpeg, yt-dlp та spotipy.
     """
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-        # Усі черги зберігаються у пам'яті: {guild_id: [ {title, url}, ... ]} 
-        self.queues = {}
+        # --- Налаштування автосписків ---
+        # Можна завантажити налаштування з файлу конфігурації
+        self.config = type("Config", (), {})()  # Простий об'єкт для зберігання налаштувань
+        self.config.auto_playlist_dir = pathlib.Path("data/apl")
+        self.config.enable_queue_history_global = True
+
+        # Менеджер автосписків
+        self.apl_manager = AutoPlaylistManager(self)
+
+        # Усі черги зберігаються у пам'яті: {guild_id: [ {title, url}, ... ]}
+        self.queues: Dict[int, List[Dict[str, Any]]] = {}
         # Дані про поточний трек, що грає: {guild_id: {title, duration}}
-        self.current_tracks = {}
+        self.current_tracks: Dict[int, Optional[Dict[str, Any]]] = {}
 
         # Шляхи до даних
         self.data_path = "data/music"
@@ -102,7 +120,7 @@ class Music(commands.Cog):
         self.track_cache_path = os.path.join(self.data_path, "track_cache.json")
         self.unavailable_log_path = os.path.join(self.data_path, "unavailable_log.json")
 
-        self.processed_tracks = []  # Лог останніх декількох треків
+        self.processed_tracks: List[Any] = []  # Лог останніх оброблених треків
         self.default_volume = 0.5   # Початкова гучність (50%)
 
         # Створення необхідних тек
@@ -112,7 +130,7 @@ class Music(commands.Cog):
         # Завантаження кешу треків
         self.cache = self._load_cache()
 
-        # Шляхи до ffmpeg та ffprobe (змінити під свої, якщо потрібно)
+        # Шляхи до ffmpeg та ffprobe (налаштуйте під свої умови)
         self.ffmpeg_path = r"E:\Discord Bot\Bot\bin\ffmpeg.exe"
         self.ffprobe_path = r"E:\Discord Bot\Bot\bin\ffprobe.exe"
 
@@ -149,10 +167,10 @@ class Music(commands.Cog):
                 json.dump({}, f)
 
         # Зчитування Spotify-креденшлів із config/options.ini
-        config = configparser.ConfigParser()
-        config.read("config/options.ini")
-        client_id = config.get("Spotify", "Client_ID", fallback=None)
-        client_secret = config.get("Spotify", "Client_Secret", fallback=None)
+        config_parser = configparser.ConfigParser()
+        config_parser.read("config/options.ini")
+        client_id = config_parser.get("Credentials", "Spotify_ClientID", fallback=None)
+        client_secret = config_parser.get("Credentials", "Spotify_ClientSecret", fallback=None)
         if not client_id or not client_secret:
             raise ValueError("Spotify Client_ID і Client_Secret мають бути вказані у config/options.ini")
         self.spotify = spotipy.Spotify(
@@ -163,10 +181,10 @@ class Music(commands.Cog):
         )
 
     # -----------------------------------------------------
-    # Допоміжні методи для роботи з кешем і чергою
+    # Допоміжні методи для роботи з кешем та чергою
     # -----------------------------------------------------
-    def _load_cache(self) -> dict:
-        """Завантаження JSON‑кешу треків із track_cache_path."""
+    def _load_cache(self) -> Dict[str, Any]:
+        """Завантаження JSON‑кешу треків із файлу."""
         try:
             with open(self.track_cache_path, "r", encoding="utf-8") as file:
                 return json.load(file)
@@ -175,7 +193,7 @@ class Music(commands.Cog):
             return {}
 
     def _save_cache(self) -> None:
-        """Збереження JSON‑кешу треків до track_cache_path."""
+        """Збереження JSON‑кешу треків до файлу."""
         try:
             with open(self.track_cache_path, "w", encoding="utf-8") as file:
                 json.dump(self.cache, file, indent=4)
@@ -186,9 +204,10 @@ class Music(commands.Cog):
         """Повертає шлях до файлу черги для заданого сервера."""
         return os.path.join(self.queue_path, f"{guild_id}_queue.json")
 
-    def _load_queue(self, guild_id: int) -> list:
+    def _load_queue(self, guild_id: int) -> List[Dict[str, Any]]:
         """
-        Завантаження черги сервера з файлу. Якщо файл відсутній або пошкоджений – повертаємо [].
+        Завантаження черги сервера з файлу.
+        Якщо файл відсутній або пошкоджений – повертає пустий список.
         """
         path = self._queue_file(guild_id)
         if os.path.exists(path):
@@ -200,7 +219,7 @@ class Music(commands.Cog):
                 return []
         return []
 
-    def _save_queue(self, guild_id: int, queue: list) -> None:
+    def _save_queue(self, guild_id: int, queue: List[Dict[str, Any]]) -> None:
         """Збереження черги (list) до JSON‑файлу для сервера."""
         path = self._queue_file(guild_id)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -210,32 +229,25 @@ class Music(commands.Cog):
         except Exception as e:
             logger.error(f"Error saving queue for guild {guild_id}: {e}")
 
-    def ensure_queue(self, guild_id: int) -> list:
+    def ensure_queue(self, guild_id: int) -> List[Dict[str, Any]]:
         """
-        Гарантовано повертає список черги (list) для даного guild_id.
-        Якщо в пам'яті (self.queues[guild_id]) черги немає, вона завантажується з файлу.
+        Гарантовано повертає список черги для даного guild_id.
+        Якщо в пам'яті черги немає – завантажує її з файлу.
         """
         if guild_id not in self.queues:
-            loaded = self._load_queue(guild_id)
-            self.queues[guild_id] = loaded
+            self.queues[guild_id] = self._load_queue(guild_id)
         return self.queues[guild_id]
 
-    # -----------------------------------------------------
-    # Допоміжний метод для Embed-відповідей
-    # -----------------------------------------------------
-    async def _send_embed_footer(self, ctx: commands.Context, text: str):
-        """Відправити повідомлення, де текст міститься у footer Embed."""
+    async def _send_embed_footer(self, ctx: commands.Context, text: str) -> None:
+        """Відправити повідомлення з Embed, де текст знаходиться у footer."""
         embed = discord.Embed()
         embed.set_footer(text=text)
         await ctx.send(embed=embed)
 
-    # -----------------------------------------------------
-    # Перевірка/підключення до голосового каналу
-    # -----------------------------------------------------
     async def ensure_voice(self, ctx: commands.Context) -> bool:
         """
-        Перевірка підключення користувача до голосового каналу.
-        Підключає бот, якщо його немає.
+        Перевірка, чи користувач підключений до голосового каналу.
+        Якщо бот не підключений, приєднується до каналу користувача.
         """
         if not ctx.author.voice or not ctx.author.voice.channel:
             await self._send_embed_footer(ctx, "❌ Спочатку приєднайтесь до голосового каналу.")
@@ -247,16 +259,19 @@ class Music(commands.Cog):
         return True
 
     # -----------------------------------------------------
-    # Команда  !play
+    # Команда !play – додавання та відтворення треків
     # -----------------------------------------------------
     @commands.command(help="Додати трек або пошуковий запит у чергу та відтворити (YouTube / Spotify).")
-    async def play(self, ctx: commands.Context, *, query: str):
-        """Одна команда для будь-яких запитів і плейлистів."""
+    async def play(self, ctx: commands.Context, *, query: str) -> None:
+        """
+        Додає запит (або URL) у чергу.
+        Якщо запит містить "spotify.com" – обробляється як Spotify,
+        інакше – як YouTube-запит.
+        """
         if not await self.ensure_voice(ctx):
             return
 
         guild_id = ctx.guild.id
-        # Гарантовано отримуємо (або завантажуємо) поточну чергу
         queue_ = self.ensure_queue(guild_id)
 
         try:
@@ -265,10 +280,9 @@ class Music(commands.Cog):
             else:
                 await self._handle_youtube(ctx, query, guild_id)
 
-            # Зберігаємо оновлену чергу
             self._save_queue(guild_id, queue_)
 
-            # Якщо зараз нічого не грає — запускаємо відтворення
+            # Якщо нічого не грає – запускаємо відтворення
             if ctx.voice_client and not ctx.voice_client.is_playing():
                 await self._play_next(ctx)
         except Exception as e:
@@ -276,13 +290,13 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, f"❌ Помилка при обробці запиту: {e}")
 
     # -----------------------------------------------------
-    # Команда jump: запуск треку з черги за заданим індексом
+    # Команда jump – перехід до вказаного треку
     # -----------------------------------------------------
     @commands.command(help="Запускає трек з черги за заданим індексом (пропускає попередні).")
-    async def jump(self, ctx: commands.Context, index: int):
+    async def jump(self, ctx: commands.Context, index: int) -> None:
         """
-        Команда jump видаляє з черги всі треки перед вказаним індексом
-        та зупиняє поточний трек (якщо грає), що викликає відтворення наступного.
+        Видаляє з черги всі треки до вказаного індексу
+        та зупиняє поточний трек, щоб запустити наступний.
         """
         guild_id = ctx.guild.id
         queue_ = self.ensure_queue(guild_id)
@@ -296,29 +310,29 @@ class Music(commands.Cog):
             return
 
         skipped = index - 1
-        # Видаляємо всі треки перед заданим індексом
+        # Видаляємо всі треки перед вказаним індексом
         for _ in range(skipped):
             queue_.pop(0)
         self._save_queue(guild_id, queue_)
 
-        # Зупиняємо поточний трек, щоб викликати _play_next (якщо він грає)
+        # Зупиняємо поточний трек (якщо грає), щоб викликати _play_next
         if ctx.voice_client and ctx.voice_client.is_playing():
             ctx.voice_client.stop()
         else:
             await self._play_next(ctx)
 
-        await self._send_embed_footer(ctx, f"⏭️ Перехід до треку: {queue_[0]['title']} (пропущено {skipped} трек(ів))")
+        await self._send_embed_footer(ctx, f"⏭️ Перехід до треку: {queue_[0].get('title', 'Unknown')} (пропущено {skipped} трек(ів))")
 
     # -----------------------------------------------------
     # Обробка Spotify
     # -----------------------------------------------------
-    async def _handle_spotify(self, ctx: commands.Context, query: str, guild_id: int):
+    async def _handle_spotify(self, ctx: commands.Context, query: str, guild_id: int) -> None:
+        """Обробка запитів до Spotify та додавання треків у чергу."""
         logger.debug(f"_handle_spotify called with query: {query}")
         queue_ = self.ensure_queue(guild_id)
 
         try:
             if "playlist" in query:
-                # Завантажуємо плейлист поступово
                 offset = 0
                 all_items = []
                 while True:
@@ -342,35 +356,34 @@ class Music(commands.Cog):
                             if processed:
                                 queue_.append(processed)
                                 added += 1
-
-                    # Невелика пауза
                     await asyncio.sleep(CHUNK_DELAY)
 
                 await self._send_embed_footer(ctx, f"🎵 Додано {added} трек(ів) зі Spotify-плейлиста.")
                 self._save_queue(guild_id, queue_)
             else:
-                # Один трек
+                # Обробка окремого треку
                 track_obj = self.spotify.track(query)
                 processed_track = await self._process_spotify_track(track_obj)
                 if processed_track:
                     queue_.append(processed_track)
                     self._save_queue(guild_id, queue_)
-                    await self._send_embed_footer(ctx, f"🎵 Додано трек зі Spotify: {processed_track['title']}")
-
+                    await self._send_embed_footer(ctx, f"🎵 Додано трек зі Spotify: {processed_track.get('title', 'Unknown')}")
         except Exception as e:
             logger.error(f"Error processing Spotify link '{query}': {e}", exc_info=True)
             await self._send_embed_footer(ctx, f"❌ Spotify error: {e}")
 
-    async def _process_spotify_track(self, track_obj: dict) -> dict | None:
+    async def _process_spotify_track(self, track_obj: dict) -> Optional[Dict[str, Any]]:
+        """
+        Обробляє об'єкт треку з Spotify та повертає словник з даними треку.
+        Якщо трек вже в кеші, повертає його з кешу.
+        """
         try:
-            title_search = f"{track_obj['name']} - {track_obj['artists'][0]['name']}"
+            title_search = f"{track_obj.get('name')} - {track_obj['artists'][0].get('name')}"
             if title_search in self.cache:
                 logger.info(f"Трек вже в кеші: {title_search}")
                 return self.cache[title_search]
 
-            info = await asyncio.to_thread(
-                self.ytdl.extract_info, f"ytsearch:{title_search}", False
-            )
+            info = await asyncio.to_thread(self.ytdl.extract_info, f"ytsearch:{title_search}", False)
             if info and "entries" in info and info["entries"]:
                 best_entry = info["entries"][0]
                 track_data = {
@@ -384,20 +397,20 @@ class Music(commands.Cog):
                 logger.warning(f"Не знайдено результату для Spotify-треку: {title_search}")
                 return None
         except Exception as e:
-            logger.warning(f"Spotify-трек '{track_obj.get('name','Unknown')}' обробити не вдалося: {e}")
+            logger.warning(f"Spotify-трек '{track_obj.get('name', 'Unknown')}' обробити не вдалося: {e}")
             return None
 
     # -----------------------------------------------------
     # Обробка YouTube
     # -----------------------------------------------------
-    async def _handle_youtube(self, ctx: commands.Context, query: str, guild_id: int):
+    async def _handle_youtube(self, ctx: commands.Context, query: str, guild_id: int) -> None:
+        """Обробка YouTube-запитів та додавання треків/плейлистів у чергу."""
         logger.debug(f"_handle_youtube called with query: {query}")
         queue_ = self.ensure_queue(guild_id)
 
         try:
             info = await asyncio.to_thread(self.ytdl.extract_info, query, download=False)
 
-            # Якщо це плейлист
             if info and "entries" in info and info["entries"]:
                 entries = info["entries"]
                 total = len(entries)
@@ -420,7 +433,6 @@ class Music(commands.Cog):
                         queue_.append(track_data)
                         added_count += 1
 
-                    # Затримка між порціями
                     await asyncio.sleep(CHUNK_DELAY)
 
                 await self._send_embed_footer(
@@ -428,9 +440,7 @@ class Music(commands.Cog):
                     f"🎵 Додано {added_count} трек(ів) з YouTube-плейлиста. Пропущено: {skipped_count}."
                 )
                 self._save_queue(guild_id, queue_)
-
             else:
-                # Якщо одиничне відео
                 if not info:
                     await self._send_embed_footer(ctx, "❌ Не вдалося знайти/відтворити цей запит.")
                     return
@@ -444,7 +454,6 @@ class Music(commands.Cog):
                 queue_.append(track_data)
                 self._save_queue(guild_id, queue_)
                 await self._send_embed_footer(ctx, f"🎵 Додано трек: {title}")
-
         except Exception as e:
             logger.error(f"Помилка обробки YouTube-запиту '{query}': {e}", exc_info=True)
             await self._send_embed_footer(ctx, f"❌ YouTube error: {e}")
@@ -452,7 +461,8 @@ class Music(commands.Cog):
     # -----------------------------------------------------
     # Відтворення наступного треку
     # -----------------------------------------------------
-    async def _play_next(self, ctx: commands.Context):
+    async def _play_next(self, ctx: commands.Context) -> None:
+        """Відтворює наступний трек із черги."""
         guild_id = ctx.guild.id
         queue_ = self.ensure_queue(guild_id)
 
@@ -466,7 +476,7 @@ class Music(commands.Cog):
         title = track.get("title", "Unknown")
         url = track.get("url", "")
 
-        # Якщо бот не підключений до голосового каналу – підключаємося
+        # Переконуємося, що бот підключений до голосового каналу
         if not ctx.voice_client:
             logger.debug("voice_client is None, не можемо програти трек.")
             if ctx.author.voice and ctx.author.voice.channel:
@@ -477,7 +487,6 @@ class Music(commands.Cog):
 
         ffmpeg_options = "-vn"
         try:
-            # Отримуємо дані треку (ця частина завжди виконується)
             data = await asyncio.to_thread(self.ytdl.extract_info, url, download=False)
             if not data:
                 await self._send_embed_footer(ctx, f"❌ Не вдалося обробити: {title}")
@@ -485,7 +494,6 @@ class Music(commands.Cog):
                 return
 
             stream_url = data.get("url")
-            # Завжди використовуємо параметри перепідключення
             before_options = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 
             source = discord.FFmpegPCMAudio(
@@ -501,30 +509,35 @@ class Music(commands.Cog):
             await self._play_next(ctx)
             return
 
-        # Зберігаємо інформацію про поточний трек (тут data завжди визначена)
+        # Зберігаємо інформацію про поточний трек
         self.current_tracks[guild_id] = {"title": title, "duration": data.get("duration")}
 
-        def after_playing(error):
+        def after_playing(error: Optional[Exception]) -> None:
             if error:
                 logger.error(f"Error after playing track '{title}': {error}", exc_info=True)
             else:
                 logger.debug(f"Трек '{title}' відтворився без помилок.")
             self.current_tracks[guild_id] = None
-            asyncio.run_coroutine_threadsafe(self._play_next(ctx), self.bot.loop)
+            fut = asyncio.run_coroutine_threadsafe(self._play_next(ctx), self.bot.loop)
+            try:
+                fut.result()
+            except Exception as e:
+                logger.error(f"Error scheduling next track: {e}", exc_info=True)
 
         try:
             ctx.voice_client.play(source, after=after_playing)
-            await self._send_embed_footer(ctx, f"🎶 Зараз грає: {title}")
+            # Відправляємо повідомлення про поточний трек асинхронно
+            asyncio.create_task(self._send_embed_footer(ctx, f"🎶 Зараз грає: {title}"))
         except Exception as e:
             logger.error(f"Error playing track '{title}': {e}", exc_info=True)
             await self._send_embed_footer(ctx, f"❌ Помилка відтворення: {title}. Переходимо до наступного...")
             await self._play_next(ctx)
 
     # -----------------------------------------------------
-    # Інші команди (stop, pause, resume, skip, queue, volume, nowplaying, remove, shuffle, clearqueue)
+    # Інші команди для керування музикою
     # -----------------------------------------------------
     @commands.command(help="Зупинити музику і очистити чергу.")
-    async def stop(self, ctx: commands.Context):
+    async def stop(self, ctx: commands.Context) -> None:
         guild_id = ctx.guild.id
         queue_ = self.ensure_queue(guild_id)
 
@@ -537,7 +550,7 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, "❌ Бот не в голосовому каналі!")
 
     @commands.command(help="Призупинити відтворення.")
-    async def pause(self, ctx: commands.Context):
+    async def pause(self, ctx: commands.Context) -> None:
         if ctx.voice_client and ctx.voice_client.is_playing():
             ctx.voice_client.pause()
             await self._send_embed_footer(ctx, "⏸️ Відтворення призупинено.")
@@ -545,7 +558,7 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, "❌ Немає що ставити на паузу!")
 
     @commands.command(help="Продовжити відтворення.")
-    async def resume(self, ctx: commands.Context):
+    async def resume(self, ctx: commands.Context) -> None:
         if ctx.voice_client and ctx.voice_client.is_paused():
             ctx.voice_client.resume()
             await self._send_embed_footer(ctx, "▶️ Відтворення продовжено.")
@@ -553,7 +566,7 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, "❌ Немає що відновлювати!")
 
     @commands.command(help="Пропустити поточний трек.")
-    async def skip(self, ctx: commands.Context):
+    async def skip(self, ctx: commands.Context) -> None:
         if ctx.voice_client and ctx.voice_client.is_playing():
             ctx.voice_client.stop()
             await self._send_embed_footer(ctx, "⏭️ Трек пропущено.")
@@ -561,7 +574,7 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, "❌ Немає що пропускати!")
 
     @commands.command(help="Показати перелік треків у черзі.")
-    async def queue(self, ctx: commands.Context):
+    async def queue(self, ctx: commands.Context) -> None:
         guild_id = ctx.guild.id
         queue_ = self.ensure_queue(guild_id)
 
@@ -574,7 +587,7 @@ class Music(commands.Cog):
         await ctx.send(embed=embed, view=view)
 
     @commands.command(help="Встановити гучність відтворення (0-100%).")
-    async def volume(self, ctx: commands.Context, volume: int):
+    async def volume(self, ctx: commands.Context, volume: int) -> None:
         if 0 <= volume <= 100:
             self.default_volume = volume / 100
             if ctx.voice_client and ctx.voice_client.source:
@@ -585,7 +598,7 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, "❌ Вкажіть значення від 0 до 100.")
 
     @commands.command(help="Показати зараз відтворюваний трек.")
-    async def nowplaying(self, ctx: commands.Context):
+    async def nowplaying(self, ctx: commands.Context) -> None:
         guild_id = ctx.guild.id
         current = self.current_tracks.get(guild_id)
         if current:
@@ -602,7 +615,7 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, "❌ Наразі нічого не відтворюється.")
 
     @commands.command(help="Видалити трек з черги за індексом.")
-    async def remove(self, ctx: commands.Context, index: int):
+    async def remove(self, ctx: commands.Context, index: int) -> None:
         guild_id = ctx.guild.id
         queue_ = self.ensure_queue(guild_id)
 
@@ -614,7 +627,7 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, f"✅ Видалено трек: {removed.get('title', 'Unknown')}")
 
     @commands.command(help="Перемішати чергу.")
-    async def shuffle(self, ctx: commands.Context):
+    async def shuffle(self, ctx: commands.Context) -> None:
         guild_id = ctx.guild.id
         queue_ = self.ensure_queue(guild_id)
 
@@ -626,7 +639,7 @@ class Music(commands.Cog):
             await self._send_embed_footer(ctx, "🔀 Черга перемішана.")
 
     @commands.command(help="Очистити всю чергу, не зупиняючи поточний трек.")
-    async def clearqueue(self, ctx: commands.Context):
+    async def clearqueue(self, ctx: commands.Context) -> None:
         guild_id = ctx.guild.id
         queue_ = self.ensure_queue(guild_id)
 
@@ -637,14 +650,11 @@ class Music(commands.Cog):
             self._save_queue(guild_id, queue_)
             await self._send_embed_footer(ctx, "🗑️ Вся черга успішно очищена!")
 
+        
 # -----------------------------------------------------
-# Підключення до бота (setup)
+# Підключення Music Cog до бота
 # -----------------------------------------------------
-def setup(bot: commands.Bot):
-    """
-    Підключення Music Cog до бота (py-cord).
-    add_cog є синхронним, тому await не потрібен.
-    """
+def setup(bot: commands.Bot) -> None:
     try:
         bot.add_cog(Music(bot))
         logger.info("Music Cog successfully loaded.")

@@ -22,14 +22,8 @@ logger.propagate = False
 
 class Moderation(commands.Cog):
     """
-    Cog для адміністративних та модераційних команд:
-    • Зміна ніка, бан/розбан, кік, vkick (кік з голосового), mute/unmute (текст),
-      vmute/unvmute (голос), timeout/untimeout,
-    • Очистка повідомлень, переміщення учасників,
-    • Видання ролей, керування балами,
-    • Попередження, блокування каналів, встановлення кольору, slowmode,
-    • Скидання деяких даних.
-    Попередження та бали зберігаються в окремих JSON-файлах.
+    Cog для адміністративних та модераційних команд.
+    Зберігаються дані (бали, попередження, дані користувачів) у JSON-файлах.
     """
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -41,13 +35,13 @@ class Moderation(commands.Cog):
         # Якщо файли не існують – створюємо пусті структури
         if not os.path.exists(self.warns_file):
             with open(self.warns_file, "w", encoding="utf-8") as f:
-                json.dump([], f)
+                json.dump([], f, indent=4)
         if not os.path.exists(self.points_file):
             with open(self.points_file, "w", encoding="utf-8") as f:
-                json.dump({}, f)
+                json.dump({}, f, indent=4)
 
     # =====================
-    #  Додаткові допоміжні методи
+    # Допоміжні методи
     # =====================
 
     @staticmethod
@@ -78,17 +72,21 @@ class Moderation(commands.Cog):
         return None
 
     async def delayed_unmute(self, member: discord.Member, role: discord.Role, delay: int):
-        """Через delay (секунд) знімає роль (наприклад, Muted) з користувача, якщо вона ще є."""
+        """Через delay секунд знімає роль (наприклад, Muted) з користувача, якщо вона ще є."""
         await asyncio.sleep(delay)
         if role in member.roles:
             try:
                 await member.remove_roles(role, reason="Автоматичне скидання муту")
+                # Очищення збережених даних користувача
+                user_data = self._load_user_data(member.id)
+                user_data.pop("mute_reason", None)
+                self._save_user_data(member.id, user_data)
                 logger.info(f"Автоматично розм'ютовано {member} після {delay} секунд.")
             except Exception as e:
                 logger.error(f"Помилка при автоматичному розм'ютуванні {member}: {e}")
 
     async def delayed_unban(self, guild: discord.Guild, user_id: int, delay: int):
-        """Через delay розбанює користувача за його ID."""
+        """Через delay секунд розбанює користувача за його ID."""
         await asyncio.sleep(delay)
         try:
             user = await self.bot.fetch_user(user_id)
@@ -98,13 +96,28 @@ class Moderation(commands.Cog):
             logger.error(f"Помилка при автоматичному розбані користувача {user_id}: {e}")
 
     async def delayed_vunmute(self, member: discord.Member, delay: int):
-        """Через delay знімає вимкнення мікрофону (vmute) з користувача."""
+        """Через delay секунд знімає вимкнення мікрофону (vmute) з користувача."""
         await asyncio.sleep(delay)
         try:
             await member.edit(mute=False, reason="Автоматичне розвімкнення голосу")
             logger.info(f"Автоматично знято vmute з {member} після {delay} секунд.")
         except Exception as e:
             logger.error(f"Помилка при автоматичному знятті vmute з {member}: {e}")
+
+    async def get_or_create_mute_role(self, guild: discord.Guild) -> discord.Role:
+        """
+        Повертає роль "Muted". Якщо її не існує – створює її та встановлює заборону
+        на надсилання повідомлень та мовлення для всіх каналів.
+        """
+        mute_role = discord.utils.get(guild.roles, name="Muted")
+        if not mute_role:
+            mute_role = await guild.create_role(name="Muted", reason="Створення ролі для вимкнення тексту")
+            for channel in guild.channels:
+                try:
+                    await channel.set_permissions(mute_role, send_messages=False, speak=False)
+                except Exception as e:
+                    logger.error(f"Не вдалося встановити дозволи для каналу {channel}: {e}")
+        return mute_role
 
     def _get_user_file_path(self, user_id: int) -> str:
         """Повертає шлях до файлу даних користувача."""
@@ -132,29 +145,37 @@ class Moderation(commands.Cog):
         try:
             with open(self.warns_file, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.error(f"load_warnings error: {e}")
             return []
 
     def save_warnings(self, warns: list) -> None:
         """Зберігає список попереджень у файл."""
-        with open(self.warns_file, "w", encoding="utf-8") as f:
-            json.dump(warns, f, indent=4)
+        try:
+            with open(self.warns_file, "w", encoding="utf-8") as f:
+                json.dump(warns, f, indent=4)
+        except Exception as e:
+            logger.error(f"save_warnings error: {e}")
 
     def load_points(self) -> dict:
         """Завантажує бали користувачів із файлу."""
         try:
             with open(self.points_file, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.error(f"load_points error: {e}")
             return {}
 
     def save_points(self, points: dict) -> None:
         """Зберігає бали користувачів у файл."""
-        with open(self.points_file, "w", encoding="utf-8") as f:
-            json.dump(points, f, indent=4)
+        try:
+            with open(self.points_file, "w", encoding="utf-8") as f:
+                json.dump(points, f, indent=4)
+        except Exception as e:
+            logger.error(f"save_points error: {e}")
 
     # =====================
-    #  Команди
+    # Команди
     # =====================
 
     # 1. setnick — зміна ніка
@@ -169,16 +190,15 @@ class Moderation(commands.Cog):
             await ctx.send("❌ Не вдалося змінити нікнейм.")
             logger.error(f"setnick error: {e}")
 
-    # 2. бан / заборона — бан з опціональним часом
+    # 2. ban / заборона — бан з опціональним часом
     @commands.command(name="бан", aliases=["заборона"], help="Бан користувача. Використання: !бан [користувач] (час) (причина)")
     @commands.has_permissions(ban_members=True)
     async def ban(self, ctx: commands.Context, member: discord.Member, time_or_reason: str = None, *, reason: str = None):
         duration = None
         final_reason = ""
         if time_or_reason:
-            dur = self.parse_duration(time_or_reason)
-            if dur:
-                duration = dur
+            duration = self.parse_duration(time_or_reason)
+            if duration is not None:
                 final_reason = reason if reason else ""
             else:
                 final_reason = f"{time_or_reason} {reason}" if reason else time_or_reason
@@ -202,7 +222,8 @@ class Moderation(commands.Cog):
             target = None
             for ban_entry in bans:
                 user = ban_entry.user
-                if (member_identifier.isdigit() and int(member_identifier) == user.id) or (member_identifier.lower() == user.name.lower()):
+                if (member_identifier.isdigit() and int(member_identifier) == user.id) or \
+                   (member_identifier.lower() == user.name.lower()):
                     target = user
                     break
             if target:
@@ -235,7 +256,7 @@ class Moderation(commands.Cog):
             if member.voice:
                 await member.move_to(None, reason="vkick: вигнання з голосового каналу")
                 await ctx.send(f"✅ {member.mention} винесено з голосового каналу.")
-                logger.info(f"{ctx.author} vkick {member}")
+                logger.info(f"{ctx.author} виконав vkick для {member}")
             else:
                 await ctx.send("❌ Користувач не перебуває у голосовому каналі.")
         except Exception as e:
@@ -248,21 +269,24 @@ class Moderation(commands.Cog):
     async def mute(self, ctx: commands.Context, member: discord.Member, duration: str = None, *, reason: str = None):
         try:
             guild: discord.Guild = ctx.guild
-            # Шукаємо або створюємо роль Muted
-            mute_role = discord.utils.get(guild.roles, name="Muted")
-            if not mute_role:
-                mute_role = await guild.create_role(name="Muted")
-                for channel in guild.channels:
-                    await channel.set_permissions(mute_role, send_messages=False, speak=False)
+            mute_role = await self.get_or_create_mute_role(guild)
+            if mute_role in member.roles:
+                await ctx.send("❌ Користувач вже зам'ючений.")
+                return
             await member.add_roles(mute_role, reason=reason)
-            # Записуємо причину у файл користувача
+            # Записуємо причину у дані користувача
             user_data = self._load_user_data(member.id)
             user_data["mute_reason"] = reason if reason else "Не вказано"
             self._save_user_data(member.id, user_data)
-            await ctx.send(f"✅ {member.mention} зам'ючено. Причина: {reason}")
-            logger.info(f"{ctx.author} зам'ютував {member} | Причина: {reason}")
+            await ctx.send(f"✅ {member.mention} зам'ючено. Причина: {reason if reason else 'Не вказано'}")
+            logger.info(f"{ctx.author} зам'ютував {member} | Причина: {reason if reason else 'Не вказано'}")
             # Якщо вказано час – плануємо автоматичне розм'ютення
-            delay = self.parse_duration(duration) if duration and self.parse_duration(duration) else None
+            delay = None
+            if duration:
+                delay = self.parse_duration(duration)
+                if delay is None:
+                    await ctx.send("❌ Невірний формат часу для mute.")
+                    return
             if delay:
                 asyncio.create_task(self.delayed_unmute(member, mute_role, delay))
         except Exception as e:
@@ -277,7 +301,7 @@ class Moderation(commands.Cog):
             guild: discord.Guild = ctx.guild
             mute_role = discord.utils.get(guild.roles, name="Muted")
             if mute_role and mute_role in member.roles:
-                await member.remove_roles(mute_role)
+                await member.remove_roles(mute_role, reason="Розблокування тексту")
                 # Очищення збережених даних
                 user_data = self._load_user_data(member.id)
                 user_data.pop("mute_reason", None)
@@ -297,9 +321,14 @@ class Moderation(commands.Cog):
         try:
             if member.voice:
                 await member.edit(mute=True, reason=reason)
-                await ctx.send(f"✅ {member.mention} отримав vmute. Причина: {reason}")
-                logger.info(f"{ctx.author} vmute {member} | Причина: {reason}")
-                delay = self.parse_duration(duration) if duration and self.parse_duration(duration) else None
+                await ctx.send(f"✅ {member.mention} отримав vmute. Причина: {reason if reason else 'Не вказано'}")
+                logger.info(f"{ctx.author} vmute {member} | Причина: {reason if reason else 'Не вказано'}")
+                delay = None
+                if duration:
+                    delay = self.parse_duration(duration)
+                    if delay is None:
+                        await ctx.send("❌ Невірний формат часу для vmute.")
+                        return
                 if delay:
                     asyncio.create_task(self.delayed_vunmute(member, delay))
             else:
@@ -332,17 +361,15 @@ class Moderation(commands.Cog):
                 seconds = self.parse_duration(time_arg)
                 if seconds is None:
                     final_reason = f"{time_arg} {reason}" if reason else time_arg
-                    seconds = None
+                    await ctx.send("❌ Невірний формат часу для тайм-ауту.")
+                    return
                 else:
                     final_reason = reason if reason else ""
             else:
-                final_reason = reason if reason else ""
-                seconds = None
-            if seconds:
-                until = datetime.utcnow() + timedelta(seconds=seconds)
-            else:
                 await ctx.send("❌ Вкажіть тривалість тайм-ауту.")
                 return
+
+            until = datetime.utcnow() + timedelta(seconds=seconds)
             await member.edit(timeout=until, reason=final_reason)
             await ctx.send(f"✅ {member.mention} отримав тайм-аут на {time_arg}. Причина: {final_reason}")
             logger.info(f"{ctx.author} встановив тайм-аут для {member} на {time_arg} | Причина: {final_reason}")
@@ -391,8 +418,10 @@ class Moderation(commands.Cog):
                 check = lambda m: True
 
             deleted = await ctx.channel.purge(limit=limit, check=check)
-            await ctx.send(f"✅ Видалено {len(deleted)} повідомлень.", delete_after=5)
+            confirmation = await ctx.send(f"✅ Видалено {len(deleted)} повідомлень.")
             logger.info(f"{ctx.author} очистив {len(deleted)} повідомлень у {ctx.channel}.")
+            await asyncio.sleep(5)
+            await confirmation.delete()
         except Exception as e:
             await ctx.send("❌ Помилка при очищенні повідомлень.")
             logger.error(f"clear error: {e}")
@@ -404,7 +433,9 @@ class Moderation(commands.Cog):
         try:
             if target.lower() == "all":
                 if ctx.author.voice and destination:
-                    dest_channel = discord.utils.find(lambda c: c.name.lower() == destination.lower(), ctx.guild.voice_channels)
+                    dest_channel = discord.utils.find(
+                        lambda c: c.name.lower() == destination.lower(), ctx.guild.voice_channels
+                    )
                     if not dest_channel:
                         await ctx.send("❌ Не знайдено канал з такою назвою.")
                         return
@@ -418,7 +449,9 @@ class Moderation(commands.Cog):
             else:
                 member = await commands.MemberConverter().convert(ctx, target)
                 if destination:
-                    dest_channel = discord.utils.find(lambda c: c.name.lower() == destination.lower(), ctx.guild.voice_channels)
+                    dest_channel = discord.utils.find(
+                        lambda c: c.name.lower() == destination.lower(), ctx.guild.voice_channels
+                    )
                     if not dest_channel:
                         await ctx.send("❌ Не знайдено канал з такою назвою.")
                         return
@@ -441,16 +474,18 @@ class Moderation(commands.Cog):
     async def роль(self, ctx: commands.Context, target: str, *, roles_str: str):
         try:
             targets = []
-            if target.lower() in ["усі", "боти", "люди"]:
-                if target.lower() == "боти":
+            lower_target = target.lower()
+            if lower_target in ["усі", "боти", "люди"]:
+                if lower_target == "боти":
                     targets = [m for m in ctx.guild.members if m.bot]
-                elif target.lower() == "люди":
+                elif lower_target == "люди":
                     targets = [m for m in ctx.guild.members if not m.bot]
                 else:
                     targets = ctx.guild.members
             else:
                 member = await commands.MemberConverter().convert(ctx, target)
                 targets = [member]
+
             roles_names = [r.strip() for r in re.split(r",|\s+", roles_str) if r.strip()]
             changes = []
             for role_name in roles_names:
@@ -524,9 +559,9 @@ class Moderation(commands.Cog):
                                 else:
                                     pts[uid] = 0
                             self.save_points(pts)
-                            await ctx.send(f"✅ Бал {member.display_name} тепер: {pts.get(uid,0)}")
+                            await ctx.send(f"✅ Бал {member.display_name} тепер: {pts.get(uid, 0)}")
                         else:
-                            await ctx.send(f"ℹ️ Бал {member.display_name}: {pts.get(uid,0)}")
+                            await ctx.send(f"ℹ️ Бал {member.display_name}: {pts.get(uid, 0)}")
                     except Exception:
                         role = discord.utils.get(ctx.guild.roles, name=args[0])
                         if role:
@@ -534,7 +569,7 @@ class Moderation(commands.Cog):
                             for member in ctx.guild.members:
                                 if role in member.roles:
                                     uid = str(member.id)
-                                    msg += f"{member.display_name}: {pts.get(uid,0)}\n"
+                                    msg += f"{member.display_name}: {pts.get(uid, 0)}\n"
                             await ctx.send(msg)
                         else:
                             await ctx.send("❌ Не вдалося розпізнати цільову сутність.")
@@ -709,7 +744,7 @@ class Moderation(commands.Cog):
             logger.error(f"reset error: {e}")
 
     # =====================
-    #  Обробка помилок
+    # Обробка помилок
     # =====================
     @commands.Cog.listener()
     async def on_command_error(self, ctx: commands.Context, error: commands.CommandError):

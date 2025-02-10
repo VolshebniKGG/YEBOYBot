@@ -22,6 +22,7 @@ from yeboybot.user import setup as setup_user
 from yeboybot.music import setup as setup_music
 from yeboybot.help import setup as setup_help
 from yeboybot.rank import setup as setup_rank
+from yeboybot.autoplaylist import AutoPlaylistManager
 
 # Налаштування логування: функція setup_logging налаштовує логування з файловими
 # та консольними обробниками.
@@ -41,7 +42,7 @@ if not os.path.exists(config_path):
 config.read(config_path)
 
 try:
-    TOKEN = config.get("Bot", "Token")
+    TOKEN = config.get("Credentials", "Token")
     if not TOKEN:
         raise ValueError("Токен не вказано у файлі конфігурації.")
 except (configparser.NoSectionError, configparser.NoOptionError, ValueError) as e:
@@ -51,7 +52,7 @@ except (configparser.NoSectionError, configparser.NoOptionError, ValueError) as 
 # Ініціалізація інтенцій та бота
 intents = discord.Intents.all()
 bot = commands.Bot(
-    command_prefix=config.get("Bot", "PREFIX", fallback="!"),
+    command_prefix=config.get("Chat", "CommandPrefix", fallback="!"),
     intents=intents
 )
 
