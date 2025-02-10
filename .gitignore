@@ -2,6 +2,8 @@
 *.pyc
 ~*/
 
+bin/
+
 discord.log
 logs/
 data/
