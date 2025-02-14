@@ -38,30 +38,30 @@ class AutoPlaylist(StrUserList):
 
     @property
     def filename(self) -> str:
-        """Ім'я базового файлу цього списку відтворення."""
+        """The base file name of this playlist."""
         return self._file.name
 
     @property
     def loaded(self) -> bool:
         """
-        Повертає стан завантаження цього списку відтворення.
-        Якщо значення False, дані списку відтворення будуть недоступні.
+        Returns the load status of this playlist.
+        When False, no playlist data will be available.
         """
         return self._is_loaded
 
     @property
     def rmlog_file(self) -> pathlib.Path:
-        """Повертає ім'я згенерованого файлу журналу видалення."""
+        """Returns the generated removal log file name."""
         return self._removed_file
 
     def create_file(self) -> None:
-        """Створює файл плейлиста, якщо його не існує."""
+        """Creates the playlist file if it does not exist."""
         if not self._file.is_file():
             self._file.touch(exist_ok=True)
 
     async def load(self, force: bool = False) -> None:
         """
-        Завантажує файл плейлиста, якщо його не було завантажено.
+        Loads the playlist file if it has not been loaded.
         """
         # ignore loaded lists unless forced.
         if (self._is_loaded or self._file_lock.locked()) and not force:
@@ -80,13 +80,13 @@ class AutoPlaylist(StrUserList):
 
     def _read_playlist(self) -> List[str]:
         """
-        Прочитайте та проаналізуйте файл плейлиста на наявність записів.
+        Read and parse the playlist file for track entries.
         """
-        # Коментарі в apl-файлах обробляються лише на основі початку рядка.
-        # Вбудовані коментарі не підтримуються через підтримку записів не за URL-адресою.
+        # Comments in apl files are only handled based on start-of-line.
+        # Inline comments are not supported due to supporting non-URL entries.
         comment_char = "#"
 
-        # Прочитати файл і додати до списку відтворення без коментарів.
+        # Read in the file and add non-comments to the playlist.
         playlist: List[str] = []
         with open(self._file, "r", encoding="utf8") as fh:
             for line in fh:
@@ -104,11 +104,11 @@ class AutoPlaylist(StrUserList):
         delete_from_ap: bool = False,
     ) -> None:
         """
-        Обробляє видалення заданого пункту `пісня_суб'єкт` з черги автовідтворення,
-        і, за бажанням, з налаштованого файлу автовідтворення.
+        Handle clearing the given `song_subject` from the autoplaylist queue,
+        and optionally from the configured autoplaylist file.
 
-        :param: ex: виняток, який буде вказано як причину видалення.
-        :param: delete_from_ap: чи слід оновлювати налаштований файл списку?
+        :param: ex:  an exception that is given as the reason for removal.
+        :param: delete_from_ap:  should the configured list file be updated?
         """
         if song_subject not in self.data:
             return
@@ -116,8 +116,8 @@ class AutoPlaylist(StrUserList):
         async with self._update_lock:
             self.data.remove(song_subject)
             log.info(
-                "Видалення%s пісні зі списку відтворення, %s: %s",
-                " не відтворюється" if ex and not isinstance(ex, UserWarning) else "",
+                "Removing%s song from playlist, %s: %s",
+                " unplayable" if ex and not isinstance(ex, UserWarning) else "",
                 self._file.name,
                 song_subject,
             )
@@ -128,18 +128,18 @@ class AutoPlaylist(StrUserList):
             try:
                 with open(self._removed_file, "a", encoding="utf8") as f:
                     ctime = time.ctime()
-                    # додати 10 пропусків до рядка з # Reason:
+                    # add 10 spaces to line up with # Reason:
                     e_str = str(ex).replace("\n", "\n#" + " " * 10)
                     sep = "#" * 32
                     f.write(
-                        f"# Запис видалено {ctime}\n"
-                        f"# Трек:  {song_subject}\n"
-                        f"# Причина: {e_str}\n"
+                        f"# Entry removed {ctime}\n"
+                        f"# Track:  {song_subject}\n"
+                        f"# Reason: {e_str}\n"
                         f"\n{sep}\n\n"
                     )
             except (OSError, PermissionError, FileNotFoundError, IsADirectoryError):
                 log.exception(
-                    "Не вдалося зберегти інформацію про видалення URL-адреси плейлиста."
+                    "Could not log information about the playlist URL removal."
                 )
 
             if delete_from_ap:
@@ -151,45 +151,45 @@ class AutoPlaylist(StrUserList):
                         return f"# Removed # {url}"
                     return line
 
-                # зчитує оригінальний файл і оновлює рядки з URL-адресою.
-                # це робиться для збереження коментарів та форматування.
+                # read the original file in and update lines with the URL.
+                # this is done to preserve the comments and formatting.
                 try:
                     data = self._file.read_text(encoding="utf8").split("\n")
                     data = [_filter_replace(x, song_subject) for x in data]
                     text = "\n".join(data)
                     self._file.write_text(text, encoding="utf8")
                 except (OSError, PermissionError, FileNotFoundError):
-                    log.exception("Не вдалося зберегти файл плейлиста:  %s", self._file)
+                    log.exception("Failed to save playlist file:  %s", self._file)
                 self._bot.filecache.remove_autoplay_cachemap_entry_by_url(song_subject)
 
     async def add_track(self, song_subject: str) -> None:
         """
-        Додайте задану пісню до файлу автоматичного відтворення та до списку в пам'яті
-        до списку у пам'яті.  Не оновлює поточну чергу автовідтворення плеєра.
+        Add the given `song_subject` to the auto playlist file and in-memory
+        list.  Does not update the player's current autoplaylist queue.
         """
         if song_subject in self.data:
-            log.debug("URL-адреса вже є у списку відтворення %s, ігнорування", self._file.name)
+            log.debug("URL already in playlist %s, ignoring", self._file.name)
             return
 
         async with self._update_lock:
-            # Зауважте, що це не призведе до оновлення копії списку у програвачі.
+            # Note, this does not update the player's copy of the list.
             self.data.append(song_subject)
             log.info(
-                "Додавання нової URL-адреси до списку відтворення, %s: %s",
+                "Adding new URL to playlist, %s: %s",
                 self._file.name,
                 song_subject,
             )
 
             try:
-                # переконайтеся, що файл існує.
+                # make sure the file exists.
                 if not self._file.is_file():
                     self._file.touch(exist_ok=True)
 
-                # додати до файлу, щоб зберегти його форматування.
+                # append to the file to preserve its formatting.
                 with open(self._file, "r+", encoding="utf8") as fh:
                     lines = fh.readlines()
                     if not lines:
-                        lines.append("# Автосписок відтворення MusicBot\n")
+                        lines.append("# MusicBot Auto Playlist\n")
                     if lines[-1].endswith("\n"):
                         lines.append(f"{song_subject}\n")
                     else:
@@ -197,15 +197,15 @@ class AutoPlaylist(StrUserList):
                     fh.seek(0)
                     fh.writelines(lines)
             except (OSError, PermissionError, FileNotFoundError):
-                log.exception("Не вдалося зберегти файл плейлиста:  %s", self._file)
+                log.exception("Failed to save playlist file:  %s", self._file)
 
 
 class AutoPlaylistManager:
-    """Клас менеджера, який полегшує роботу з декількома плейлистами."""
+    """Manager class that facilitates multiple playlists."""
 
     def __init__(self, bot: "MusicBot") -> None:
         """
-        Ініціалізуйте менеджер, перевіривши файлову систему на наявність придатних для використання списків відтворення.
+        Initialize the manager, checking the file system for usable playlists.
         """
         self._bot: "MusicBot" = bot
         self._apl_dir: pathlib.Path = bot.config.auto_playlist_dir
@@ -219,22 +219,22 @@ class AutoPlaylistManager:
 
     def setup_autoplaylist(self) -> None:
         """
-        Переконайтеся, що директорії для автоматичних списків відтворення доступні, і що історичні
-        файли плейлистів скопійовано.
+        Ensure directories for auto playlists are available and that historic
+        playlist files are copied.
         """
         if not self._apl_dir.is_dir():
             self._apl_dir.mkdir(parents=True, exist_ok=True)
 
-        # Файли з попередніх версій MusicBot
+        # Files from previous versions of MusicBot
         old_usercopy = pathlib.Path(OLD_DEFAULT_AUTOPLAYLIST_FILE)
         old_bundle = pathlib.Path(OLD_BUNDLED_AUTOPLAYLIST_FILE)
 
-        # Скопіюйте або перейменуйте старі файли списку автоматичного відтворення, якщо нові файли ще не існують.
+        # Copy or rename the old auto-playlist files if new files don't exist yet.
         if old_usercopy.is_file() and not self._apl_file_usercopy.is_file():
-            # перейменувати старий autoplaylist.txt у новий каталог плейлистів.
+            # rename the old autoplaylist.txt into the new playlist directory.
             old_usercopy.rename(self._apl_file_usercopy)
         if old_bundle.is_file() and not self._apl_file_default.is_file():
-            # скопіювати збірний список відтворення до типового списку відтворення зі спільним доступом.
+            # copy the bundled playlist into the default, shared playlist.
             shutil.copy(old_bundle, self._apl_file_default)
 
         if (
@@ -247,7 +247,7 @@ class AutoPlaylistManager:
 
     @property
     def _default_pl(self) -> AutoPlaylist:
-        """Повертає список відтворення за замовчуванням, навіть якщо файл видалено."""
+        """Returns the default playlist, even if the file is deleted."""
         if self._apl_file_default.stem in self._playlists:
             return self._playlists[self._apl_file_default.stem]
 
@@ -259,12 +259,12 @@ class AutoPlaylistManager:
 
     @property
     def _usercopy_pl(self) -> Optional[AutoPlaylist]:
-        """Повертає скопійований плейлист autoplaylist.txt, якщо він існує."""
-        # повернути відображену копію, якщо це можливо.
+        """Returns the copied autoplaylist.txt playlist if it exists."""
+        # return mapped copy if possible.
         if self._apl_file_usercopy.stem in self._playlists:
             return self._playlists[self._apl_file_usercopy.stem]
 
-        # якщо копія не зіставлена, перевірити, чи існує файл, і зіставити його.
+        # if no mapped copy, check if file exists and map it.
         if self._apl_file_usercopy.is_file():
             self._playlists[self._apl_file_usercopy.stem] = AutoPlaylist(
                 filename=self._apl_file_usercopy,
@@ -275,7 +275,7 @@ class AutoPlaylistManager:
 
     @property
     def global_history(self) -> AutoPlaylist:
-        """Повертає файл глобальної історії MusicBot."""
+        """Returns the MusicBot global history file."""
         if self._apl_file_history.stem in self._playlists:
             return self._playlists[self._apl_file_history.stem]
 
@@ -287,18 +287,18 @@ class AutoPlaylistManager:
 
     @property
     def playlist_names(self) -> List[str]:
-        """Повертає всі знайдені назви списків відтворення."""
+        """Returns all discovered playlist names."""
         return list(self._playlists.keys())
 
     @property
     def loaded_playlists(self) -> List[AutoPlaylist]:
-        """Повертає всі завантажені об'єкти автовідтворення."""
+        """Returns all loaded AutoPlaylist objects."""
         return [pl for pl in self._playlists.values() if pl.loaded]
 
     @property
     def loaded_tracks(self) -> List[str]:
         """
-        Містить список усіх унікальних записів плейлиста з кожного завантаженого плейлиста.
+        Contains a list of all unique playlist entries, from each loaded playlist.
         """
         tracks: Set[str] = set()
         for pl in self._playlists.values():
@@ -308,13 +308,13 @@ class AutoPlaylistManager:
 
     def discover_playlists(self) -> None:
         """
-        Шукати доступні файли списків відтворення, але ще не завантажувати їх до пам'яті.
-        Цей метод робить списки відтворення доступними для відображення або вибору.
+        Look for available playlist files but do not load them into memory yet.
+        This method makes playlists available for display or selection.
         """
         for pfile in self._apl_dir.iterdir():
-            # обробляти тільки .txt файли
+            # only process .txt files
             if pfile.suffix.lower() == ".txt":
-                # ігнорувати вже знайдені плейлисти.
+                # ignore already discovered playlists.
                 if pfile.stem in self._playlists:
                     continue
 
@@ -323,27 +323,27 @@ class AutoPlaylistManager:
 
     def get_default(self) -> AutoPlaylist:
         """
-        Отримує відповідний список відтворення за замовчуванням на основі наявних файлів.
+        Gets the appropriate default playlist based on which files exist.
         """
-        # Якщо було скопійовано старий файл autoplaylist.txt, використовуйте його.
+        # If the old autoplaylist.txt was copied, use it.
         if self._usercopy_pl is not None:
             return self._usercopy_pl
         return self._default_pl
 
     def get_playlist(self, filename: str) -> AutoPlaylist:
-        """Отримати або створити список відтворення з вказаною назвою файлу."""
-        # використання pathlib .name тут запобігає атаці обходу каталогів.
+        """Get or create a playlist with the given filename."""
+        # using pathlib .name here prevents directory traversal attack.
         pl_file = self._apl_dir.joinpath(pathlib.Path(filename).name)
 
-        # Повернути існуючий екземпляр, якщо він є.
+        # Return the existing instance if we have one.
         if pl_file.stem in self._playlists:
             return self._playlists[pl_file.stem]
 
-        # інакше створіть новий екземпляр з цим ім'ям файлу
+        # otherwise, make a new instance with this filename
         self._playlists[pl_file.stem] = AutoPlaylist(pl_file, self._bot)
         return self._playlists[pl_file.stem]
 
     def playlist_exists(self, filename: str) -> bool:
-        """Перевірити існування заданого файлу списку відтворення."""
-        # використання pathlib .name запобігає атаці обходу каталогів.
+        """Check for the existence of the given playlist file."""
+        # using pathlib .name prevents directory traversal attack.
         return self._apl_dir.joinpath(pathlib.Path(filename).name).is_file()

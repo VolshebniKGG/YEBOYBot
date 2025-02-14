@@ -593,10 +593,25 @@ class Moderation(commands.Cog):
             }
             warns.append(warn_entry)
             self.save_warnings(warns)
-            await ctx.send(f"✅ {member.mention} попереджено. warnID: {warn_id}")
+        
+            embed = discord.Embed(
+                title="Попередження",
+                description=f"{member.mention} було попереджено.",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="warnID", value=str(warn_id), inline=False)
+            embed.add_field(name="Причина", value=reason, inline=False)
+            embed.set_footer(text=f"Попередив {ctx.author}")
+
+            await ctx.send(embed=embed)
             logger.info(f"{ctx.author} попередив {member} | warnID: {warn_id} | Причина: {reason}")
         except Exception as e:
-            await ctx.send("❌ Помилка при видачі попередження.")
+            error_embed = discord.Embed(
+                title="Помилка",
+                description="❌ Помилка при видачі попередження.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=error_embed)
             logger.error(f"warn error: {e}")
 
     # 17. removewarn — видалити попередження
@@ -686,37 +701,75 @@ class Moderation(commands.Cog):
             logger.error(f"unlock error: {e}")
 
     # 21. setcolor — встановити колір ролі
-    @commands.command(name="setcolor", help="Встановити колір ролі. Використання: !setcolor [роль] [#hex]")
+    @commands.command(
+        name="setcolor",
+        help="Встановити колір ролі. Використання: !setcolor [роль] [#hex]"
+    )
     @commands.has_permissions(manage_roles=True)
     async def setcolor(self, ctx: commands.Context, role: discord.Role, color_code: str):
         try:
-            if color_code.startswith("#"):
-                color_code = color_code[1:]
-            color_int = int(color_code, 16)
+            # Видаляємо символ '#' (якщо є) та перетворюємо hex-рядок на ціле число
+            color_int = int(color_code.lstrip("#"), 16)
             await role.edit(color=discord.Color(color_int), reason=f"{ctx.author} встановив колір")
-            await ctx.send(f"✅ Колір ролі **{role.name}** змінено.")
-            logger.info(f"{ctx.author} встановив колір для {role.name}: #{color_code}")
+        
+            embed = discord.Embed(
+                title="Успіх",
+                description=f"✅ Колір ролі **{role.name}** змінено на **#{color_code.lstrip('#')}**.",
+                color=discord.Color.green()
+            )
+            embed.set_footer(text=f"Встановив: {ctx.author}")
+            await ctx.send(embed=embed)
+        
+            logger.info(f"{ctx.author} встановив колір для {role.name}: #{color_code.lstrip('#')}")
         except Exception as e:
-            await ctx.send("❌ Не вдалося змінити колір ролі.")
+            embed = discord.Embed(
+                title="Помилка",
+                description="❌ Не вдалося змінити колір ролі.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
             logger.error(f"setcolor error: {e}")
 
     # 22. slowmode — встановити повільний режим
-    @commands.command(name="slowmode", help="Встановити або скинути повільний режим каналу. Використання: !slowmode [час]/вимкнено")
+    @commands.command(
+        name="slowmode",
+        help="Встановити або скинути повільний режим каналу. Використання: !slowmode [час]/вимкнено"
+    )
     @commands.has_permissions(manage_channels=True)
     async def slowmode(self, ctx: commands.Context, time_arg: str = None):
         try:
+            # Якщо не задано аргумент або "вимкнено", встановлюємо затримку 0
             if not time_arg or time_arg.lower() == "вимкнено":
                 delay = 0
             else:
                 delay = self.parse_duration(time_arg)
                 if delay is None:
-                    await ctx.send("❌ Невірний формат часу.")
+                    error_embed = discord.Embed(
+                        title="Помилка",
+                        description="❌ Невірний формат часу.",
+                        color=discord.Color.red()
+                    )
+                    await ctx.send(embed=error_embed)
                     return
+
+            # Застосовуємо нове значення slowmode для каналу
             await ctx.channel.edit(slowmode_delay=delay, reason=f"{ctx.author} встановив slowmode")
-            await ctx.send(f"✅ Повільний режим каналу встановлено на {delay} секунд.")
+
+            success_embed = discord.Embed(
+                title="Повільний режим",
+                description=f"✅ Повільний режим каналу встановлено на **{delay} секунд**.",
+                color=discord.Color.green()
+            )
+            success_embed.set_footer(text=f"Встановив {ctx.author}")
+            await ctx.send(embed=success_embed)
             logger.info(f"{ctx.author} встановив slowmode {delay} сек у {ctx.channel}.")
         except Exception as e:
-            await ctx.send("❌ Не вдалося встановити повільний режим.")
+            error_embed = discord.Embed(
+                title="Помилка",
+                description="❌ Не вдалося встановити повільний режим.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=error_embed)
             logger.error(f"slowmode error: {e}")
 
     # 23. reset — скидання даних (наприклад, скидання балів)

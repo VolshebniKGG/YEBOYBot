@@ -1,26 +1,38 @@
+@ECHO off
 
+CHCP 65001 > NUL
+CD /d "%~dp0"
 
-@echo off
-:: Перех?д до директор?ї проекту
-cd /d "E:\Discord Bot\Bot"
+SETLOCAL ENABLEEXTENSIONS
+SET KEY_NAME="HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+SET VALUE_NAME=HideFileExt
 
-:: Перев?рка наявност? Python
-python --version >nul 2>&1
-if %ERRORLEVEL% neq 0 (
-    pause
-    exit /b
+FOR /F "usebackq tokens=1-3" %%A IN (`REG QUERY %KEY_NAME% /v %VALUE_NAME% 2^>nul`) DO (
+    SET ValueName=%%A
+    SET ValueType=%%B
+    SET ValueValue=%%C
 )
 
-:: Перев?рка встановлених залежностей
-pip freeze > requirements.txt
-fc requirements.txt requirements.txt >nul
-if %ERRORLEVEL% neq 0 (
-    pip install -r requirements.txt
+IF x%ValueValue:0x0=%==x%ValueValue% (
+    ECHO Unhiding file extensions...
+    START CMD /c /k REG ADD HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced /v HideFileExt /t REG_DWORD /d 0 /f
+)
+ENDLOCAL
+
+
+IF EXIST %SYSTEMROOT%\py.exe (
+    CMD /k %SYSTEMROOT%\py.exe -3 run.py %*
+    EXIT
 )
 
-:: Запуск бота
-python run.py
+python --version > NUL 2>&1
+IF %ERRORLEVEL% NEQ 0 GOTO nopython
 
-pause
+CMD /k python run.py %*
+GOTO end
 
+:nopython
+ECHO ERROR: Python has either not been installed or not added to your PATH.
 
+:end
+PAUSE

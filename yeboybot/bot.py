@@ -9,36 +9,30 @@ import configparser
 import discord
 from discord.ext import commands
 
-# Налаштування логування: встановлюємо рівень для модуля discord на WARNING,
-# щоб прибрати INFO-повідомлення від бібліотеки discord.py.
+# Встановлюємо рівень логування для discord, щоб не було надмірних повідомлень
 logging.getLogger('discord').setLevel(logging.WARNING)
 
-# Імпортуємо функцію налаштування логування з вашого модуля
-from yeboybot.logging_setup import setup_logging
+# Імпортуємо модулі налаштування логування та завантаження розширень (cogs)
+from .logging_setup import setup_logging
+from .moderation import setup as setup_moderation
+from .user import setup as setup_user
+from .music import setup as setup_music
+from .help import setup as setup_help
+from .rank import setup as setup_rank
+from .autoplaylist import AutoPlaylistManager
 
-# Імпортуємо функції підключення ког-ів
-from yeboybot.moderation import setup as setup_moderation
-from yeboybot.user import setup as setup_user
-from yeboybot.music import setup as setup_music
-from yeboybot.help import setup as setup_help
-from yeboybot.rank import setup as setup_rank
-from yeboybot.autoplaylist import AutoPlaylistManager
-
-# Налаштування логування: функція setup_logging налаштовує логування з файловими
-# та консольними обробниками.
+# Налаштовуємо логування
 setup_logging()
 logger = logging.getLogger("bot")
 
-# Читання конфігурації
+# Читання конфігураційного файлу
 config = configparser.ConfigParser()
 config_path = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "config", "options.ini")
 )
-
 if not os.path.exists(config_path):
     logger.error(f"Файл конфігурації {config_path} не знайдено.")
     sys.exit(1)
-
 config.read(config_path)
 
 try:
@@ -49,19 +43,22 @@ except (configparser.NoSectionError, configparser.NoOptionError, ValueError) as 
     logger.error(f"Помилка у файлі конфігурації: {e}")
     sys.exit(1)
 
-# Ініціалізація інтенцій та бота
-intents = discord.Intents.all()
-bot = commands.Bot(
-    command_prefix=config.get("Chat", "CommandPrefix", fallback="!"),
-    intents=intents
-)
+def create_bot() -> commands.Bot:
+    """Створює новий екземпляр бота із заданими інтенціями та подіями."""
+    intents = discord.Intents.all()
+    bot = commands.Bot(
+        command_prefix=config.get("Chat", "CommandPrefix", fallback="!"),
+        intents=intents
+    )
 
-@bot.event
-async def on_ready():
-    logger.info(f"Бот запущено як {bot.user} ({bot.user.id})")
+    @bot.event
+    async def on_ready():
+        logger.info(f"Бот запущено як {bot.user} ({bot.user.id})")
+
+    return bot
 
 def load_extensions(bot_instance: commands.Bot) -> None:
-    """Ручне завантаження всіх ког-ів (extension setup)."""
+    """Завантажуємо всі потрібні розширення (cogs) для бота."""
     setup_moderation(bot_instance)
     setup_user(bot_instance)
     setup_music(bot_instance)
@@ -69,17 +66,20 @@ def load_extensions(bot_instance: commands.Bot) -> None:
     setup_rank(bot_instance)
     logger.info("Усі розширення (Cog-и) завантажено успішно.")
 
-def main() -> None:
-    """Головна функція запуску бота."""
+async def main():
+    global bot  # оголошуємо bot як глобальну, щоб його було видно в інших місцях, якщо потрібно
+    bot = create_bot()
     load_extensions(bot)
     try:
-        bot.run(TOKEN)
+        # Використовуємо асинхронний метод старту
+        await bot.start(TOKEN)
     except Exception as e:
-        logger.error(f"Помилка при запуску бота: {e}")
+        logger.error(f"Помилка при старті бота: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
+
 
 
 

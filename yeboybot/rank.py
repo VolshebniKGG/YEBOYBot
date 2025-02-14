@@ -241,7 +241,7 @@ class RankCog(commands.Cog):
     def calculate_level(self, xp: int, multiplier: int) -> int:
         return int(math.sqrt(xp / multiplier)) + 1
 
-    def get_level_thresholds(self, level: int, multiplier: int) -> (int, int):
+    def get_level_thresholds(self, level: int, multiplier: int) -> tuple[int, int]:
         prev_threshold = ((level - 1) ** 2) * multiplier
         next_threshold = (level ** 2) * multiplier
         return prev_threshold, next_threshold

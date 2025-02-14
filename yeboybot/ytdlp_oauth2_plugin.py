@@ -1,3 +1,13 @@
+"""
+ ytdlp_oauth2_plugin contains code provided under an Unlicense license,
+ based on the plugin found here:
+   https://github.com/coletdjnz/yt-dlp-youtube-oauth2
+
+ It is modified by MusicBot contributors to better integrate features.
+ It may not contain all features or updates, and may break at any time.
+ It will be replaced with the original plugin if it is installed.
+"""
+
 import datetime
 import importlib
 import inspect

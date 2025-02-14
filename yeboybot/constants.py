@@ -1,21 +1,24 @@
 import subprocess
 from typing import List
 
+VERSION: str = ""
+
 # constant string exempt from i18n
-DEFAULT_FOOTER_TEXT: str = f"Volshebnik_/YEBOYBot"
-DEFAULT_BOT_NAME: str = "YEBOYBot"
+DEFAULT_FOOTER_TEXT: str = f"Just-Some-Bots/MusicBot"
+DEFAULT_BOT_NAME: str = "MusicBot"
 DEFAULT_BOT_ICON: str = "https://i.imgur.com/gFHBoZA.png"
 DEFAULT_OWNER_GROUP_NAME: str = "Owner (auto)"
 DEFAULT_PERMS_GROUP_NAME: str = "Default"
-# Цей рядок UA використовується YEBOYBot тільки для сесії aiohttp.
-# Мається на увазі зв'язок між discord API та spotify API.
-# НЕ використовується ytdlp, вони мають функцію динамічного вибору UA.
-MUSICBOT_USER_AGENT_AIOHTTP: str = f"YEBOYBot"
+# This UA string is used by MusicBot only for the aiohttp session.
+# Meaning discord API and spotify API communications.
+# NOT used by ytdlp, they have a dynamic UA selection feature.
+MUSICBOT_USER_AGENT_AIOHTTP: str = f"MusicBot"
 
 
-# Константи шляху до файлу
+# File path constants
 DEFAULT_OPTIONS_FILE: str = "config/options.ini"
 DEFAULT_PERMS_FILE: str = "config/permissions.ini"
+DEFAULT_I18N_FILE: str = "config/i18n/en.json"
 DEFAULT_COMMAND_ALIAS_FILE: str = "config/aliases.json"
 DEFAULT_USER_BLOCKLIST_FILE: str = "config/blocklist_users.txt"
 DEFAULT_SONG_BLOCKLIST_FILE: str = "config/blocklist_songs.txt"
@@ -27,86 +30,98 @@ DEFAULT_MEDIA_FILE_DIR: str = "media/"
 DEFAULT_AUDIO_CACHE_DIR: str = "audio_cache/"
 DEFAULT_DATA_DIR: str = "data/"
 
-# Назви файлів у теках DEFAULT_DATA_DIR або гільдії.
+# File names within the DEFAULT_DATA_DIR or guild folders.
 DATA_FILE_SERVERS: str = "server_names.txt"
 DATA_FILE_CACHEMAP: str = "playlist_cachemap.json"
-DATA_FILE_COOKIES: str = "cookies.txt"  # Це не підтримується, прочитайте документацію з yt-dlp.
+DATA_FILE_COOKIES: str = "cookies.txt"  # No support for this, go read yt-dlp docs.
 DATA_FILE_YTDLP_OAUTH2: str = "oauth2.token"
 DATA_GUILD_FILE_QUEUE: str = "queue.json"
 DATA_GUILD_FILE_CUR_SONG: str = "current.txt"
 DATA_GUILD_FILE_OPTIONS: str = "options.json"
 
-# Приклади конфігураційних файлів.
+# Example config files.
 EXAMPLE_OPTIONS_FILE: str = "config/example_options.ini"
 EXAMPLE_PERMS_FILE: str = "config/example_permissions.ini"
 EXAMPLE_COMMAND_ALIAS_FILE: str = "config/example_aliases.json"
 
-# Налаштування, пов'язані зі списком відтворення.
+# Playlist related settings.
 APL_FILE_DEFAULT: str = "default.txt"
 APL_FILE_HISTORY: str = "history.txt"
 APL_FILE_APLCOPY: str = "autoplaylist.txt"
 
-# Константи, пов'язані з веденням журналу
+# Logging related constants
 DEFAULT_MUSICBOT_LOG_FILE: str = "logs/musicbot.log"
 DEFAULT_DISCORD_LOG_FILE: str = "logs/discord.log"
-# За замовчуванням 0, для відсутності обертання взагалі.
+# Default is 0, for no rotation at all.
 DEFAULT_LOGS_KEPT: int = 0
 MAXIMUM_LOGS_LIMIT: int = 100
-# Це значення пропускається через strftime(), а потім вставляється між
+# This value is run through strftime() and then sandwiched between
 DEFAULT_LOGS_ROTATE_FORMAT: str = ".ended-%Y-%j-%H%m%S"
-# Рівень журналу за замовчуванням може бути одним з:
+# Default log level can be one of:
 # CRITICAL, ERROR, WARNING, INFO, DEBUG,
-# VOICEDEBUG, FFMPEG, NOISY або ВСЕ
+# VOICEDEBUG, FFMPEG, NOISY, or EVERYTHING
 DEFAULT_LOG_LEVEL: str = "INFO"
 
-# За замовчуванням цільовий FQDN або IP для пінгування мережевим тестером.
+# Default target FQDN or IP to ping with network tester.
 DEFAULT_PING_TARGET: str = "discord.com"
-# URI за замовчуванням, який використовується для резервного тестування мережі HTTP.
-# Цей URI має бути доступним через стандартний HTTP на вищевказаному домені/IP-адресі.
+# Default file location URI used by fallback HTTP network testing.
+# This URI must be available via standard HTTP on the above domain/IP target.
 DEFAULT_PING_HTTP_URI: str = "/robots.txt"
-# Максимальний час у секундах, протягом якого пінг повинен чекати на відповідь.
+# Max time in seconds that ping should wait for response.
 DEFAULT_PING_TIMEOUT: int = 5
-# Час у секундах для очікування між пінгами.
+# Time in seconds to wait between pings.
 DEFAULT_PING_SLEEP: float = 2
-# Налаштування часу пінгу для резервного HTTP.
+# Ping time settings for HTTP fallback.
 FALLBACK_PING_TIMEOUT: int = 15
 FALLBACK_PING_SLEEP: float = 4
 
-# Мінімальна кількість секунд для очікування з'єднання VoiceClient.
+# Minimum number of seconds to wait for a VoiceClient to connect.
 VOICE_CLIENT_RECONNECT_TIMEOUT: int = 5
-# Максимальна кількість повторних спроб для з'єднання з VoiceClient.
-# Кожна повторна спроба збільшує таймаут, множачи кількість спроб на вищевказаний таймаут.
+# Maximum number of retry attempts to make for VoiceClient connection.
+# Each retry increases the timeout by multiplying attempts by the above timeout.
 VOICE_CLIENT_MAX_RETRY_CONNECT: int = 5
 
-# Максимальна кількість потоків, які MusicBot буде використовувати для завантаження та видобування інформації.
+# Maximum number of threads MusicBot will use for downloading and extracting info.
 DEFAULT_MAX_INFO_DL_THREADS: int = 2
-# Максимальна кількість секунд очікування на запит HEAD для медіафайлів.
+# Maximum number of seconds to wait for HEAD request on media files.
 DEFAULT_MAX_INFO_REQUEST_TIMEOUT: int = 10
 
-# Час очікування перед початком попереднього завантаження під час відтворення нової пісні.
+# Time to wait before starting pre-download when a new song is playing.
 DEFAULT_PRE_DOWNLOAD_DELAY: float = 4.0
 
-# Час у секундах для очікування перед невдалою авторизацією oauth2.
-# Це дає час для авторизації, а також запобігає зависанню процесу при вимкненні.
+# Time in seconds to wait before oauth2 authorization fails.
+# This provides time to authorize as well as prevent process hang at shutdown.
 DEFAULT_YTDLP_OAUTH2_TTL: float = 180.0
 
-# Діапазони за замовчуванням / запасні діапазони, що використовуються для плагіна OAuth2 ytdlp.
+# Default / fallback scopes used for OAuth2 ytdlp plugin.
 DEFAULT_YTDLP_OAUTH2_SCOPES: str = (
     "http://gdata.youtube.com https://www.googleapis.com/auth/youtube"
 )
-# Екстрактори інформації для виключення з виправлень OAuth2, коли OAuth2 увімкнено.
+# Info Extractors to exclude from OAuth2 patching, when OAuth2 is enabled.
 YTDLP_OAUTH2_EXCLUDED_IES: List[str] = [
     "YoutubeBaseInfoExtractor",
     "YoutubeTabBaseInfoExtractor",
 ]
-# Творці клієнтів Yt-dlp, які не сумісні з плагіном OAuth2.
+# Yt-dlp client creators that are not compatible with OAuth2 plugin.
 YTDLP_OAUTH2_UNSUPPORTED_CLIENTS: List[str] = [
     "web_creator",
     "android_creator",
     "ios_creator",
 ]
-# Додаткові клієнти Yt-dlp, які слід додати до списку клієнтів OAuth2.
+# Additional Yt-dlp clients to add to the OAuth2 client list.
 YTDLP_OAUTH2_CLIENTS: List[str] = ["mweb"]
 
-# Discord та інші константи API
+# Discord and other API constants
 DISCORD_MSG_CHAR_LIMIT: int = 2000
+
+
+EMOJI_CHECK_MARK_BUTTON: str = "\u2705"
+EMOJI_CROSS_MARK_BUTTON: str = "\u274E"
+EMOJI_STOP_SIGN: str = "\U0001F6D1"
+EMOJI_IDLE_ICON: str = "\U0001f634"  # same as \N{SLEEPING FACE}
+EMOJI_PLAY_ICON: str = "\u25B6"  # add \uFE0F to make button
+EMOJI_PAUSE_ICON: str = "\u23F8\uFE0F"  # add \uFE0F to make button
+EMOJI_LAST_ICON: str = "\u23ED\uFE0F"  # next track button
+EMOJI_FIRST_ICON: str = "\u23EE\uFE0F"  # last track button
+EMOJI_NEXT_ICON: str = "\u23E9"  # fast-forward button
+EMOJI_PREV_ICON: str = "\u23EA"  # rewind button
