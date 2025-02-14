@@ -118,41 +118,41 @@ class User(commands.Cog):
         embed.set_footer(text=f"Запитано {ctx.author.display_name}", icon_url=ctx.author.display_avatar.url)
 
         await ctx.send(embed=embed)
-
-    @commands.command(name="add_warning", help="Додає попередження користувачу")
-    @commands.has_permissions(manage_messages=True)
-    async def add_warning(self, ctx: commands.Context, member: discord.Member, *, reason="Немає причини"):
-        """
-        Додає попередження користувачу.
-        Збільшує загальну кількість попереджень та зберігає інформацію у JSON-файлі.
-        """
-        logger.info("Команда add_warning викликана %s для користувача %s. Причина: %s", ctx.author, member, reason)
-        user_data = self._load_user_data(member.id)
-        user_data["warnings"] = user_data.get("warnings", 0) + 1
-        user_data.setdefault("reasons", []).append(reason)
-        self._save_user_data(member.id, user_data)
-
-        await ctx.send(
-            f"⚠️ {member.mention} отримав попередження.\nПричина: {reason}.\n"
-            f"Загальна кількість попереджень: {user_data['warnings']}"
-        )
-
-    @commands.command(name="clear_warnings", help="Очищає всі попередження користувача")
-    @commands.has_permissions(manage_messages=True)
-    async def clear_warnings(self, ctx: commands.Context, member: discord.Member):
-        """
-        Очищає всі попередження користувача,
-        обнуляючи відповідні дані у JSON-файлі.
-        """
-        logger.info("Команда clear_warnings викликана %s для користувача %s", ctx.author, member)
-        user_data = self._load_user_data(member.id)
-        if "warnings" in user_data and user_data["warnings"] > 0:
-            user_data["warnings"] = 0
-            user_data["reasons"] = []
-            self._save_user_data(member.id, user_data)
-            await ctx.send(f"✅ Усі попередження для {member.mention} очищено.")
-        else:
-            await ctx.send(f"❌ У {member.mention} немає жодного попередження.")
+#               Команди перенесені у файл moderation.py
+#    @commands.command(name="add_warning", help="Додає попередження користувачу")
+#    @commands.has_permissions(manage_messages=True)
+#    async def add_warning(self, ctx: commands.Context, member: discord.Member, *, reason="Немає причини"):
+#        """
+#        Додає попередження користувачу.
+#        Збільшує загальну кількість попереджень та зберігає інформацію у JSON-файлі.
+#        """
+#        logger.info("Команда add_warning викликана %s для користувача %s. Причина: %s", ctx.author, member, reason)
+#        user_data = self._load_user_data(member.id)
+#        user_data["warnings"] = user_data.get("warnings", 0) + 1
+#        user_data.setdefault("reasons", []).append(reason)
+#        self._save_user_data(member.id, user_data)
+#
+#        await ctx.send(
+#            f"⚠️ {member.mention} отримав попередження.\nПричина: {reason}.\n"
+#            f"Загальна кількість попереджень: {user_data['warnings']}"
+#        )
+#
+#    @commands.command(name="clear_warnings", help="Очищає всі попередження користувача")
+#    @commands.has_permissions(manage_messages=True)
+#    async def clear_warnings(self, ctx: commands.Context, member: discord.Member):
+#        """
+#        Очищає всі попередження користувача,
+#        обнуляючи відповідні дані у JSON-файлі.
+#        """
+#        logger.info("Команда clear_warnings викликана %s для користувача %s", ctx.author, member)
+#        user_data = self._load_user_data(member.id)
+#        if "warnings" in user_data and user_data["warnings"] > 0:
+#            user_data["warnings"] = 0
+#           user_data["reasons"] = []
+#            self._save_user_data(member.id, user_data)
+#            await ctx.send(f"✅ Усі попередження для {member.mention} очищено.")
+#        else:
+#            await ctx.send(f"❌ У {member.mention} немає жодного попередження.")
 
     @commands.command(name="avatar", help="Показує аватар користувача")
     async def avatar(self, ctx: commands.Context, member: discord.Member = None):
