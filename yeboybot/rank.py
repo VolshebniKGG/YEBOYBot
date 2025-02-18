@@ -20,20 +20,34 @@ logging.basicConfig(
 logger = logging.getLogger("bot")
 
 # ----------------------- Константи та налаштування -----------------------
-# Поточний файл знаходиться в каталозі yeboybot, тому BASE_DIR.parent вказує на корінь проекту.
 BASE_DIR: Path = Path(__file__).resolve().parent
 BASE_DATA_PATH: Path = BASE_DIR.parent / "data"
 DLC_PATH: Path = BASE_DIR.parent / "DLC"
 
 XP_FOR_MESSAGE: int = 5
-# Використовуються як базові множники для обчислення cumulative XP.
-# Формула рівня: level = int(sqrt(xp / multiplier)) + 1
 TEXT_XP_MULTIPLIER: int = 100
 VOICE_XP_MULTIPLIER: int = 50
 VOICE_XP_PER_MINUTE: int = 2
 
-# ----------------------- Функції для малювання -----------------------
+# ----------------------- Допоміжна функція для кругового кропу -----------------------
+def circle_crop(image: Image.Image, size: int) -> Image.Image:
+    """
+    Функція обрізає передане зображення до круга.
+    Параметри:
+      image: вхідне зображення (буде змінено під заданий розмір).
+      size: бажаний розмір (ширина = висота) для зображення.
+    Повертає:
+      Зображення з прозорим фоном у формі круга.
+    """
+    image = image.resize((size, size))
+    mask = Image.new("L", (size, size), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.ellipse((0, 0, size, size), fill=255)
+    result = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    result.paste(image, (0, 0), mask)
+    return result
 
+# ----------------------- Функції для малювання (без змін) -----------------------
 def draw_microphone(
     draw: ImageDraw.Draw,
     x: int,
@@ -100,32 +114,13 @@ def create_bubble_icon(
     draw_bubble(d, x=pad, y=pad, width=width - 2 * pad, height=height - 2 * pad, color=color)
     return icon
 
-def make_circle(
-    image: Image.Image,
-    size_with_border: int = 70,
-    border_color: tuple = (255, 255, 255, 255)
-) -> Optional[Image.Image]:
-    if not image:
-        return None
-    mask = Image.new("L", image.size, 0)
-    d = ImageDraw.Draw(mask)
-    d.ellipse((0, 0) + image.size, fill=255)
-    circle_im = Image.new("RGBA", (size_with_border, size_with_border), (0, 0, 0, 0))
-    draw_border = ImageDraw.Draw(circle_im)
-    draw_border.ellipse((0, 0, size_with_border, size_with_border), fill=border_color)
-    offset_x = (size_with_border - image.size[0]) // 2
-    offset_y = (size_with_border - image.size[1]) // 2
-    circle_im.paste(image, (offset_x, offset_y), mask)
-    return circle_im
-
 # ----------------------- Cog для ранжування -----------------------
-
 class RankCog(commands.Cog):
     """
-    Cog для:
+    Cog відповідає за:
       1) Нарахування текстового XP (on_message)
       2) Нарахування голосового XP (фоновий цикл)
-      3) Команди !rank із візуальним відображенням рангу користувача.
+      3) Команду !rank, яка генерує зображення з інформацією про рівень користувача.
     """
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -159,7 +154,6 @@ class RankCog(commands.Cog):
             logger.info("Voice XP loop скасовано (cog_unload).")
 
     # ------------------ Файлові операції ------------------
-
     def get_guild_folder(self, guild: discord.Guild) -> Path:
         guild_folder = self.data_path / "rank" / str(guild.id)
         guild_folder.mkdir(parents=True, exist_ok=True)
@@ -227,7 +221,6 @@ class RankCog(commands.Cog):
         return guild_levels[user_id]
 
     # ------------------ Асинхронне завантаження зображень ------------------
-
     async def fetch_image(self, url: str) -> Image.Image:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
@@ -237,7 +230,6 @@ class RankCog(commands.Cog):
                 return Image.open(BytesIO(data)).convert("RGBA")
 
     # ------------------ Допоміжні функції для розрахунку рівня ------------------
-
     def calculate_level(self, xp: int, multiplier: int) -> int:
         return int(math.sqrt(xp / multiplier)) + 1
 
@@ -247,7 +239,6 @@ class RankCog(commands.Cog):
         return prev_threshold, next_threshold
 
     # ------------------ Обробка повідомлень та нарахування XP ------------------
-
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot or not message.guild:
@@ -290,7 +281,6 @@ class RankCog(commands.Cog):
                 await asyncio.sleep(60)
 
     # ------------------ Команда !rank ------------------
-
     @commands.command(name="rank")
     async def rank_command(self, ctx: commands.Context) -> None:
         logger.info("Команда !rank викликана користувачем %s у гільдії %s", ctx.author.id, ctx.guild.id)
@@ -304,78 +294,83 @@ class RankCog(commands.Cog):
         xp_voice = user_data["xp_voice"]
         level_voice = user_data["level_voice"]
 
-        # Обчислюємо пороги для текстового рівня
+        # Розрахунок порогів та прогресу для текстового рівня
         prev_text_threshold, next_text_threshold = self.get_level_thresholds(level_text, TEXT_XP_MULTIPLIER)
         text_progress = (xp_text - prev_text_threshold) / (next_text_threshold - prev_text_threshold) if next_text_threshold > prev_text_threshold else 0
-        # <--- Обмежуємо значення в діапазоні [0, 1]
         text_progress = max(0, min(text_progress, 1))
-
         text_ranking = sorted(guild_levels.items(), key=lambda x: x[1]["xp_text"], reverse=True)
         text_rank = next((index + 1 for index, (mid, _) in enumerate(text_ranking) if mid == user_id), 1)
 
-        # Обчислюємо пороги для голосового рівня
+        # Розрахунок порогів та прогресу для голосового рівня
         prev_voice_threshold, next_voice_threshold = self.get_level_thresholds(level_voice, VOICE_XP_MULTIPLIER)
         voice_progress = (xp_voice - prev_voice_threshold) / (next_voice_threshold - prev_voice_threshold) if next_voice_threshold > prev_voice_threshold else 0
-        voice_progress = max(0, min(voice_progress, 1))  # <--- Обмежуємо значення в діапазоні [0, 1]
-
+        voice_progress = max(0, min(voice_progress, 1))
         voice_ranking = sorted(guild_levels.items(), key=lambda x: x[1]["xp_voice"], reverse=True)
         voice_rank = next((index + 1 for index, (mid, _) in enumerate(voice_ranking) if mid == user_id), 1)
 
         background = self.background_template.copy()
 
+        # Завантаження та підготовка аватара користувача
         try:
             avatar_url = ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url
             avatar_img = await self.fetch_image(avatar_url)
-            avatar_img = avatar_img.resize((65, 65))
+            # Зміна розміру аватара до 126x126, щоб помістити у круг з координатами:
+            # Ліво: 15, Верх: 1, Право: 141, Низ: 127 (діаметр 126px)
+            avatar_img = avatar_img.resize((126, 126))
         except Exception as e:
             logger.error("Помилка завантаження аватара: %s", e, exc_info=True)
             await ctx.send("Помилка завантаження аватара.")
             return
 
+        # Завантаження та підготовка іконки сервера
         server_icon_img = None
         if ctx.guild.icon:
             try:
                 server_icon_img = await self.fetch_image(ctx.guild.icon.url)
-                server_icon_img = server_icon_img.resize((40, 40))
+                # Зміна розміру до 34x34, щоб помістити у круг з координатами:
+                # Ліво: 183, Верх: 1, Право: 217, Низ: 35 (діаметр 34px, центр (200,18))
+                server_icon_img = server_icon_img.resize((34, 34))
             except Exception as e:
                 logger.error("Помилка завантаження іконки сервера: %s", e, exc_info=True)
                 server_icon_img = None
 
-        text_icon_img = create_bubble_icon(24, 24, color=(255, 255, 255))
-        mic_icon_img = create_microphone_icon(size=24, scale=1.0, color=(255, 255, 255))
-        avatar_with_border = make_circle(avatar_img, 75)
-        server_icon_with_border = make_circle(server_icon_img, 50) if server_icon_img else None
+        # Створення кругових зображень без додаткової рамки
+        avatar_cropped = circle_crop(avatar_img, 126)
+        server_cropped = circle_crop(server_icon_img, 34) if server_icon_img else None
 
         draw = ImageDraw.Draw(background)
-        if avatar_with_border:
-            background.paste(avatar_with_border, (15, 15), avatar_with_border)
-        if server_icon_with_border:
-            background.paste(server_icon_with_border, (440, 10), server_icon_with_border)
+        # Пастимо аватар користувача за новими координатами (бокова рамка визначається bounding box)
+        background.paste(avatar_cropped, (15, 1), avatar_cropped)
+        # Пастимо іконку сервера за новими координатами
+        if server_cropped:
+            background.paste(server_cropped, (183, 1), server_cropped)
+
+        # Вивід імені користувача (залишається без змін)
         draw.text((100, 20), f"{ctx.author.name}", font=self.font_big, fill="white")
 
-        # 1) Блок текстового рівня
-        background.paste(text_icon_img, (100, 50), text_icon_img)
-        draw.text((125, 50), f"LVL {level_text}", font=self.font_med, fill="white")
-        draw.text((125, 66), f"Rank: #{text_rank}", font=self.font_small, fill="white")
-        draw.text((220, 66), f"Total: {xp_text}", font=self.font_small, fill="white")
-        draw.text((125, 82), f"{xp_text} / {next_text_threshold}", font=self.font_small, fill="white")
+        # ----- Блок текстового рівня -----
+        # Здвигаємо напис "LVL" на 45px вліво: з (125,50) -> (80,50)
+        draw.text((80, 50), f"LVL {level_text}", font=self.font_med, fill="white")
+        # Малюємо горизонтальний прогрес-бар для текстового XP:
+        # Бар починається в (258,105) і закінчується в (483,125) (ширина 20px)
+        draw.rounded_rectangle((258, 105, 483, 125), radius=5, fill="#505050")
+        filled_width = 258 + int((483 - 258) * text_progress)
+        draw.rounded_rectangle((258, 105, filled_width, 125), radius=5, fill="#4CAF50")
+        # Додаємо написи над баром: "Rank" зліва та "Total" справа
+        draw.text((258, 85), f"Rank: #{text_rank}", font=self.font_small, fill="white")
+        draw.text((423, 85), f"Total: {xp_text}", font=self.font_small, fill="white")
 
-        bar_tx1, bar_ty1, bar_tx2, bar_ty2 = 125, 95, 320, 108
-        draw.rounded_rectangle((bar_tx1, bar_ty1, bar_tx2, bar_ty2), radius=5, fill="#505050")
-        fill_twidth = bar_tx1 + int((bar_tx2 - bar_tx1) * text_progress)
-        draw.rounded_rectangle((bar_tx1, bar_ty1, fill_twidth, bar_ty2), radius=5, fill="#4CAF50")
-
-        # 2) Блок голосового рівня
-        background.paste(mic_icon_img, (100, 115), mic_icon_img)
-        draw.text((125, 115), f"LVL {level_voice}", font=self.font_med, fill="white")
-        draw.text((125, 131), f"Rank: #{voice_rank}", font=self.font_small, fill="white")
-        draw.text((220, 131), f"Total: {xp_voice}", font=self.font_small, fill="white")
-        draw.text((125, 147), f"{xp_voice} / {next_voice_threshold}", font=self.font_small, fill="white")
-
-        bar_vx1, bar_vy1, bar_vx2, bar_vy2 = 125, 160, 320, 173
-        draw.rounded_rectangle((bar_vx1, bar_vy1, bar_vx2, bar_vy2), radius=5, fill="#505050")
-        fill_vwidth = bar_vx1 + int((bar_vx2 - bar_vx1) * voice_progress)
-        draw.rounded_rectangle((bar_vx1, bar_vy1, fill_vwidth, bar_vy2), radius=5, fill="#2196F3")
+        # ----- Блок голосового рівня -----
+        # Здвигаємо напис "LVL" для голосу на 45px вліво: з (125,115) -> (80,115)
+        draw.text((80, 115), f"LVL {level_voice}", font=self.font_med, fill="white")
+        # Малюємо горизонтальний прогрес-бар для голосового XP:
+        # Бар починається в (258,143) і закінчується в (483,163) (ширина 20px)
+        draw.rounded_rectangle((258, 143, 483, 163), radius=5, fill="#505050")
+        filled_width_voice = 258 + int((483 - 258) * voice_progress)
+        draw.rounded_rectangle((258, 143, filled_width_voice, 163), radius=5, fill="#2196F3")
+        # Додаємо написи над баром: "Rank" зліва та "Total" справа
+        draw.text((258, 133), f"Rank: #{voice_rank}", font=self.font_small, fill="white")
+        draw.text((423, 133), f"Total: {xp_voice}", font=self.font_small, fill="white")
 
         with BytesIO() as image_binary:
             background.save(image_binary, "PNG")
