@@ -174,12 +174,12 @@ class User(commands.Cog):
         await ctx.send(embed=embed)
 
 
-def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot):
     """
     Підключення Cog до бота.
     Викликається при завантаженні розширення (bot.load_extension).
     """
-    bot.add_cog(User(bot))
+    await bot.add_cog(User(bot))
     logger.info("User Cog успішно завантажено.")
 
 

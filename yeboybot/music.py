@@ -654,9 +654,9 @@ class Music(commands.Cog):
 # -----------------------------------------------------
 # Підключення Music Cog до бота
 # -----------------------------------------------------
-def setup(bot: commands.Bot) -> None:
+async def setup(bot: commands.Bot) -> None:
     try:
-        bot.add_cog(Music(bot))
+        await bot.add_cog(Music(bot))
         logger.info("Music Cog successfully loaded.")
     except Exception as e:
         logger.error(f"Failed to load Music Cog: {e}", exc_info=True)

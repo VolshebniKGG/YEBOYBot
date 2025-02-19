@@ -96,19 +96,22 @@ class RankCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         logger.info("RankCog ініціалізовано.")
-        self.voice_xp_task = self.bot.loop.create_task(self.give_voice_xp_loop())
+        self.voice_xp_task = asyncio.create_task(self.give_voice_xp_loop())
         self.levels_lock = asyncio.Lock()
         self.data_path: Path = BASE_DATA_PATH
         self.dlc_path: Path = DLC_PATH
 
         # Завантаження шрифтів
         try:
-            self.font_big = ImageFont.truetype(str(self.dlc_path / "font.ttf"), 18)
-            self.font_med = ImageFont.truetype(str(self.dlc_path / "font.ttf"), 14)
-            self.font_small = ImageFont.truetype(str(self.dlc_path / "font.ttf"), 12)
-        except OSError:
-            logger.error("Не знайдено шрифт (font.ttf) за шляхом: %s. Використовується стандартний шрифт.",
-                         self.dlc_path / "font.ttf")
+            font_path = self.dlc_path / "font.ttf"
+            if font_path.exists():
+                self.font_big = ImageFont.truetype(str(font_path), 18)
+                self.font_med = ImageFont.truetype(str(font_path), 14)
+                self.font_small = ImageFont.truetype(str(font_path), 12)
+            else:
+                raise OSError("Шрифт не знайдено.")
+        except OSError as e:
+            logger.error(f"Помилка завантаження шрифту: {e}. Використовується стандартний шрифт.")
             self.font_big = ImageFont.load_default()
             self.font_med = ImageFont.load_default()
             self.font_small = ImageFont.load_default()
@@ -331,6 +334,6 @@ class RankCog(commands.Cog):
 
         await self.save_guild_levels(ctx.guild, levels)
 
-def setup(bot: commands.Bot) -> None:
-    bot.add_cog(RankCog(bot))
+async def setup(bot: commands.Bot) -> None:
+    await bot.add_cog(RankCog(bot))
     logger.info("RankCog успішно завантажено.")

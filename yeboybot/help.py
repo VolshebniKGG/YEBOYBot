@@ -119,12 +119,12 @@ class Help(commands.Cog):
         logger.info(f"Help command used by {ctx.author} ({ctx.author.id})")
 
 
-def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot):
     """
     Функція підключення ког-а до бота (py-cord).
     Використовується при виклику: bot.load_extension('help')
     """
-    bot.add_cog(Help(bot))
+    await bot.add_cog(Help(bot))
     logger.info("Loaded Help extension")
 
 

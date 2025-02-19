@@ -1,5 +1,3 @@
-
-
 import os
 import sys
 import logging
@@ -57,29 +55,25 @@ def create_bot() -> commands.Bot:
 
     return bot
 
-def load_extensions(bot_instance: commands.Bot) -> None:
+async def load_extensions(bot_instance: commands.Bot) -> None:
     """Завантажуємо всі потрібні розширення (cogs) для бота."""
-    setup_moderation(bot_instance)
-    setup_user(bot_instance)
-    setup_music(bot_instance)
-    setup_help(bot_instance)
-    setup_rank(bot_instance)
+    await setup_moderation(bot_instance)
+    await setup_user(bot_instance)
+    await setup_music(bot_instance)
+    await setup_help(bot_instance)
+    await setup_rank(bot_instance)
     logger.info("Усі розширення (Cog-и) завантажено успішно.")
 
 async def main():
     global bot  # оголошуємо bot як глобальну, щоб його було видно в інших місцях, якщо потрібно
     bot = create_bot()
-    load_extensions(bot)
+    await load_extensions(bot)
     try:
-        # Використовуємо асинхронний метод старту
-        await bot.start(TOKEN)
+        async with bot:
+            await bot.start(TOKEN)
     except Exception as e:
         logger.error(f"Помилка при старті бота: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-

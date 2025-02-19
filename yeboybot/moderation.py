@@ -1329,8 +1329,8 @@ class Moderation(commands.Cog):
             await ctx.send("❌ Сталася помилка при виконанні команди. Перевірте лог для подробиць.")
 
 
-def setup(bot: commands.Bot):
-    bot.add_cog(Moderation(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(Moderation(bot))
     logger.info("✅ Cog Moderation успішно завантажено.")
 
 
