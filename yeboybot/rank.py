@@ -308,19 +308,19 @@ class RankCog(commands.Cog):
 
         # ----- Прогрес-бар для текстового XP -----
         xp_bar_text = f"{xp_text} / {next_text}"
-        draw_progress_bar(draw, 260, 100, 483, 120, text_progress, "#505050", "#4CAF50", font=self.font_small, radius=10)
+        draw_progress_bar(draw, 260, 90, 483, 110, text_progress, "#c0b5f2", "#37393d", font=self.font_small, radius=10)
         # Додаємо текст над баром
-        draw.text((260, 83), f"Rank: #{text_rank}", font=self.font_small, fill="white")
-        draw.text((423, 83), f"Total: {xp_text}", font=self.font_small, fill="white")
+        draw.text((260, 73), f"Rank: #{text_rank}", font=self.font_small, fill="white")
+        draw.text((423, 73), f"Total: {xp_text}", font=self.font_small, fill="white")
         # Додаємо рядок всередині бару
-        draw_centered_text(draw, xp_bar_text, (260, 100, 483, 120), self.font_small, "white")
+        draw_centered_text(draw, xp_bar_text, (260, 90, 483, 110), self.font_small, "white")
         # Відображення рівня (окремо)
         text_level_box = (193, 90, 213, 107)
         draw_centered_text(draw, str(level_text), text_level_box, self.font_med, "white")
 
         # ----- Прогрес-бар для голосового XP -----
         voice_bar_text = f"{xp_voice} / {next_voice}"
-        draw_progress_bar(draw, 260, 143, 483, 163, voice_progress, "#505050", "#2196F3", font=self.font_small, radius=10)
+        draw_progress_bar(draw, 260, 143, 483, 163, voice_progress, "#c0b5f2", "#37393d", font=self.font_small, radius=10)
         draw.text((260, 126), f"Rank: #{voice_rank}", font=self.font_small, fill="white")
         draw.text((423, 126), f"Total: {xp_voice}", font=self.font_small, fill="white")
         draw_centered_text(draw, voice_bar_text, (260, 143, 483, 163), self.font_small, "white")
