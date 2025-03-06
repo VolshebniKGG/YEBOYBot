@@ -1,9 +1,8 @@
-
-
 import discord
 from discord.ext import commands
 import logging
 import yt_dlp as youtube_dl
+import asyncio
 
 # Налаштування логування: повідомлення будуть виводитися в консоль.
 logging.basicConfig(
@@ -16,7 +15,7 @@ logger = logging.getLogger('bot')
 
 class YouTubeAPI(commands.Cog):
     """
-    Ког для взаємодії з YouTube через yt-dlp.
+    Cog для взаємодії з YouTube через yt-dlp.
     Пошук відео, отримання інформації тощо.
     """
 
@@ -32,10 +31,9 @@ class YouTubeAPI(commands.Cog):
             "nocheckcertificate": True,
         }
 
-    def search_video(self, query: str) -> dict | None:
+    def _search_video_sync(self, query: str) -> dict | None:
         """
-        Здійснює пошук одного відео на YouTube за рядком запиту.
-        Повертає словник з title, url, duration або None у разі помилки.
+        Синхронна функція для пошуку відео.
         """
         logger.info(f"Searching for video: {query}")
         with youtube_dl.YoutubeDL(self.ydl_opts) as ydl:
@@ -55,10 +53,15 @@ class YouTubeAPI(commands.Cog):
                 logger.error(f"Error searching video: {e}")
                 return None
 
-    def get_video_info(self, url: str) -> dict | None:
+    async def search_video(self, query: str) -> dict | None:
         """
-        Отримує інформацію про конкретне відео за URL.
-        Повертає словник з title, url, duration або None у разі помилки.
+        Асинхронно здійснює пошук відео, викликаючи синхронну функцію у окремому потоці.
+        """
+        return await asyncio.to_thread(self._search_video_sync, query)
+
+    def _get_video_info_sync(self, url: str) -> dict | None:
+        """
+        Синхронна функція для отримання інформації про відео.
         """
         logger.info(f"Fetching video info for URL: {url}")
         with youtube_dl.YoutubeDL(self.ydl_opts) as ydl:
@@ -77,6 +80,12 @@ class YouTubeAPI(commands.Cog):
                 logger.error(f"Error fetching video info: {e}")
                 return None
 
+    async def get_video_info(self, url: str) -> dict | None:
+        """
+        Асинхронно отримує інформацію про відео, викликаючи синхронну функцію у окремому потоці.
+        """
+        return await asyncio.to_thread(self._get_video_info_sync, url)
+
 
 def setup(bot: commands.Bot):
     """
@@ -84,5 +93,3 @@ def setup(bot: commands.Bot):
     """
     bot.add_cog(YouTubeAPI(bot))
     logger.info("YouTubeAPI Cog successfully loaded.")
-
-

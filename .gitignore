@@ -3,6 +3,7 @@
 ~*/
 .vscode/
 *.service
+.cache
 
 audio_cache/
 dectalk/
@@ -12,6 +13,7 @@ discord.log
 bin/
 logs/
 data/
+project/
 
 # Ігнорування конфігураційного файлу
 config/options.ini
