@@ -658,6 +658,7 @@ class Music(commands.Cog):
             while retry_count < MAX_RETRY:
                 queue_ = self.ensure_queue(guild_id)
 
+                # Якщо черга порожня – завантажуємо автосписок
                 if not queue_:
                     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                     autoplaylist_path = os.path.join(base_dir, "config", "_autoplaylist.txt")
@@ -678,8 +679,14 @@ class Music(commands.Cog):
                         await self._send_embed_footer(ctx, "❌ Файл автосписку не знайдено.")
                         return
 
-                # Беремо перший трек з черги
+                # Вибір треку з черги
                 track = queue_.pop(0)
+                # Якщо вибраний трек - автотрек, але в черзі є ручні треки, пропускаємо його
+                if track.get("title") == "Autoplay Track" and any(t.get("title") != "Autoplay Track" for t in queue_):
+                    logger.info("Пропускаємо автотрек через наявність ручних треків.")
+                    self._save_queue(guild_id, queue_)
+                    continue
+
                 self._save_queue(guild_id, queue_)
                 title = track.get("title", "Unknown")
                 url = track.get("url", "")
@@ -753,9 +760,9 @@ class Music(commands.Cog):
             logger.error("Максимальна кількість спроб відтворення вичерпана.")
             await self._send_embed_footer(ctx, "❌ Не вдалося запустити наступний трек після декількох спроб.")
 
+
     async def setup(self, bot: commands.Bot) -> None:
         await bot.add_cog(self)
-
 
 async def setup(bot: commands.Bot) -> None:
     try:
