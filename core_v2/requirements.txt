@@ -1,0 +1,5 @@
+discord.py==2.7.1
+SQLAlchemy==2.0.55
+aiosqlite==0.22.1
+asyncpg==0.32.0
+python-dotenv==1.2.4
