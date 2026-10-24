@@ -106,3 +106,25 @@ async def test_private_reminder_not_delivered_after_access_lost(tmp_path):
         bot.db.finish_job.assert_awaited_once_with(1, "job", 1, False, True)
     finally:
         await bot.db.close()
+
+
+async def test_private_thread_requires_current_membership(tmp_path):
+    from unittest.mock import MagicMock
+    bot = Bot(Settings("secret", f"sqlite+aiosqlite:///{tmp_path / 'bot.db'}"))
+    channel = MagicMock(spec=discord.Thread)
+    channel.is_private.return_value = True
+    channel.send = AsyncMock()
+    channel.fetch_member = AsyncMock(side_effect=discord.NotFound(
+        SimpleNamespace(status=404, reason="Not Found"), "Unknown Member"))
+    guild = SimpleNamespace(get_channel_or_thread=lambda channel_id: channel,
+        fetch_member=AsyncMock(return_value=SimpleNamespace(id=3)))
+    bot.get_guild = lambda guild_id: guild
+    bot.db.finish_job = AsyncMock()
+    try:
+        await bot.send_job(dict(guild_id=1, channel_id=2, user_id=3, id="job",
+                                attempts=1, body="private thread"))
+        channel.fetch_member.assert_awaited_once_with(3)
+        channel.send.assert_not_awaited()
+        bot.db.finish_job.assert_awaited_once_with(1, "job", 1, False, True)
+    finally:
+        await bot.db.close()

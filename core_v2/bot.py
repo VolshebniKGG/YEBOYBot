@@ -121,6 +121,8 @@ class Bot(commands.AutoShardedBot):
                 # A reminder must not expose a private-channel message after its
                 # author loses access or leaves the guild.
                 member = await guild.fetch_member(job["user_id"])
+                if isinstance(channel, discord.Thread) and channel.is_private():
+                    await channel.fetch_member(member.id)
                 if not channel.permissions_for(member).view_channel:
                     permanent = True
                 else:
