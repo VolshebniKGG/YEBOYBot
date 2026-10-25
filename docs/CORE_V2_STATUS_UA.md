@@ -300,3 +300,46 @@ https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40207357017
 та повторити тільки потрібні перевірки. Після Windows CI пройти ручний logon
 сценарій із попереднього розділу. Автозапуск залишається Partial; успіх старого
 Windows backup CI не переноситься на нього. У main нічого не зливалося.
+
+## P0: безпечна відмова керування та несумісної БД — 25.10.2026
+
+База: 8872ce9, feature/core-v2, draft PR #1. AGENTS.md відсутній; старий
+yeboybot і користувацькі дані не змінювалися.
+
+Реалізовано:
+- managed.run очікує завершення client/control, перед виходом скасовує та
+  приєднує обидві задачі. ControlFailure завершує клієнт без retry; LoginFailure
+  зберігає тип і не повторюється. Штатний stop має пріоритет перед heartbeat.
+- Atomic heartbeat зберігає попередній стан при невдалій публікації; cleanup
+  не приховує первинну I/O помилку. Невдале завершення повертає 1.
+- Schema guard виконується до WAL/DDL і повторно для pooled-з'єднання.
+  Невідома/порожня/versionless/неповна v1 схема відхиляється без ремонту.
+- SQLite bootstrap у BEGIN IMMEDIATE; помилка DDL відкочується. Конкурентний
+  WAL setup має до 4 BUSY/LOCKED-only спроб з async backoff і повторним guard.
+- PostgreSQL guard працює під advisory lock; інтеграційні тести створюють
+  власну UUID-схему лише в одноразовій yeboy_test.
+
+Тести: 27 нових сценаріїв (9 managed, 18 schema guard). Heartbeat regression
+спершу впав із TimeoutError на попередньому коді; після виправлення проходить.
+Є реальні filesystem/subprocess/OS-lock перевірки без входу в Discord,
+збереження байтів несумісної SQLite, rollback DDL і конкурентна ініціалізація.
+Реальний PostgreSQL-прогін знайшов різницю типу relkind bytes/text у тесті;
+SQL-приведення виправлено до повторного повного успіху.
+
+Локально Linux, Python 3.12:
+- SQLite: 176 passed, 7 skipped (3 Windows-only + 4 PostgreSQL-only).
+- PostgreSQL 17.11 у локальному контейнері: 180 passed, 3 Windows-only skipped.
+- Ruff, pip check, compileall та diff check успішні. Нових залежностей немає.
+
+CI на початку ітерації: 40207357017/40207361179 Windows jobs скасовані,
+але logs досі BlobNotFound 404; поточний 40207735164 Windows job121212190702
+показував in_progress понад 15 хв при timeout-minutes=15. Конкретного тесту
+і стеку отримати неможливо; причину не встановлено. Перевірки не прибиралися.
+Новий CI перевіряється окремо після публікації цього коду.
+
+Обмеження: повного migration runner/переходів схем, зовнішнього OS crash
+supervisor, ручного Windows 10/11 і live Discord перевірок ще немає.
+Наступний завершуваний етап — versioned migration runner з backup/recovery
+перед першою потрібною зміною схеми; паралельно отримати Windows CI logs.
+Запуск Windows: YEBOYBot.cmd → [4] діагностика → [1]; помилка — [9] журнал;
+[3] зупинка, [2] перезапуск. Номер версії БД вручну не редагувати.

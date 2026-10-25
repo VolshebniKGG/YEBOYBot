@@ -8,6 +8,10 @@ from discord import LoginFailure, PrivilegedIntentsRequired
 log = logging.getLogger(__name__)
 
 
+class ControlFailure(RuntimeError):
+    """The runtime cannot safely expose heartbeat/control state; stop retries."""
+
+
 async def recover(operation, stopped, heartbeat, delays=(2, 5, 15), sleep=asyncio.sleep):
     """Never overlap clients; stop requests interrupt backoff within one second."""
     for attempt in range(len(delays) + 1):
@@ -16,8 +20,8 @@ async def recover(operation, stopped, heartbeat, delays=(2, 5, 15), sleep=asynci
         try:
             await operation()
             return
-        except (LoginFailure, PrivilegedIntentsRequired, ValueError):
-            log.exception("Fatal configuration/authentication error; recovery disabled")
+        except (LoginFailure, PrivilegedIntentsRequired, ValueError, ControlFailure):
+            log.exception("Fatal configuration/authentication/control error; recovery disabled")
             raise
         except Exception:
             log.exception("Runtime failure, attempt %s/%s", attempt + 1, len(delays) + 1)

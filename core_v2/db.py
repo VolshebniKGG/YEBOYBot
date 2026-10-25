@@ -1,9 +1,11 @@
 """Guild-scoped SQL operations; SQLite local, PostgreSQL for sustained load."""
+import asyncio
+import sqlite3
 import time
 import uuid
 from pathlib import Path
 from sqlalchemy import (MetaData, Table, Column, BigInteger, Integer, String, Boolean,
-                        Float, select, update, event, func, text)
+                        Float, select, update, event, func, text, inspect)
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -42,6 +44,55 @@ panels = Table("v2_role_panels", meta,
     Column("role_id", BigInteger, nullable=False))
 
 
+def _schema_state(table_names, view_names, columns, current):
+    """Classify fresh/v1 databases; refuse ambiguous state without repairing it."""
+    existing = table_names | view_names
+    if not any(name.lower().startswith("v2_") for name in existing):
+        return False
+    if "v2_schema" not in table_names or "version" not in columns.get("v2_schema", set()):
+        raise RuntimeError("Unsupported schema metadata; restore compatible code or a verified backup")
+    if len(current) != 1 or type(current[0]) is not int or current != [1]:
+        raise RuntimeError("Unsupported schema version; restore compatible code or a verified backup")
+    for table in meta.sorted_tables:
+        required = {column.name for column in table.columns}
+        if table.name not in table_names or not required <= columns.get(table.name, set()):
+            raise RuntimeError("Unsupported schema structure; restore compatible code or a verified backup")
+    return True
+
+
+def _sqlite_schema_state(cursor):
+    # Read existing metadata before journal_mode=WAL can alter a rejected file.
+    cursor.execute("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view')")
+    objects = cursor.fetchall()
+    table_names = {name for name, kind in objects if kind == "table"}
+    view_names = {name for name, kind in objects if kind == "view"}
+    columns = {}
+    for table in meta.sorted_tables:
+        if table.name in table_names:
+            cursor.execute(f'PRAGMA table_info("{table.name}")')
+            columns[table.name] = {row[1] for row in cursor.fetchall()}
+    current = []
+    if "version" in columns.get("v2_schema", set()):
+        cursor.execute("SELECT version FROM v2_schema LIMIT 2")
+        current = [row[0] for row in cursor.fetchall()]
+    return _schema_state(table_names, view_names, columns, current)
+
+
+def _connection_schema_state(connection):
+    inspector = inspect(connection)
+    table_names = set(inspector.get_table_names())
+    view_names = set(inspector.get_view_names())
+    if connection.dialect.name == "postgresql":
+        view_names.update(inspector.get_materialized_view_names())
+        view_names.update(inspector.get_foreign_table_names())
+    columns = {table.name: {column["name"] for column in inspector.get_columns(table.name)}
+               for table in meta.sorted_tables if table.name in table_names}
+    current = []
+    if "version" in columns.get("v2_schema", set()):
+        current = connection.execute(select(versions.c.version).limit(2)).scalars().all()
+    return _schema_state(table_names, view_names, columns, current)
+
+
 class Database:
     def __init__(self, url):
         self.sqlite = url.startswith("sqlite")
@@ -53,23 +104,39 @@ class Database:
         if self.sqlite:
             @event.listens_for(self.engine.sync_engine, "connect")
             def pragmas(connection, _):
-                cursor = connection.cursor()
-                cursor.execute("PRAGMA journal_mode=WAL")
-                cursor.execute("PRAGMA busy_timeout=30000")
-                cursor.close()
+                for attempt in range(4):
+                    cursor = connection.cursor()
+                    try:
+                        cursor.execute("PRAGMA busy_timeout=30000")
+                        _sqlite_schema_state(cursor)
+                        cursor.execute("PRAGMA journal_mode=WAL")
+                        return
+                    except sqlite3.OperationalError as error:
+                        code = getattr(error, "sqlite_errorcode", None)
+                        busy = isinstance(code, int) and (code & 0xff) in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+                        if not busy or attempt == 3:
+                            raise
+                    finally:
+                        cursor.close()
+                    # Journal transitions may ignore busy_timeout. Close the cursor
+                    # and yield through the async driver before retrying the guard.
+                    connection.run_async(lambda _: asyncio.sleep(0.05 * 2**attempt))
 
     def insert(self, table):
         return sqlite_insert(table) if self.sqlite else pg_insert(table)
 
     async def initialize(self):
         async with self.engine.begin() as conn:
-            if not self.sqlite:
+            if self.sqlite:
+                # Real transaction also covers DDL under sqlite legacy transaction control.
+                await conn.execute(text("BEGIN IMMEDIATE"))
+            else:
                 await conn.execute(text("SELECT pg_advisory_xact_lock(91027602)"))
-            await conn.run_sync(meta.create_all)
-            current = (await conn.execute(select(versions.c.version))).scalars().all()
-            if current and current != [1]:
-                raise RuntimeError("Unsupported schema version; restore compatible code")
-            if not current:
+            # Recheck pooled connections: another tool may have changed the schema.
+            # create_all is only an initial bootstrap, never an implicit migration.
+            existing = await conn.run_sync(_connection_schema_state)
+            if not existing:
+                await conn.run_sync(meta.create_all)
                 await conn.execute(self.insert(versions).values(version=1).on_conflict_do_nothing())
 
     async def close(self):

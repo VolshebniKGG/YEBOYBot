@@ -13,7 +13,7 @@
 |---|---|---|
 | YEBOYBot.cmd → tools.launcher | Partial | Меню, фоновий запуск, stop/restart є; ручний подвійний клік не перевірено |
 | Початкове встановлення | Partial | Новий bootstrap, Python 3.12, fallback py/python, повторюваний pip; Windows CI перевіряється окремо |
-| Керування процесом | Partial | OS lock, nonce, heartbeat; реальний Discord-сценарій не перевірено |
+| Керування процесом | Partial | OS lock/nonce; збій heartbeat завершує клієнт і задачі, ControlFailure без retry; live Discord та супервізор ОС не підтверджені |
 | Discord readiness | Untested | Готовність записує on_ready; live API не перевірено |
 | Відновлення після exceptions | Partial | Обмежений retry/backoff; kill/segfault не відновлює |
 | Git-оновлення | Partial | Fast-forward, backup, smoke; ZIP та PostgreSQL відхиляються |
@@ -21,7 +21,7 @@
 | PostgreSQL | Partial | asyncpg та CI є; backup/restore меню відсутні |
 | Автозапуск Windows | Partial | [15]: opt-in завдання після входу поточного SID, без пароля/admin, перевірка належності; реальне створення/видалення на Windows 10/11 потребує ручної перевірки |
 | Телеметрія / експорт діагностики | Partial | [4]/[18]: read-only SQLite/config/import checks і JSON без секретів; CPU/RAM/lag ще відсутні |
-| Версійовані міграції | Partial | Маркер схеми v1 і початкова ініціалізація; ланцюжка міграцій немає |
+| Версійовані міграції | Partial | Guard до WAL/DDL, транзакційний bootstrap і перевірка наявної v1; ланцюжка переходів версій ще немає |
 | Core V2 moderation | Partial | warn/warnings/unwarn, timeout/untimeout; kick/ban/unban/clear/modhistory відсутні |
 | XP | Partial | Текстовий XP/cooldown/rank; голосовий XP та rewards відсутні |
 | Нагадування | Partial | Збереження, lease/retry; можлива повторна доставка після crash |
@@ -57,3 +57,12 @@
 й не зупиняє вже запущений бот. Невдалий запит стану позначається «Невідомо»;
 це не перевірка Discord readiness. Scheduler retry після аварій не додається.
 Реальний сценарій створення, входу й видалення потребує ручної Windows-перевірки.
+
+## P0, 25.10.2026: перевірені відмови
+
+Початковий heartbeat regression відтворено реальним filesystem error;
+після виправлення клієнт закривається й OS lock звільняється. Перевірено також
+втрату контролю вже після ready, cancellation і збереження fatal auth типів.
+SQLite guard зберігає байти/таблиці несумісної БД; PostgreSQL перевірено в
+окремому локальному контейнері 17.11. Підсумки конкретного коміту — у STATUS.
+Старі Windows CI logs залишаються BlobNotFound; причину затримки не встановлено.
