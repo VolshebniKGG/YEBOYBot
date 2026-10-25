@@ -111,6 +111,9 @@ https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40162972836
 та пробіли без Git quoting. Тести перевіряють відмову перезаписувати наявні
 ігноровані файли, які оновлення додає до Git.
 Для нового коду локально: 37 passed, 1 Windows-only skipped; Ruff успішний.
-Новий Windows CI перевіряється окремо. Живий Discord та повний цикл
+Код 3487321 перевірено CI: Windows — 38 passed; Ubuntu SQLite та PostgreSQL —
+37 passed, 1 Windows-only skipped. Ruff/pip check успішні у SQLite jobs.
+CI: https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40168851702
+Живий Discord та повний цикл
 мережевого оновлення з перезапуском реального бота не перевірені.
 Наступний пріоритет: контрольоване відновлення процесу після аварії.
