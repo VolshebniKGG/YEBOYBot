@@ -1,6 +1,7 @@
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import sys
 from pathlib import Path
 
 
@@ -19,8 +20,10 @@ class RedactingFormatter(logging.Formatter):
 def configure_logging(settings):
     Path("data/v2/logs").mkdir(parents=True, exist_ok=True)
     formatter = RedactingFormatter([settings.token, settings.database])
-    handlers = [logging.StreamHandler(), RotatingFileHandler(
+    handlers = [RotatingFileHandler(
         "data/v2/logs/bot.log", maxBytes=5_000_000, backupCount=5, encoding="utf-8")]
+    if sys.stderr is not None:
+        handlers.insert(0, logging.StreamHandler())
     for handler in handlers:
         handler.setFormatter(formatter)
     logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)

@@ -128,3 +128,26 @@ async def test_private_thread_requires_current_membership(tmp_path):
         bot.db.finish_job.assert_awaited_once_with(1, "job", 1, False, True)
     finally:
         await bot.db.close()
+
+
+def test_windowless_runtime_keeps_redacted_file_logging(tmp_path, monkeypatch):
+    from core_v2 import runtime
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime.sys, "stderr", None)
+    captured = {}
+    monkeypatch.setattr(runtime.logging, "basicConfig", lambda **kwargs: captured.update(kwargs))
+    runtime.configure_logging(SimpleNamespace(token="synthetic-secret", database="synthetic-db-url"))
+    handlers = captured["handlers"]
+    try:
+        assert len(handlers) == 1
+        assert isinstance(handlers[0], runtime.RotatingFileHandler)
+        record = logging.LogRecord("test", logging.ERROR, "", 1, "synthetic-secret synthetic-db-url", (), None)
+        handlers[0].handle(record)
+        handlers[0].flush()
+        saved = (tmp_path / "data/v2/logs/bot.log").read_text(encoding="utf-8")
+        assert "synthetic-secret" not in saved
+        assert "synthetic-db-url" not in saved
+        assert "[REDACTED]" in saved
+    finally:
+        for handler in handlers:
+            handler.close()
