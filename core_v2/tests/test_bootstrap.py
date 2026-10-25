@@ -38,7 +38,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(len(self.installs()), 1)
         self.assertEqual((self.root / ".env.v2").read_text(), "DISCORD_TOKEN=private-test-value\n")
         self.assertTrue((self.root / "backups").is_dir())
-        self.assertIn(str(self.root / "core_v2/requirements.txt"), self.installs()[0])
+        self.assertIn(str(self.root.resolve() / "core_v2/requirements.txt"), self.installs()[0])
 
     def test_requirements_change_reinstalls(self):
         b.prepare(self.root)
@@ -111,9 +111,9 @@ class WindowsBootstrapTests(unittest.TestCase):
             env = os.environ.copy()
             env["PATH"] = str(Path(directory) / "empty-path")
             result = subprocess.run(
-                [os.environ["COMSPEC"], "/d", "/c", f'call "{script}"'],
-                cwd=Path(directory).parent, env=env, capture_output=True,
+                [os.environ["COMSPEC"], "/d", "/c", "install_v2.bat"],
+                cwd=directory, env=env, capture_output=True,
                 text=True, encoding="utf-8", errors="replace", timeout=30)
             self.assertEqual(result.returncode, 1)
-            self.assertIn("https://www.python.org/downloads/", result.stdout)
+            self.assertIn("https://www.python.org/downloads/", result.stdout, result.stderr)
             self.assertFalse((Path(directory) / ".venv-v2").exists())
