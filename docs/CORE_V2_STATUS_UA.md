@@ -236,3 +236,13 @@ SHA-256 не є підписом; довільний користувацьки�
 PostgreSQL backup/restore, ручний Windows 10/11 і live Discord не перевірені/не реалізовані.
 Наступний пріоритет лаунчера: opt-in Windows Task Scheduler і контрольоване
 відновлення після аварій ОС; ядра — версійовані міграції й модерація.
+
+### CI резервування підтверджено
+
+Коміт `698457184c20567d44d7e33a7640de863a52ed6e`: Windows — **107 passed**;
+Ubuntu SQLite і PostgreSQL — по **105 passed, 2 Windows-only skipped**.
+Ruff/pip check успішні у Windows/Ubuntu SQLite jobs.
+https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40205958270
+Це 32 нові сценарії відносно попередньої ітерації, не сума тестів трьох jobs.
+Повний Git-клон у робочій папці відновлено після відновлення мережевого доступу;
+попередній текстовий snapshot збережено окремо. Ручний Windows/live Discord не перевірені.
