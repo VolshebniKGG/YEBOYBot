@@ -2,9 +2,9 @@ name: Core v2
 on:
   push:
     branches: [feature/core-v2]
-    paths: ['core_v2/**', '.github/workflows/core-v2.yml']
+    paths: ['core_v2/**', 'tools/**', 'YEBOYBot.cmd', '.github/workflows/core-v2.yml']
   pull_request:
-    paths: ['core_v2/**', '.github/workflows/core-v2.yml']
+    paths: ['core_v2/**', 'tools/**', 'YEBOYBot.cmd', '.github/workflows/core-v2.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,7 +25,7 @@ jobs:
           cache-dependency-path: core_v2/requirements*.txt
       - run: python -m pip install -r core_v2/requirements-dev.txt
       - run: python -m pip check
-      - run: python -m ruff check core_v2
+      - run: python -m ruff check --config core_v2/ruff.toml core_v2 tools
       - run: python -m pytest core_v2/tests -q
   postgres:
     runs-on: ubuntu-latest

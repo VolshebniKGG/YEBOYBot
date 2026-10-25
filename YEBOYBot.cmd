@@ -1,5 +1,7 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
+chcp 65001 >nul
+set "PYTHONUTF8=1"
 cd /d "%~dp0"
 set "ROOT=%~dp0"
 set "PY=%ROOT%.venv-v2\Scripts\python.exe"

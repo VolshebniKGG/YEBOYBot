@@ -1,9 +1,9 @@
 """Windows console menu for the existing Core V2 runtime."""
 import os
-from pathlib import Path
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PY = sys.executable
@@ -21,17 +21,16 @@ def setup():
         print("Створено .env.v2. Відредагуйте файл перед запуском.")
     else:
         print(".env.v2 вже існує; дані збережено.")
+    if os.name == "nt":
+        subprocess.call(["notepad.exe", str(env)])
 
 
 def start():
     if run("-m", "core_v2.doctor"):
         print("Перевірка конфігурації не пройдена.")
         return
-    print("Запуск Core V2. Для зупинення натисніть Ctrl+C.")
-    try:
-        run("-m", "core_v2")
-    except KeyboardInterrupt:
-        print("Зупинення запрошено.")
+    from . import process
+    print(process.start()["status"])
 
 
 def backup():
@@ -50,8 +49,11 @@ def logs():
 
 def main():
     os.chdir(ROOT)
+    from . import process
     actions = {
-        "1": ("Запустити Discord-бота (Ctrl+C для зупинення)", start),
+        "2": ("Перезапустити бота", lambda: print(process.restart()["status"])),
+        "3": ("Зупинити бота", lambda: print("Зупинено" if process.stop() else "Не зупинено")),
+        "1": ("Запустити Discord-бота", start),
         "4": ("Перевірити систему", lambda: run("-m", "core_v2.doctor")),
         "5": ("Оновити Python-залежності", lambda: run("-m", "pip", "install", "-r", "core_v2/requirements.txt")),
         "7": ("Створити резервну копію SQLite", backup),
@@ -61,6 +63,7 @@ def main():
     }
     while True:
         print("\n=== YEBOYBot Core V2 | Windows ===")
+        print("Стан:", process.state()["status"])
         for key, (label, _) in actions.items():
             print(f"[{key}] {label}")
         print("[0] Вихід")
@@ -72,7 +75,7 @@ def main():
             continue
         try:
             actions[choice][1]()
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, RuntimeError) as exc:
             print(f"Помилка операції: {type(exc).__name__}")
             print("Перевірте конфігурацію та доступність файлів.")
 
