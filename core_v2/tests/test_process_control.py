@@ -62,5 +62,5 @@ def test_cmd_unicode_path(tmp_path):
     subprocess.run([sys.executable, "-m", "venv", "--system-site-packages",
                     str(root / ".venv-v2")], check=True, timeout=60)
     result = subprocess.run(["cmd.exe", "/d", "/c", str(root / "YEBOYBot.cmd")],
-                            input="0\n", text=True, capture_output=True, timeout=30, cwd=tmp_path)
+                            input="0\n", text=True, encoding="utf-8", capture_output=True, timeout=30, cwd=tmp_path)
     assert result.returncode == 0
