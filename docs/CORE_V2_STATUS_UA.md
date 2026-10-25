@@ -90,3 +90,7 @@ CMD [7] враховує DATABASE_URL, [8] відновлює підтвердж
 [10] перевіряє цілісність і схему v1. Перед відновленням створюється копія поточних даних.
 PostgreSQL не обслуговується SQLite-меню. Докладно: WINDOWS_CMD_LAUNCHER_UA.md.
 Локально: 28 passed, 1 skipped (Windows-only). Новий CI перевіряється окремо.
+
+Перевірено ab394926c7f9e1513c6fa13ec8c480bfe78aa282: Windows 29 passed; Ubuntu SQLite і PostgreSQL — 28 passed, 1 Windows-only skipped. Ruff/pip check успішні. CI: https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40162579315
+Новий етап не тестував живе Discord-підключення та не додає PostgreSQL backup/restore.
+Наступний пріоритет: безпечне оновлення коду з GitHub через меню з перевіркою гілки, локальних змін, backup і міграцій.
