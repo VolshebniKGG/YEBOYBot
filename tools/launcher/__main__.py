@@ -55,6 +55,7 @@ def main():
         "10": ("Перевірити SQLite", storage.check),
         "9": ("Переглянути журнал", logs),
         "11": ("Налаштувати Discord (приховане введення токена)", setup),
+        "20": ("Резервні копії: перевірка й політика зберігання", storage.catalog_menu),
         "18": ("Експортувати звіт діагностики", lambda: run("-m", "tools.launcher.diagnostics", "--export")),
         "12": ("Початкове налаштування", lambda: (setup(), run("-m", "core_v2.doctor"))),
     }

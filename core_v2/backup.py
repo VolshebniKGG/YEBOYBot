@@ -1,5 +1,6 @@
 """SQLite online backup; source remains untouched, existing targets are refused."""
 import argparse
+import os
 from contextlib import closing
 from pathlib import Path
 import sqlite3
@@ -11,12 +12,14 @@ def backup(source, destination):
         raise ValueError("Source database does not exist")
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Exclusive creation prevents accidental overwrite, including source == target.
-    with destination.open("xb"):
-        pass
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.close(descriptor)
     try:
         with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as original:
             with closing(sqlite3.connect(destination)) as copied:
                 original.backup(copied)
+                # Publish a standalone snapshot: WAL/SHM are never part of the artifact.
+                copied.execute("PRAGMA journal_mode=DELETE")
                 if copied.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                     raise RuntimeError("Backup integrity check failed")
     except BaseException:
@@ -31,3 +34,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     backup(args.source, args.destination)
     print("Backup created and verified.")
+
