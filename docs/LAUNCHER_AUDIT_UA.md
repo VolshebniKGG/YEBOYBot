@@ -26,8 +26,8 @@
 | XP | Partial | Текстовий XP/cooldown/rank; голосовий XP та rewards відсутні |
 | Нагадування | Partial | Збереження, lease/retry; можлива повторна доставка після crash |
 | Automod/welcome/autorole/role panels | Disconnected | Резерв конфігурації/схеми, активних модулів немає |
-| Старий yeboybot | Untested | Окремий run.py, discord.Intents.all(), cogs moderation/music/rank; сумісність із v2 не підтверджена |
-| Старі run.bat/start_v2.bat | Duplicate | Інші точки входу збережено до перевірки сумісності |
+| Старий yeboybot | Partial | [22]/run.bat, окреме .venv-legacy, offline load moderation/user/help/rank; music opt-in, live дії не перевірені |
+| Legacy entrypoint | Partial | run.bat без registry/global pip, run.py з guard і locks; Windows CI/manual не підтверджені; start_v2.bat лишився додатковим входом |
 
 ## Найближчі завершувані етапи
 

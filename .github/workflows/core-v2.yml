@@ -2,9 +2,9 @@ name: Core v2
 on:
   push:
     branches: [feature/core-v2]
-    paths: ['core_v2/**', 'tools/**', 'YEBOYBot.cmd', 'install_v2.bat', '.github/workflows/core-v2.yml']
+    paths: ['core_v2/**', 'tools/**', 'YEBOYBot.cmd', 'install_v2.bat', 'run.bat', 'run.py', 'requirements-legacy.txt', 'yeboybot/**', '.github/workflows/core-v2.yml']
   pull_request:
-    paths: ['core_v2/**', 'tools/**', 'YEBOYBot.cmd', 'install_v2.bat', '.github/workflows/core-v2.yml']
+    paths: ['core_v2/**', 'tools/**', 'YEBOYBot.cmd', 'install_v2.bat', 'run.bat', 'run.py', 'requirements-legacy.txt', 'yeboybot/**', '.github/workflows/core-v2.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -61,3 +61,29 @@ jobs:
       - run: python -m pip install -r core_v2/requirements-dev.txt
       - run: python -m pytest core_v2/tests -vv --durations=10 -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true
 
+  legacy-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: First isolated legacy installation (no Discord login)
+        run: python -I tools/legacy_launcher.py --install
+      - name: Repeat installation without changing Core V2
+        run: python -I tools/legacy_launcher.py --install
+      - name: Import and isolation diagnostics
+        run: python -I tools/legacy_launcher.py --check
+      - name: Real legacy cogs in disposable source copy (offline)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            .venv-legacy/Scripts/python.exe -I tools/check_legacy_cogs.py
+          else
+            .venv-legacy/bin/python -I tools/check_legacy_cogs.py
+          fi

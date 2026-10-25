@@ -1,0 +1,2 @@
+# CMD requires CRLF on checkout; store normalized text in Git.
+run.bat text eol=crlf

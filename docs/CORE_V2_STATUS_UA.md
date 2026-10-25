@@ -4,7 +4,43 @@
 попередні звіти збережено в розгортуваній історії. Не переносіть старі CI totals
 на нові коміти.
 
-## Поточна ітерація: версійовані міграції
+## Поточна ітерація: безпечний legacy entrypoint
+
+- run.bat замінено thin UTF-8/CRLF входом до stdlib Python controller.
+  Видалені registry edits, global uninstall/cache purge/break-system-packages.
+- [22] Core V2 відкриває те саме legacy-меню. Встановлення й виконання тільки
+  в .venv-legacy; .venv-v2 і системні пакети не змінюються. Невідомі дані не видаляються.
+- Окремі pinned requirements: discord.py[voice]2.7.1 відповідає legacy async add_cog;
+  історичний py-cord root requirements більше не встановлюється цим входом.
+- Pre-import guard перевіряє Python/venv, system/user site, сторонні .pth,
+  py-cord, точні версії та critical imports; requirements stamp не приховує drift.
+- OS locks захищають від дубля legacy й пакетних змін під час його роботи.
+  Foreground Ctrl+C, зрозумілі помилки/exit codes; сторонні процеси не завершуються.
+- Import bot більше не читає token/config і не очищує logs. Cogs завантажуються
+  ліниво; Music тільки opt-in. Логи append, Credentials приховані й у traceback.
+- Додано Windows/Linux legacy-install CI: first/repeat install, probe й real cogs
+  offline smoke. Наявні SQLite/PG/Windows checks не прибиралися.
+- [Інструкція](LEGACY_LAUNCHER_UA.md), [аудит](PROJECT_AUDIT_UA.md),
+  [наступний P0-промт](NEXT_DEVELOPMENT_PROMPT_UA.md).
+
+Локально Linux/Python 3.12.14: **258 passed, 10 skipped** із 268 tests:
+5 native Windows (включно з двома новими CMD), 5 PostgreSQL. Додано 42 tests;
+це 40 passed + 2 Windows skipped у цій ітерації, а не повторення старого звіту.
+Ruff, pip check в обох окремих venv та diff check пройшли. CVE-аудит не виконувався.
+Реальні legacy dependencies installed; repeat install і critical imports пройшли.
+Disposable source copy завантажила справжні Moderation/User/Help/RankCog,
+перевірила commands, optional-music skip і client/task cleanup без Discord login.
+Без DLC assets використано fallback; rendering/реальні команди не перевірялися.
+PostgreSQL suite локально в цій ітерації не запускали — змін БД немає.
+
+CI нового коміту перевіряється після публікації. Попередній run40229046476
+на 2fc94e8 скасований; це не успіх нового Windows коду. Ручний Windows 10/11,
+live Discord/music та 24/7 не підтверджені. Legacy all-intents/TLS/hardcoded paths,
+рольова безпека команд і неізольовані legacy JSON залишаються окремими ризиками.
+Наступна P0-ітерація: native PostgreSQL backup → upgrade → restore зі збереженням
+даних; наявна PostgreSQL v1 досі заблокована до цього workflow.
+
+## Попередня ітерація: версійовані міграції (2fc94e8)
 
 - Схема **2**, реальна впорядкована SQLite ревізія **002_case_updated_at**.
 - [21] читає план; після МІГРУВАТИ та зупинки [3] робить перевірену копію,
@@ -23,7 +59,7 @@
 Документи: [Міграції](MIGRATIONS_UA.md), [повний аудит](PROJECT_AUDIT_UA.md),
 [наступний промт](NEXT_DEVELOPMENT_PROMPT_UA.md).
 
-Локальна перевірка поточної ітерації (Linux/Python 3.12):
+Локальна перевірка попередньої ітерації (Linux/Python 3.12):
 - SQLite: **218 passed, 8 skipped** (3 Windows-only + 5 PostgreSQL-only).
 - PostgreSQL 17.11 у disposable container: **223 passed, 3 Windows-only skipped**.
 - Разом 226 сценаріїв, **43 нових** відносно попередніх 183. Це не сума jobs.

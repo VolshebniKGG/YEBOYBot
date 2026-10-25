@@ -36,6 +36,7 @@ config/autoplaylist.cachemap.json
 # Core v2 local secrets and environments
 .env.v2
 .venv-v2/
+.venv-legacy/
 .pytest_cache/
 .ruff_cache/
 __pycache__/

@@ -7,7 +7,7 @@
 
 Спершу звір поточний GitHub/local HEAD, незбережені зміни, PR та CI. Прочитай
 AGENTS.md, якщо є, README, CORE_V2_STATUS_UA, MIGRATIONS_UA,
-PROJECT_AUDIT_UA, WINDOWS_CMD_LAUNCHER_UA та актуальний код. Не покладайся
+PROJECT_AUDIT_UA, WINDOWS_CMD_LAUNCHER_UA, LEGACY_LAUNCHER_UA та актуальний код. Не покладайся
 на історичні «наступні кроки». Не реалізовуй повторно завершені функції.
 
 Відомий стан після попередньої ітерації, який треба повторно перевірити:
@@ -25,17 +25,17 @@ PROJECT_AUDIT_UA, WINDOWS_CMD_LAUNCHER_UA та актуальний код. Не
 - Live Discord, ручний Windows logon, production 24/7 та останній Windows CI
   не вважай перевіреними без нового підтвердження.
 
-Найближчий завершуваний P0-етап: убезпеч legacy entrypoint run.bat.
-Аудит виявив REG ADD Explorer, global pip cache purge/uninstall і
---break-system-packages. Не запускай цей скрипт для перевірки на машині
-користувача. Збережи старі модулі й доступ до них; спроєктуй безпечний запуск
-у власному legacy venv із чітким deprecated-попередженням. Не змішуй root
-py-cord та Core V2 discord.py: вони мають спільний namespace discord.
-Без згоди не змінюй реєстр, системний Python, пакети або автозапуск.
-Тестуй поведінку в ізольованому середовищі, з кирилицею/пробілами й exit codes.
-Не перенось legacy nocheckcertificate=True або E:-hardcoded FFmpeg у Core V2.
+Legacy P0 виконано в коді: [22]/run.bat → stdlib controller → .venv-legacy;
+без registry/global uninstall/cache purge/break-system-packages. run.py має
+pre-import guard, OS locks, exact requirements/імпорти, .pth/py-cord rejection,
+append/redacted logs. Music opt-in, старі cogs збережені. Не повторюй цю роботу.
+Core V2 .venv-v2 не змішуй з legacy. Перший/repeat install і actual cogs offline
+smoke пройшли локально Linux, live Discord/music/ручний Windows не підтверджені.
+Перевір новий CI за SHA; native CMD сценарії не вважай виконаними за Linux tests.
+Старі nocheckcertificate=True й E:-hardcoded FFmpeg лишилися відомим ризиком.
+Не перенось їх у Core V2. Історичний root requirements не є launcher requirements.
 
-Наступний P0 після цього: native PostgreSQL pg_dump → перевірка backup →
+Найближчий завершуваний P0: native PostgreSQL pg_dump → перевірка backup →
 транзакційний upgrade1→2 → перевірене pg_restore recovery. Секрети не передавай
 у commandline/logs, backup залишай приватним. Тести використовують тільки
 одноразову yeboy_test/ізольовані схеми. Перевір backup failure, permission error,

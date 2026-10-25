@@ -2,7 +2,8 @@
 
 Оглянуто відстежуване дерево, core_v2, tools/launcher, legacy yeboybot,
 точки входу, залежності, тести, CI та документацію. База ітерації —
-feature/core-v2@262ce1f; поточні зміни додають schema2 migrations.
+feature/core-v2@2fc94e8; поточна ітерація ізолює legacy entrypoint.
+SQLite schema2/migrations та fail-closed heartbeat збережені без повторної реалізації.
 main@14bd68a містить стару реалізацію; PR #1 залишається draft. GitHub HEAD
 і CI потрібно повторно звіряти перед наступною роботою.
 
@@ -26,20 +27,22 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Onboarding/help/modules | Missing | Windows wizard існує; Discord /setup та module UX не завершені |
 | Метрики/аналітика | Missing | Немає p95/p99, CPU/RAM/loop lag, resource baseline і soak evidence |
 | Tickets/polls/giveaways/webpanel | Missing | Наявність Flask/Redis у legacy dependencies не реалізує ці сервіси |
-| Legacy music/rank/moderation | Untested | Окремі старі cogs; у Core V2 не інтегровані |
-| run.bat/start_v2.bat/run.py | Duplicate | Старі/додаткові входи збережені; run.bat має небезпечні setup-операції |
+| Legacy cogs | Partial | Реальні moderation/user/help/rank завантажені offline в disposable copy; поведінка команд/live API та music не перевірені |
+| run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI/manual очікуються |
+| start_v2.bat | Duplicate | Додаткова стара точка входу збережена |
 | CI | Partial | Windows/Linux/SQLite/PostgreSQL матриця; нові завершені Windows результати не отримані |
 
 ## Ризики, що потребують окремих завершених ітерацій
 
-1. **P0 legacy entrypoint.** run.bat змінює HKCU Explorer HideFileExt, очищує
-   глобальний pip cache, видаляє youtube-dl/yt-dlp та встановлює root dependencies
-   із --break-system-packages. Його не запускали під час аудиту. Для Core V2
-   використовувати YEBOYBot.cmd. Убезпечити legacy запуск зі збереженням доступу
-   до старих функцій, без змін системного Python/реєстру.
-2. **P0 ізоляція залежностей.** Root requirements: py-cord2.6.1; Core V2:
-   discord.py2.7.1. Обидві бібліотеки використовують namespace discord;
-   середовища змішувати не можна. Нових application dependencies ця ітерація не додає.
+1. **Legacy entrypoint виправлено в коді.** run.bat більше не змінює реєстр,
+   не виконує global pip uninstall/cache purge/break-system-packages. [22] або
+   run.bat керує .venv-legacy; run.py перевіряє його до імпорту cogs. Є негативні
+   тести, реальне встановлення й offline cogs smoke на Linux; native Windows
+   smoke додано до CI, успіх ще потребує підтвердження. Початковий скрипт не виконували.
+2. **Ізоляція залежностей.** Історичний root requirements з py-cord2.6.1 залишено,
+   але новий запуск його не встановлює. Legacy async add_cog потребує discord.py;
+   новий requirements-legacy використовує discord.py2.7.1 у власній .venv-legacy,
+   Core V2 лишається в .venv-v2. Змішане/зовнішнє середовище відхиляється.
 3. **P0/P1 legacy переносність/безпека.** Music жорстко очікує E:\Discord Bot\Bot\bin\ffmpeg.exe
    і ffprobe; legacy downloader/youtube/music мають nocheckcertificate=True.
    Перенесення має включати OS-neutral paths та перевірку TLS.
