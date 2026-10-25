@@ -48,13 +48,14 @@ def logs():
 
 def main():
     os.chdir(ROOT)
-    from . import process, storage
+    from . import process, storage, update
     actions = {
         "2": ("Перезапустити бота", lambda: print(process.restart()["status"])),
         "3": ("Зупинити бота", lambda: print("Зупинено" if process.stop() else "Не зупинено")),
         "1": ("Запустити Discord-бота", start),
         "4": ("Перевірити систему", lambda: run("-m", "core_v2.doctor")),
         "5": ("Оновити Python-залежності", lambda: run("-m", "pip", "install", "-r", "core_v2/requirements.txt")),
+        "6": ("Оновити YEBOYBot із GitHub", update.menu),
         "7": ("Створити резервну копію SQLite", backup),
         "8": ("Відновити SQLite з резервної копії", storage.restore_menu),
         "10": ("Перевірити SQLite", storage.check),
@@ -75,8 +76,10 @@ def main():
             print("Невідома дія. Недоступні функції не показуються.")
             continue
         try:
-            actions[choice][1]()
-        except storage.StorageError as exc:
+            result = actions[choice][1]()
+            if choice == "6" and result:
+                return 0
+        except (storage.StorageError, update.UpdateError) as exc:
             print(str(exc))
         except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
             print(f"Помилка операції: {type(exc).__name__}")

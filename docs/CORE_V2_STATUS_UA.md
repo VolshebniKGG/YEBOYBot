@@ -94,3 +94,10 @@ PostgreSQL не обслуговується SQLite-меню. Докладно: 
 Перевірено ab394926c7f9e1513c6fa13ec8c480bfe78aa282: Windows 29 passed; Ubuntu SQLite і PostgreSQL — 28 passed, 1 Windows-only skipped. Ruff/pip check успішні. CI: https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40162579315
 Новий етап не тестував живе Discord-підключення та не додає PostgreSQL backup/restore.
 Наступний пріоритет: безпечне оновлення коду з GitHub через меню з перевіркою гілки, локальних змін, backup і міграцій.
+
+## Оновлення через CMD — 25.10.2026
+Додано [6]: Git fast-forward дозволеної гілки, перевірка локальних змін,
+підтвердження, SQLite backup, pip check, перевірка БД/команд новим процесом,
+повторний запуск тільки після успіху. ZIP та PostgreSQL автоматично не оновлюються.
+Інструкції й обмеження: WINDOWS_CMD_LAUNCHER_UA.md.
+Локально 35 passed, 1 Windows-only skipped; новий CI перевіряється окремо.
