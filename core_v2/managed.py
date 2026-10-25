@@ -8,6 +8,7 @@ import uuid
 
 from .config import ROOT, Settings
 from .runtime import InstanceLock, configure_logging
+from .recovery import recover
 
 STATE = ROOT / "data/v2/managed.json"
 STOP = ROOT / "data/v2/stop.json"
@@ -19,15 +20,18 @@ def write_state(path, value):
     os.replace(temporary, path)
 
 
+def stop_requested(instance):
+    try:
+        return json.loads(STOP.read_text(encoding="utf-8")).get("instance") == instance
+    except (OSError, ValueError):
+        return False
+
+
 async def control(bot, instance):
     while True:
         write_state(STATE, {"instance": instance, "pid": os.getpid(),
                            "heartbeat": time.time(), "ready": bot.is_ready()})
-        try:
-            requested = json.loads(STOP.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            requested = {}
-        if requested.get("instance") == instance:
+        if stop_requested(instance):
             await bot.close()
             return
         await asyncio.sleep(1)
@@ -51,7 +55,12 @@ def main():
     with InstanceLock(ROOT / "data/v2/bot.lock"):
         instance = uuid.uuid4().hex
         try:
-            asyncio.run(run(settings, instance))
+            def heartbeat(attempt, timestamp):
+                write_state(STATE, {"instance": instance, "pid": os.getpid(),
+                                   "heartbeat": timestamp, "ready": False,
+                                   "recovering": attempt})
+            asyncio.run(recover(lambda: run(settings, instance),
+                                lambda: stop_requested(instance), heartbeat))
         except Exception:
             logging.getLogger(__name__).exception("Managed bot stopped")
             return 1

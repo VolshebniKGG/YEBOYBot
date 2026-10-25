@@ -25,6 +25,8 @@ def state(root=ROOT):
         data = json.loads((root / "data/v2/managed.json").read_text(encoding="utf-8"))
         age = time.time() - data["heartbeat"]
         data["status"] = ("Готовий" if data["ready"] else "Підключення") if 0 <= age < 10 else "Не відповідає"
+        if data.get("recovering") and 0 <= age < 10:
+            data["status"] = "Відновлення після помилки"
         return data
     except (OSError, ValueError, KeyError):
         return {"status": "Інший або некерований запуск; зупиніть його у власному вікні"}
