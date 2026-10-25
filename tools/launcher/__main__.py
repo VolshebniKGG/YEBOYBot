@@ -1,8 +1,8 @@
 """Windows console menu for the existing Core V2 runtime."""
 import os
+import sqlite3
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,9 +34,8 @@ def start():
 
 
 def backup():
-    dest = ROOT / "backups" / ("v2-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".db")
-    if run("-m", "core_v2.backup", str(dest)) == 0:
-        print("Резервна копія:", dest)
+    from .storage import create
+    print("Резервна копія:", create())
 
 
 def logs():
@@ -49,7 +48,7 @@ def logs():
 
 def main():
     os.chdir(ROOT)
-    from . import process
+    from . import process, storage
     actions = {
         "2": ("Перезапустити бота", lambda: print(process.restart()["status"])),
         "3": ("Зупинити бота", lambda: print("Зупинено" if process.stop() else "Не зупинено")),
@@ -57,6 +56,8 @@ def main():
         "4": ("Перевірити систему", lambda: run("-m", "core_v2.doctor")),
         "5": ("Оновити Python-залежності", lambda: run("-m", "pip", "install", "-r", "core_v2/requirements.txt")),
         "7": ("Створити резервну копію SQLite", backup),
+        "8": ("Відновити SQLite з резервної копії", storage.restore_menu),
+        "10": ("Перевірити SQLite", storage.check),
         "9": ("Переглянути журнал", logs),
         "11": ("Створити конфігурацію .env.v2", setup),
         "12": ("Початкове налаштування", lambda: (setup(), run("-m", "core_v2.doctor"))),
@@ -75,7 +76,9 @@ def main():
             continue
         try:
             actions[choice][1]()
-        except (OSError, ValueError, RuntimeError) as exc:
+        except storage.StorageError as exc:
+            print(str(exc))
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
             print(f"Помилка операції: {type(exc).__name__}")
             print("Перевірте конфігурацію та доступність файлів.")
 

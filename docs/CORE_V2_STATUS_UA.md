@@ -84,3 +84,9 @@ environment_offline. Не потрібно скидати Discord token чере
 CI: https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40162166628
 Windows smoke перевіряє CMD меню з кириличного шляху з пробілами, але не live Discord.
 Повний launcher ще не готовий: Git update, restore через меню, автоматичний crash supervisor, повна телеметрія та live Discord сценарії залишаються наступними етапами.
+
+## SQLite maintenance — 25.10.2026
+CMD [7] враховує DATABASE_URL, [8] відновлює підтверджену копію після зупинки,
+[10] перевіряє цілісність і схему v1. Перед відновленням створюється копія поточних даних.
+PostgreSQL не обслуговується SQLite-меню. Докладно: WINDOWS_CMD_LAUNCHER_UA.md.
+Локально: 28 passed, 1 skipped (Windows-only). Новий CI перевіряється окремо.

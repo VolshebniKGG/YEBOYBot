@@ -1,5 +1,6 @@
 """SQLite online backup; source remains untouched, existing targets are refused."""
 import argparse
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 
@@ -13,8 +14,8 @@ def backup(source, destination):
     with destination.open("xb"):
         pass
     try:
-        with sqlite3.connect(source.as_uri() + "?mode=ro", uri=True) as original:
-            with sqlite3.connect(destination) as copied:
+        with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as original:
+            with closing(sqlite3.connect(destination)) as copied:
                 original.backup(copied)
                 if copied.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                     raise RuntimeError("Backup integrity check failed")
