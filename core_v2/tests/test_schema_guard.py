@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from core_v2.db import Database
+from core_v2.db import CURRENT_SCHEMA_VERSION, Database
 
 
 def sqlite_snapshot(path):
@@ -84,7 +84,7 @@ async def test_fresh_bootstrap_and_repeated_start_preserve_existing_settings(tmp
         assert (await restarted.get_settings(123))["log_channel"] == 456
         assert (await restarted.rank(123, 789))["text_xp"] == 5
         async with restarted.engine.connect() as connection:
-            assert (await connection.execute(text("SELECT version FROM v2_schema"))).scalars().all() == [1]
+            assert (await connection.execute(text("SELECT version FROM v2_schema"))).scalars().all() == [CURRENT_SCHEMA_VERSION]
     finally:
         await restarted.close()
 
@@ -225,4 +225,23 @@ async def test_sqlite_two_engines_bootstrap_once(tmp_path):
         await first.close()
         await second.close()
     with closing(sqlite3.connect(path)) as connection:
-        assert connection.execute("SELECT version FROM v2_schema").fetchall() == [(1,)]
+        assert connection.execute("SELECT version FROM v2_schema").fetchall() == [(CURRENT_SCHEMA_VERSION,)]
+
+
+async def test_postgres_legacy_v1_requires_explicit_migration(isolated_postgres_schema):
+    from test_migrations_core import legacy_metadata
+    from core_v2.db import MigrationRequired
+    database = isolated_postgres_schema
+    async with database.engine.begin() as connection:
+        await connection.run_sync(lambda sync: legacy_metadata().create_all(sync))
+        await connection.execute(text("INSERT INTO v2_schema VALUES (1)"))
+        await connection.execute(text("INSERT INTO v2_settings (guild_id,levels,automod) VALUES (11,false,false)"))
+    with pytest.raises(MigrationRequired):
+        await database.initialize()
+    async with database.engine.connect() as connection:
+        assert (await connection.execute(text("SELECT version FROM v2_schema"))).scalars().all() == [1]
+        assert (await connection.execute(text("SELECT levels FROM v2_settings WHERE guild_id=11"))).scalar_one() is False
+        columns = (await connection.execute(text(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() "
+            "AND table_name='v2_cases'"))).scalars().all()
+        assert "updated" not in columns

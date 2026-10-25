@@ -4,6 +4,7 @@ import logging
 import time
 
 from discord import LoginFailure, PrivilegedIntentsRequired
+from .db import MigrationRequired
 
 log = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ async def recover(operation, stopped, heartbeat, delays=(2, 5, 15), sleep=asynci
         try:
             await operation()
             return
-        except (LoginFailure, PrivilegedIntentsRequired, ValueError, ControlFailure):
+        except (LoginFailure, PrivilegedIntentsRequired, ValueError, ControlFailure, MigrationRequired):
             log.exception("Fatal configuration/authentication/control error; recovery disabled")
             raise
         except Exception:

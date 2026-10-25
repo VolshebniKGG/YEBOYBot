@@ -25,7 +25,7 @@ def sqlite_check(path):
         return result("error", "database_missing")
     deadline = time.monotonic() + 2
     try:
-        from core_v2.db import meta
+        from core_v2.db import sqlite_version, CURRENT_SCHEMA_VERSION
         from contextlib import closing
         with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
             db.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
@@ -33,15 +33,18 @@ def sqlite_check(path):
                 db.execute("PRAGMA query_only=ON")
                 if db.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
                     return result("error", "integrity_failed")
-                if db.execute("SELECT version FROM v2_schema").fetchall() != [(1,)]:
+                try:
+                    with closing(db.cursor()) as cursor:
+                        version = sqlite_version(cursor)
+                except RuntimeError:
                     return result("error", "schema_unsupported")
-                for table in meta.sorted_tables:
-                    columns = {row[1] for row in db.execute(f'PRAGMA table_info("{table.name}")')}
-                    if not {column.name for column in table.columns} <= columns:
-                        return result("error", "schema_incomplete")
+                if not version:
+                    return result("error", "schema_incomplete")
+                if version != CURRENT_SCHEMA_VERSION:
+                    return result("error", "migration_required")
             finally:
                 db.set_progress_handler(None, 0)
-        return result("ok", "sqlite_schema_v1")
+        return result("ok", f"sqlite_schema_v{version}")
     except Exception:
         # Exception text can include paths, credentials, SQL or user data.
         return result("error", "database_check_failed")
@@ -119,6 +122,8 @@ def main():
         report = collect()
         for name, check in report["checks"].items():
             print(f"{name}: {check['status']} ({check['code']})")
+        if report["checks"]["database"]["code"] == "migration_required":
+            print("Потрібна міграція SQLite через [21] після зупинки [3].")
         print("Discord API: не перевірено; локальна перевірка не підтверджує чинність токена.")
         if "--export" in sys.argv[1:]:
             export(report)

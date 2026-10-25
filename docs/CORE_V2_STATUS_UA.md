@@ -1,3 +1,48 @@
+# Поточний стан Core V2 — 25.10.2026
+
+Гілка feature/core-v2; main не змінено, PR #1 — draft. Нижче актуальний стан,
+попередні звіти збережено в розгортуваній історії. Не переносіть старі CI totals
+на нові коміти.
+
+## Поточна ітерація: версійовані міграції
+
+- Схема **2**, реальна впорядкована SQLite ревізія **002_case_updated_at**.
+- [21] читає план; після МІГРУВАТИ та зупинки [3] робить перевірену копію,
+  застосовує DDL/data/marker в транзакції й записує migration-report.json.
+- Налаштування, XP, jobs, cases, role-panel дані й індекси зберігаються.
+  updated для старих справ = created, не реконструйований історичний час.
+- Backup прив'язаний до одного джерела; stale plan/config/file відхиляються.
+  Помилки до commit відкочуються; помилка звіту після commit не приховує applied DB.
+- Restore v1 створює страховий snapshot v2; повторна v2 migration — no-op.
+- Нові БД SQLite/PostgreSQL — v2. Наявна v1 не оновлюється при запуску;
+  DB preflight виконується до Discord login, MigrationRequired не повторюється.
+- [4]/doctor показують потребу [21]; manifest format1 підтримує фактичну schema1/2.
+- PostgreSQL v1 upgrade через меню **не реалізовано**: потрібен native pg_dump/
+  verification/upgrade/recovery workflow. Це обмеження rollout для наявної PG v1.
+
+Документи: [Міграції](MIGRATIONS_UA.md), [повний аудит](PROJECT_AUDIT_UA.md),
+[наступний промт](NEXT_DEVELOPMENT_PROMPT_UA.md).
+
+Локальна перевірка поточної ітерації (Linux/Python 3.12):
+- SQLite: **218 passed, 8 skipped** (3 Windows-only + 5 PostgreSQL-only).
+- PostgreSQL 17.11 у disposable container: **223 passed, 3 Windows-only skipped**.
+- Разом 226 сценаріїв, **43 нових** відносно попередніх 183. Це не сума jobs.
+- Ruff, pip check, compileall і diff check успішні. CVE audit не виконувався;
+  pip check підтверджує сумісність установлених залежностей, не відсутність CVE.
+- Є повні real SQLite payload/index checks, backup+SHA, failed DDL rollback,
+  restore1 зі safetycopy2, stale-plan/config race, failed report aftercommit,
+  no-Discord-login for MigrationRequired. Користувацьку БД не мігрували.
+- Source-pinning race знайдено під час review: `_create` тепер бере перевірений
+  source, у restore safetybackup також прив'язаний до target; окремий regression
+  змінює DATABASE_URL під час backup і підтверджує відсутність DDL в обох БД.
+- Нових application dependencies немає. CI нового коміту перевіряється окремо;
+  старі затримані jobs не є доказом успіху нового коду.
+Live Discord, ручний Windows 10/11/logon і production 24/7 не підтверджені.
+Порівняльних вимірювань з ProBot немає.
+
+<details>
+<summary>Історія попередніх ітерацій (результати прив'язані до зазначених SHA)</summary>
+
 # Стан Core v2
 
 Оновлено: 2026-10-25. Робоча гілка: `feature/core-v2`.
@@ -343,3 +388,5 @@ supervisor, ручного Windows 10/11 і live Discord перевірок ще
 перед першою потрібною зміною схеми; паралельно отримати Windows CI logs.
 Запуск Windows: YEBOYBot.cmd → [4] діагностика → [1]; помилка — [9] журнал;
 [3] зупинка, [2] перезапуск. Номер версії БД вручну не редагувати.
+
+</details>

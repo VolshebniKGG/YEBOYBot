@@ -10,6 +10,14 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+CURRENT_SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSIONS = (1, 2)
+
+
+class MigrationRequired(RuntimeError):
+    """A supported older database requires an explicit backed-up migration."""
+
+
 meta = MetaData()
 versions = Table("v2_schema", meta, Column("version", Integer, primary_key=True))
 settings = Table("v2_settings", meta,
@@ -29,6 +37,7 @@ cases = Table("v2_cases", meta,
     Column("user_id", BigInteger, nullable=False, index=True),
     Column("actor_id", BigInteger, nullable=False), Column("action", String(32), nullable=False),
     Column("reason", String(500), nullable=False), Column("created", Float, nullable=False),
+    Column("updated", Float, nullable=False, server_default=text("0")),
     Column("status", String(20), nullable=False))
 jobs = Table("v2_jobs", meta,
     Column("id", String(32), primary_key=True),
@@ -44,23 +53,35 @@ panels = Table("v2_role_panels", meta,
     Column("role_id", BigInteger, nullable=False))
 
 
+def required_columns(version):
+    """Column requirements for each supported on-disk version."""
+    if type(version) is not int or version not in SUPPORTED_SCHEMA_VERSIONS:
+        raise RuntimeError("Unsupported schema version")
+    result = {table.name: {column.name for column in table.columns} for table in meta.sorted_tables}
+    if version == 1:
+        result["v2_cases"].remove("updated")
+    return result
+
+
 def _schema_state(table_names, view_names, columns, current):
-    """Classify fresh/v1 databases; refuse ambiguous state without repairing it."""
+    """Return 0/fresh or the validated supported on-disk version, without writes."""
     existing = table_names | view_names
     if not any(name.lower().startswith("v2_") for name in existing):
-        return False
+        return 0
     if "v2_schema" not in table_names or "version" not in columns.get("v2_schema", set()):
         raise RuntimeError("Unsupported schema metadata; restore compatible code or a verified backup")
-    if len(current) != 1 or type(current[0]) is not int or current != [1]:
+    if len(current) != 1 or type(current[0]) is not int or current[0] not in SUPPORTED_SCHEMA_VERSIONS:
         raise RuntimeError("Unsupported schema version; restore compatible code or a verified backup")
-    for table in meta.sorted_tables:
-        required = {column.name for column in table.columns}
-        if table.name not in table_names or not required <= columns.get(table.name, set()):
+    version = current[0]
+    for name, required in required_columns(version).items():
+        if name not in table_names or not required <= columns.get(name, set()):
             raise RuntimeError("Unsupported schema structure; restore compatible code or a verified backup")
-    return True
+    if version == 1 and "updated" in columns.get("v2_cases", set()):
+        raise RuntimeError("Unsupported schema structure; ambiguous partially migrated v1")
+    return version
 
 
-def _sqlite_schema_state(cursor):
+def sqlite_version(cursor):
     # Read existing metadata before journal_mode=WAL can alter a rejected file.
     cursor.execute("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view')")
     objects = cursor.fetchall()
@@ -93,6 +114,11 @@ def _connection_schema_state(connection):
     return _schema_state(table_names, view_names, columns, current)
 
 
+def _require_current_schema(version):
+    if version and version != CURRENT_SCHEMA_VERSION:
+        raise MigrationRequired("Schema migration required before startup; use the backed-up migration menu")
+
+
 class Database:
     def __init__(self, url):
         self.sqlite = url.startswith("sqlite")
@@ -108,7 +134,8 @@ class Database:
                     cursor = connection.cursor()
                     try:
                         cursor.execute("PRAGMA busy_timeout=30000")
-                        _sqlite_schema_state(cursor)
+                        version = sqlite_version(cursor)
+                        _require_current_schema(version)
                         cursor.execute("PRAGMA journal_mode=WAL")
                         return
                     except sqlite3.OperationalError as error:
@@ -135,9 +162,10 @@ class Database:
             # Recheck pooled connections: another tool may have changed the schema.
             # create_all is only an initial bootstrap, never an implicit migration.
             existing = await conn.run_sync(_connection_schema_state)
+            _require_current_schema(existing)
             if not existing:
                 await conn.run_sync(meta.create_all)
-                await conn.execute(self.insert(versions).values(version=1).on_conflict_do_nothing())
+                await conn.execute(self.insert(versions).values(version=CURRENT_SCHEMA_VERSION).on_conflict_do_nothing())
 
     async def close(self):
         await self.engine.dispose()
@@ -188,9 +216,10 @@ class Database:
 
     async def create_case(self, guild_id, user_id, actor_id, action, reason, status="pending"):
         case_id = uuid.uuid4().hex
+        now = time.time()
         async with self.engine.begin() as conn:
             await conn.execute(cases.insert().values(id=case_id, guild_id=guild_id, user_id=user_id,
-                actor_id=actor_id, action=action, reason=reason[:500], created=time.time(), status=status))
+                actor_id=actor_id, action=action, reason=reason[:500], created=now, updated=now, status=status))
         return case_id
 
     async def finish_case(self, guild_id, case_id, status):
@@ -198,7 +227,7 @@ class Database:
             raise ValueError("Invalid status")
         async with self.engine.begin() as conn:
             return (await conn.execute(update(cases).where(cases.c.guild_id == guild_id,
-                cases.c.id == case_id, cases.c.status == "pending").values(status=status))).rowcount
+                cases.c.id == case_id, cases.c.status == "pending").values(status=status, updated=time.time()))).rowcount
 
     async def warnings(self, guild_id, user_id):
         async with self.engine.connect() as conn:
@@ -211,7 +240,7 @@ class Database:
         async with self.engine.begin() as conn:
             return (await conn.execute(update(cases).where(cases.c.guild_id == guild_id,
                 cases.c.id == case_id, cases.c.action == "warn", cases.c.status == "applied"
-                ).values(status="revoked"))).rowcount
+                ).values(status="revoked", updated=time.time()))).rowcount
 
     async def schedule(self, guild_id, user_id, channel_id, body, due):
         if not 1 <= len(body) <= 1000:

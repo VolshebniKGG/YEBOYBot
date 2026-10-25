@@ -9,6 +9,7 @@ from .runtime import InstanceLock, configure_logging
 async def run(settings):
     from .bot import Bot
     async with Bot(settings) as bot:
+        await bot.db.initialize()
         await bot.start(settings.token)
 
 

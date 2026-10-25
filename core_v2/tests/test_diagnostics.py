@@ -28,7 +28,7 @@ async def test_valid_schema_checked_without_modification(tmp_path, configured):
     await db.close()
     before = path.read_bytes()
     report = d.collect(tmp_path)
-    assert report["checks"]["database"] == d.result("ok", "sqlite_schema_v1")
+    assert report["checks"]["database"] == d.result("ok", "sqlite_schema_v2")
     assert report["local_checks_passed"]
     assert not report["runtime"]["discord_ready"]
     assert not report["discord_api_checked"]
@@ -45,7 +45,7 @@ def test_missing_database_is_a_failure(tmp_path, configured):
     assert not (tmp_path / "local.db").exists()
 
 
-@pytest.mark.parametrize("version,expected", [(2, "schema_unsupported"), (1, "schema_incomplete")])
+@pytest.mark.parametrize("version,expected", [(999, "schema_unsupported"), (1, "schema_unsupported")])
 def test_incompatible_schema(tmp_path, version, expected):
     path = tmp_path / "db.sqlite"
     with sqlite3.connect(path) as db:

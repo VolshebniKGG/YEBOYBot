@@ -42,7 +42,7 @@ def logs():
 
 def main():
     os.chdir(ROOT)
-    from . import process, storage, update, configuration, autostart
+    from . import process, storage, update, configuration, autostart, migrations
     actions = {
         "2": ("Перезапустити бота", lambda: print(process.restart()["status"])),
         "3": ("Зупинити бота", lambda: print("Зупинено" if process.stop() else "Не зупинено")),
@@ -56,6 +56,7 @@ def main():
         "9": ("Переглянути журнал", logs),
         "11": ("Налаштувати Discord (приховане введення токена)", setup),
         "15": ("Автозапуск Windows", autostart.menu),
+        "21": ("План і застосування міграцій SQLite", migrations.menu),
         "20": ("Резервні копії: перевірка й політика зберігання", storage.catalog_menu),
         "18": ("Експортувати звіт діагностики", lambda: run("-m", "tools.launcher.diagnostics", "--export")),
         "12": ("Початкове налаштування", lambda: (setup(), run("-m", "core_v2.doctor"))),
@@ -76,7 +77,7 @@ def main():
             result = actions[choice][1]()
             if choice == "6" and result:
                 return 0
-        except (storage.StorageError, update.UpdateError, configuration.ConfigurationError) as exc:
+        except (storage.StorageError, update.UpdateError, configuration.ConfigurationError, migrations.MigrationError) as exc:
             print(str(exc))
         except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
             print(f"Помилка операції: {type(exc).__name__}")

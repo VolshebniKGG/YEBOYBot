@@ -12,7 +12,7 @@ from dotenv import dotenv_values
 from sqlalchemy.engine import make_url
 
 from core_v2.backup import backup
-from core_v2.db import meta
+from core_v2.db import sqlite_version
 from core_v2.runtime import InstanceLock
 from . import backup_manifest as manifest
 
@@ -42,14 +42,11 @@ def validate(path, *, snapshot=False):
     with closing(sqlite3.connect(path.as_uri() + query, uri=True)) as conn:
         if conn.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
             raise StorageError("Перевірка цілісності не пройдена.")
-        versions = conn.execute("SELECT version FROM v2_schema").fetchall()
-        if versions != [(1,)]:
-            raise StorageError("Схема несумісна з поточним ядром (очікується v1).")
-        for table in meta.sorted_tables:
-            columns = {r[1] for r in conn.execute(f'PRAGMA table_info("{table.name}")')}
-            if not {c.name for c in table.columns} <= columns:
-                raise StorageError("Відсутні потрібні таблиці або колонки.")
-    return True
+        with closing(conn.cursor()) as cursor:
+            version = sqlite_version(cursor)
+        if not version:
+            raise StorageError("Файл не містить підтримуваної схеми Core V2.")
+    return version
 
 
 def backup_folder(root):
@@ -63,8 +60,8 @@ def maintenance_lock(root):
     return InstanceLock(Path(root) / "data/v2/backup.lock")
 
 
-def _create(root):
-    source = database_path(root)
+def _create(root, *, source=None):
+    source = database_path(root) if source is None else Path(source).resolve()
     folder = backup_folder(root)
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     # Incomplete copies never appear in available(). Publish under the shared lock.
@@ -116,7 +113,9 @@ def inspect_backup(path):
         metadata = manifest.read(path)
         if metadata is not None:
             manifest.verify(path, metadata)
-        validate(path, snapshot=True)
+        version = validate(path, snapshot=True)
+        if metadata is not None and metadata["schema_version"] != version:
+            raise StorageError("Версія маніфесту не відповідає копії.")
         if metadata is None:
             return {"status": "legacy", "size_bytes": path.stat().st_size,
                     "created_utc": None, "sha256": None}
@@ -157,7 +156,7 @@ def restore(source, *, root=ROOT, confirmed=False, allow_legacy=False):
             if info["status"] == "verified":
                 manifest.verify(staged, info)
             validate(staged, snapshot=True)
-            previous = _create(root) if target.exists() else None
+            previous = _create(root, source=target) if target.exists() else None
             target.parent.mkdir(parents=True, exist_ok=True)
             with closing(sqlite3.connect(staged.as_uri() + "?mode=ro&immutable=1", uri=True)) as original:
                 with closing(sqlite3.connect(target)) as destination:
@@ -274,5 +273,5 @@ def restore_menu(root=ROOT):
 
 def check(root=ROOT):
     validate(database_path(root))
-    print("SQLite: цілісність і схема v1 перевірені. Дані не змінено.")
+    print("SQLite: цілісність і підтримувана схема перевірені. Дані не змінено.")
 

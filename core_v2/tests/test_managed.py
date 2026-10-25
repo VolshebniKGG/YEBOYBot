@@ -9,6 +9,8 @@ from core_v2 import managed
 
 class LocalBot:
     def __init__(self, settings):
+        from unittest.mock import AsyncMock
+        self.db = SimpleNamespace(initialize=AsyncMock())
         self.closed = asyncio.Event()
         self.active = False
         self.start_finished = False
@@ -211,3 +213,21 @@ async def test_lost_heartbeat_after_ready_closes_established_session(local_runti
     finally:
         operation.cancel()
         await asyncio.gather(operation, return_exceptions=True)
+
+
+async def test_migration_required_prevents_discord_login_and_retry(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+    from core_v2.bot import Bot
+    from core_v2.config import Settings
+    from core_v2.db import MigrationRequired
+    from test_migrations_core import create_legacy_v1
+    path = create_legacy_v1(tmp_path / "legacy.db")
+    monkeypatch.setattr(managed, "STATE", tmp_path / "managed.json")
+    monkeypatch.setattr(managed, "STOP", tmp_path / "stop.json")
+    start = AsyncMock()
+    monkeypatch.setattr(Bot, "start", start)
+    with pytest.raises(MigrationRequired):
+        await asyncio.wait_for(managed.recover(
+            lambda: managed.run(Settings("synthetic-token", "sqlite+aiosqlite:///" + str(path)), "instance"),
+            lambda: False, lambda *_: None, (0, 0)), timeout=3)
+    start.assert_not_awaited()

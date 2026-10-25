@@ -49,7 +49,11 @@ async def control(bot, instance):
 async def run(settings, instance):
     from .bot import Bot
     async with Bot(settings) as bot:
-        client = asyncio.create_task(bot.start(settings.token), name="discord-client")
+        async def connect():
+            # Fail schema/connection checks before Discord login; setup_hook rechecks.
+            await bot.db.initialize()
+            await bot.start(settings.token)
+        client = asyncio.create_task(connect(), name="discord-client")
         watcher = asyncio.create_task(control(bot, instance), name="managed-control")
         try:
             completed, _ = await asyncio.wait({client, watcher}, return_when=asyncio.FIRST_COMPLETED)

@@ -4,6 +4,10 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import sqlite3
+from contextlib import closing
+
+from core_v2.db import sqlite_version, SUPPORTED_SCHEMA_VERSIONS
 
 
 class ManifestError(ValueError):
@@ -26,7 +30,12 @@ def fingerprint(path):
 
 def build(path):
     size, digest = fingerprint(path)
-    return {"format_version": 1, "backend": "sqlite", "schema_version": 1,
+    with closing(sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
+        with closing(connection.cursor()) as cursor:
+            version = sqlite_version(cursor)
+    if not version:
+        raise ManifestError("Копія не містить підтримуваної схеми Core V2.")
+    return {"format_version": 1, "backend": "sqlite", "schema_version": version,
             "created_utc": datetime.now(timezone.utc).isoformat(),
             "size_bytes": size, "sha256": digest}
 
@@ -46,7 +55,7 @@ def read(path):
             raise ValueError
         if type(data["format_version"]) is not int or data["format_version"] != 1:
             raise ValueError
-        if type(data["schema_version"]) is not int or data["schema_version"] != 1 or data["backend"] != "sqlite":
+        if type(data["schema_version"]) is not int or data["schema_version"] not in SUPPORTED_SCHEMA_VERSIONS or data["backend"] != "sqlite":
             raise ValueError
         if type(data["size_bytes"]) is not int or data["size_bytes"] <= 0:
             raise ValueError

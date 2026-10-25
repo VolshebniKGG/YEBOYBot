@@ -21,7 +21,7 @@
 | PostgreSQL | Partial | asyncpg та CI є; backup/restore меню відсутні |
 | Автозапуск Windows | Partial | [15]: opt-in завдання після входу поточного SID, без пароля/admin, перевірка належності; реальне створення/видалення на Windows 10/11 потребує ручної перевірки |
 | Телеметрія / експорт діагностики | Partial | [4]/[18]: read-only SQLite/config/import checks і JSON без секретів; CPU/RAM/lag ще відсутні |
-| Версійовані міграції | Partial | Guard до WAL/DDL, транзакційний bootstrap і перевірка наявної v1; ланцюжка переходів версій ще немає |
+| Версійовані міграції | Partial | Реєстр ревізій і явний SQLite 1→2 через [21], backup/rollback; PG upgrade і ручний Windows не перевірені |
 | Core V2 moderation | Partial | warn/warnings/unwarn, timeout/untimeout; kick/ban/unban/clear/modhistory відсутні |
 | XP | Partial | Текстовий XP/cooldown/rank; голосовий XP та rewards відсутні |
 | Нагадування | Partial | Збереження, lease/retry; можлива повторна доставка після crash |
@@ -66,3 +66,12 @@
 SQLite guard зберігає байти/таблиці несумісної БД; PostgreSQL перевірено в
 окремому локальному контейнері 17.11. Підсумки конкретного коміту — у STATUS.
 Старі Windows CI logs залишаються BlobNotFound; причину затримки не встановлено.
+
+## Оновлення після міграцій
+
+Поточна схема v2; підтримувані копії v1/v2. Нова БД v2, наявна v1 не
+оновлюється при запуску, доки оператор не застосує [21]. PostgreSQL v1
+безпечно відхиляється, native backup/upgrade workflow залишається Missing.
+Наскрізні тести перевіряють реальні дані, відновлення v1 зі safety copy v2,
+збої backup/DDL/report, locks, stale plan та зміну конфігурації під час backup.
+Повний огляд усіх частин репозиторію: [PROJECT_AUDIT_UA.md](PROJECT_AUDIT_UA.md).
