@@ -103,3 +103,20 @@ def test_existing_ignored_file_cannot_be_overwritten(repo):
     with pytest.raises(update.UpdateError):
         update.plan(root, fetch=False)
     assert (root / "data/settings.json").read_text() == "local"
+
+
+@pytest.mark.parametrize("name", ["налаштування.txt", "local settings.txt"])
+def test_ignored_unicode_and_space_names_preserved(repo, name):
+    root, _, target = repo
+    command(root, "checkout", "-b", "unicode-addition", target)
+    (root / name).write_text("remote", encoding="utf-8")
+    command(root, "add", name)
+    command(root, "commit", "-m", "new file")
+    command(root, "update-ref", f"refs/remotes/origin/{update.BRANCH}", command(root, "rev-parse", "HEAD"))
+    command(root, "checkout", update.BRANCH)
+    with (root / ".git/info/exclude").open("a", encoding="utf-8") as stream:
+        stream.write("\n" + name + "\n")
+    (root / name).write_text("local data", encoding="utf-8")
+    with pytest.raises(update.UpdateError, match="вже існує"):
+        update.plan(root, fetch=False)
+    assert (root / name).read_text(encoding="utf-8") == "local data"

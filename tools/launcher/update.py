@@ -28,7 +28,7 @@ def git(root, *args):
     if result.returncode:
         # Git stderr can include credential-bearing remote URLs.
         raise UpdateError("Git не виконав операцію. Перевірте мережу, гілку та стан репозиторію.")
-    return result.stdout.strip()
+    return result.stdout if "-z" in args else result.stdout.strip()
 
 
 def clean(root):
@@ -50,13 +50,13 @@ def plan(root=ROOT, *, fetch=True):
         target = git(root, "rev-parse", f"refs/remotes/origin/{BRANCH}")
     if git(root, "merge-base", old, target) != old:
         raise UpdateError("Історії розійшлися. Потрібне ручне узгодження без втрати локальних комітів.")
-    changed = git(root, "diff", "--name-only", old, target).splitlines()
+    changed = [name for name in git(root, "diff", "--name-only", "-z", old, target).split("\0") if name]
     for path in changed:
         path = path.lower()
         if path.startswith(("data/", "backups/", "logs/", ".venv", ".git/")) or path in {".env", ".env.v2"}:
             raise UpdateError("Оновлення змінює локальні дані або секрети; автоматичне застосування заблоковане.")
     # An ignored file may otherwise be overwritten by Git when newly tracked.
-    added = git(root, "diff", "--diff-filter=A", "--name-only", old, target).splitlines()
+    added = [name for name in git(root, "diff", "--diff-filter=A", "--name-only", "-z", old, target).split("\0") if name]
     if any((root / name).exists() for name in added):
         raise UpdateError("Новий файл оновлення вже існує локально. Оновлення заблоковано.")
     return {"old": old, "target": target, "files": changed,
