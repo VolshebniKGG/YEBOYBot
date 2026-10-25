@@ -88,3 +88,15 @@ Bootstrap створює venv, встановлює requirements, виконує
 середовища. Windows first/repeat install додано до CI; результат слід перевіряти
 для нового коміту. Реальний Windows-ПК і Discord API не перевірені.
 Матриця та наступні кроки: [аудит](LAUNCHER_AUDIT_UA.md).
+
+## Підтверджений CI bootstrap — 25.10.2026
+
+Код `1b9b135014c4dab80083345d5e624a7d36e77cbf` перевірено:
+[GitHub Actions](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40203553458).
+Windows/Python 3.12 — 62 passed; Ubuntu SQLite і PostgreSQL — по 60 passed,
+2 Windows-only skipped. Ruff і pip check успішні у Windows/Ubuntu SQLite jobs.
+Windows first/repeat install, відсутній Python та CMD smoke у кириличному шляху
+з пробілами пройшли. Перший CI виявив дві помилки тестових fixture
+(короткі Windows-шляхи та quoting CMD); їх виправлено до успішного повтору.
+Це runner Windows, не ручний тест Windows 10/11; live Discord не перевірено.
+Цей запис змінює лише документацію, перевірений Python/Batch-код не змінено.
