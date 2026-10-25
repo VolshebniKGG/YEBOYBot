@@ -18,7 +18,7 @@
 | SQLite backup/restore | Partial | Backup API, schema validation, підтвердження; checksum/retention ще відсутні |
 | PostgreSQL | Partial | asyncpg та CI є; backup/restore меню відсутні |
 | Автозапуск Windows | Missing | Планувальник завдань не інтегровано |
-| Телеметрія / експорт діагностики | Missing | Doctor і heartbeat є, повних метрик та експорту немає |
+| Телеметрія / експорт діагностики | Partial | [4]/[18]: read-only SQLite/config/import checks і JSON без секретів; CPU/RAM/lag ще відсутні |
 | Версійовані міграції | Partial | Маркер схеми v1 і початкова ініціалізація; ланцюжка міграцій немає |
 | Core V2 moderation | Partial | warn/warnings/unwarn, timeout/untimeout; kick/ban/unban/clear/modhistory відсутні |
 | XP | Partial | Текстовий XP/cooldown/rank; голосовий XP та rewards відсутні |

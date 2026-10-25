@@ -47,7 +47,7 @@ def main():
         "2": ("Перезапустити бота", lambda: print(process.restart()["status"])),
         "3": ("Зупинити бота", lambda: print("Зупинено" if process.stop() else "Не зупинено")),
         "1": ("Запустити Discord-бота", start),
-        "4": ("Перевірити систему", lambda: run("-m", "core_v2.doctor")),
+        "4": ("Перевірити конфігурацію та БД", lambda: run("-m", "tools.launcher.diagnostics")),
         "5": ("Оновити Python-залежності", lambda: run("-m", "tools.launcher.bootstrap", "--repair")),
         "6": ("Оновити YEBOYBot із GitHub", update.menu),
         "7": ("Створити резервну копію SQLite", backup),
@@ -55,6 +55,7 @@ def main():
         "10": ("Перевірити SQLite", storage.check),
         "9": ("Переглянути журнал", logs),
         "11": ("Налаштувати Discord (приховане введення токена)", setup),
+        "18": ("Експортувати звіт діагностики", lambda: run("-m", "tools.launcher.diagnostics", "--export")),
         "12": ("Початкове налаштування", lambda: (setup(), run("-m", "core_v2.doctor"))),
     }
     while True:
