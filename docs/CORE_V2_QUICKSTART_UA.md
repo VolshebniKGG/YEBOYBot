@@ -8,19 +8,15 @@
 
 1. Завантажте Python 3.12 з https://www.python.org/downloads/ (з Python Launcher).
 2. Завантажте ZIP гілки: https://github.com/VolshebniKGG/YEBOYBot/archive/refs/heads/feature/core-v2.zip
-3. Розпакуйте, запустіть `install_v2.bat`. Не використовуйте старе віртуальне середовище.
-4. Відредагуйте створений `.env.v2`:
-   - `DISCORD_TOKEN`: токен вашого тестового бота з Discord Developer Portal.
-   - `TEST_GUILD_ID`: ID тестового сервера (Developer Mode → Copy Server ID).
-   - `SYNC_COMMANDS=test`.
-   - `ENABLE_MEMBERS=false`, `ENABLE_MUSIC=false`.
+3. Розпакуйте та двічі натисніть `YEBOYBot.cmd`. Venv і залежності встановлюються автоматично.
+4. Виберіть [12], введіть токен приховано та ID тестового сервера.
 5. Запросіть бота на тестовий сервер зі scopes `bot` і `applications.commands`.
    Права: View Channels, Send Messages, Embed Links, Moderate Members.
    Роль бота має бути вище ролей учасників, яких він модерує.
    Administrator не потрібний. Message Content Intent і Presence Intent не потрібні.
 6. Зупиніть старий процес, якщо він використовує той самий токен.
-7. Запустіть `start_v2.bat`. Перевірте `/status`.
-8. Зупинка: Ctrl+C. Після налаштування команд встановіть `SYNC_COMMANDS=none`,
+7. У `YEBOYBot.cmd` виберіть [1]. Дочекайтеся готовності й перевірте `/status`.
+8. Зупинка через меню: [3]; [2] — перезапуск. [0] залишає бот працювати. Після налаштування команд встановіть `SYNC_COMMANDS=none`,
    щоб не синхронізувати їх на кожному запуску.
 
 Краще використовувати окремий Discord application для тестів. Синхронізація замінює
@@ -185,3 +181,4 @@ Enter зберігає наявний токен/ID. Без ID використ�
 stdin: якщо getpass не може приховати введення, операція відхиляється.
 Локально 50 passed, 1 Windows-only skipped; Ruff успішний. CI перевіряється окремо.
 Наступний пріоритет: bootstrap першого встановлення та діагностика відсутнього Python.
+

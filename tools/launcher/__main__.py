@@ -48,7 +48,7 @@ def main():
         "3": ("Зупинити бота", lambda: print("Зупинено" if process.stop() else "Не зупинено")),
         "1": ("Запустити Discord-бота", start),
         "4": ("Перевірити систему", lambda: run("-m", "core_v2.doctor")),
-        "5": ("Оновити Python-залежності", lambda: run("-m", "pip", "install", "-r", "core_v2/requirements.txt")),
+        "5": ("Оновити Python-залежності", lambda: run("-m", "tools.launcher.bootstrap", "--repair")),
         "6": ("Оновити YEBOYBot із GitHub", update.menu),
         "7": ("Створити резервну копію SQLite", backup),
         "8": ("Відновити SQLite з резервної копії", storage.restore_menu),
@@ -82,3 +82,4 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
