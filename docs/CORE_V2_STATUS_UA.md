@@ -78,3 +78,9 @@ environment_offline. Не потрібно скидати Discord token чере
 Деталі та обмеження: WINDOWS_CMD_LAUNCHER_UA.md.
 Модерація з окремого коміту 9ce34c4 ще не інтегрована; не змішуйте результати її тестів.
 Локально 23 тести пройшли; Windows smoke виконується тільки Windows CI.
+
+## Перевірений результат CMD-керування
+Код caf182283902b401d75d03565a4eaaf051b49cd5: Windows 24 тести успішно; Ubuntu і PostgreSQL — 23 успішно, Windows-only тест пропущений. Ruff/pip check успішні.
+CI: https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40162166628
+Windows smoke перевіряє CMD меню з кириличного шляху з пробілами, але не live Discord.
+Повний launcher ще не готовий: Git update, restore через меню, автоматичний crash supervisor, повна телеметрія та live Discord сценарії залишаються наступними етапами.
