@@ -15,14 +15,8 @@ def run(*args):
 
 
 def setup():
-    env = ROOT / ".env.v2"
-    if not env.exists():
-        env.write_bytes((ROOT / ".env.v2.example").read_bytes())
-        print("Створено .env.v2. Відредагуйте файл перед запуском.")
-    else:
-        print(".env.v2 вже існує; дані збережено.")
-    if os.name == "nt":
-        subprocess.call(["notepad.exe", str(env)])
+    from .configuration import wizard
+    wizard(ROOT)
 
 
 def start():
@@ -48,7 +42,7 @@ def logs():
 
 def main():
     os.chdir(ROOT)
-    from . import process, storage, update
+    from . import process, storage, update, configuration
     actions = {
         "2": ("Перезапустити бота", lambda: print(process.restart()["status"])),
         "3": ("Зупинити бота", lambda: print("Зупинено" if process.stop() else "Не зупинено")),
@@ -60,7 +54,7 @@ def main():
         "8": ("Відновити SQLite з резервної копії", storage.restore_menu),
         "10": ("Перевірити SQLite", storage.check),
         "9": ("Переглянути журнал", logs),
-        "11": ("Створити конфігурацію .env.v2", setup),
+        "11": ("Налаштувати Discord (приховане введення токена)", setup),
         "12": ("Початкове налаштування", lambda: (setup(), run("-m", "core_v2.doctor"))),
     }
     while True:
@@ -79,7 +73,7 @@ def main():
             result = actions[choice][1]()
             if choice == "6" and result:
                 return 0
-        except (storage.StorageError, update.UpdateError) as exc:
+        except (storage.StorageError, update.UpdateError, configuration.ConfigurationError) as exc:
             print(str(exc))
         except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
             print(f"Помилка операції: {type(exc).__name__}")
