@@ -70,8 +70,8 @@ async def test_commands_register_without_network(tmp_path):
         await bot.add_cog(Core(bot))
         names = {c.name for c in bot.tree.get_commands()}
         assert {"status", "rank", "warn", "timeout", "remind", "levels"} <= names
-        assert {"kick", "modhistory"} <= names
-        assert len(names) == 14
+        assert {"kick", "modhistory", "ban", "unban"} <= names
+        assert len(names) == 16
         for command in bot.tree.get_commands():
             command.to_dict(bot.tree)
         assert not bot.intents.message_content

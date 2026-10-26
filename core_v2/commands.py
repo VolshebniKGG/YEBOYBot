@@ -8,14 +8,29 @@ from discord.ext import commands
 
 from .security import UserError, permission, target_check, respond
 from .security import guild_context
-from .moderation import KickService, ModerationError
+from .moderation import ModerationService, ModerationError, valid_id
 from .discord_moderation import DiscordGateway, history_embed
+
+
+def moderation_user_id(value):
+    """Parse bounded ASCII snowflakes before they can reach SQL or Discord."""
+    if not isinstance(value, str) or not 1 <= len(value) <= 19 or not value.isascii() or not value.isdecimal():
+        raise ModerationError("Вкажіть числовий Discord ID від 1 до 19 цифр.")
+    return valid_id(int(value))
+
+
+async def moderation_response(interaction, result):
+    state = {"pending": "Непідтверджено", "applied": "Застосовано", "failed": "Зафіксовано помилку"}.get(result.status)
+    message = f"{result.message}\nID справи: `{result.case_id}`"
+    if state:
+        message += f"\nЗбережений стан: {state}."
+    await interaction.followup.send(message, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 class Core(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.moderation = KickService(bot.db, DiscordGateway(bot))
+        self.moderation = ModerationService(bot.db, DiscordGateway(bot))
 
     @app_commands.command(name="kick", description="Вигнати учасника з перевіркою прав та записом справи")
     @app_commands.default_permissions(kick_members=True)
@@ -28,11 +43,36 @@ class Core(commands.Cog):
             result = await self.moderation.kick(guild.id, interaction.user.id, member.id, interaction.id, reason)
         except ModerationError as error:
             raise UserError(str(error)) from None
-        state = {"pending": "Непідтверджено", "applied": "Застосовано", "failed": "Не виконано"}.get(result.status)
-        message = f"{result.message}\nID справи: `{result.case_id}`"
-        if state:
-            message += f"\nЗбережений стан: {state}."
-        await interaction.followup.send(message, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+        await moderation_response(interaction, result)
+
+    async def _ban_action(self, interaction, action, user_id, reason):
+        guild = guild_context(interaction)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            target_id = moderation_user_id(user_id)
+            result = await getattr(self.moderation, action)(guild.id, interaction.user.id,
+                                                          target_id, interaction.id, reason)
+        except ModerationError as error:
+            raise UserError(str(error)) from None
+        await moderation_response(interaction, result)
+
+    @app_commands.command(name="ban", description="Заблокувати користувача за ID без видалення повідомлень")
+    @app_commands.default_permissions(ban_members=True)
+    @app_commands.guild_only()
+    @app_commands.describe(user_id="Числовий Discord ID, зокрема користувача поза сервером",
+                           reason="Обов'язкова причина блокування")
+    async def ban(self, interaction: discord.Interaction, user_id: app_commands.Range[str, 1, 19],
+                  reason: app_commands.Range[str, 1, 500]):
+        await self._ban_action(interaction, "ban", user_id, reason)
+
+    @app_commands.command(name="unban", description="Зняти блокування користувача за ID із записом справи")
+    @app_commands.default_permissions(ban_members=True)
+    @app_commands.guild_only()
+    @app_commands.describe(user_id="Числовий Discord ID заблокованого користувача",
+                           reason="Обов'язкова причина зняття блокування")
+    async def unban(self, interaction: discord.Interaction, user_id: app_commands.Range[str, 1, 19],
+                    reason: app_commands.Range[str, 1, 500]):
+        await self._ban_action(interaction, "unban", user_id, reason)
 
     @app_commands.command(name="modhistory", description="Історія справ цього сервера, зокрема непідтверджених")
     @app_commands.default_permissions(moderate_members=True)
@@ -47,10 +87,9 @@ class Core(commands.Cog):
         guild = guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
         try:
-            if user_id is not None and (len(user_id) > 19 or not user_id.isascii() or not user_id.isdecimal()):
-                raise ModerationError("Вкажіть числовий ID учасника, зокрема колишнього.")
             rows = await self.moderation.history(guild.id, interaction.user.id,
-                user_id=None if user_id is None else int(user_id), status=None if state is None else state.value, page=page)
+                user_id=None if user_id is None else moderation_user_id(user_id),
+                status=None if state is None else state.value, page=page)
         except ModerationError as error:
             raise UserError(str(error)) from None
         await interaction.followup.send(embed=history_embed(rows, page), ephemeral=True,

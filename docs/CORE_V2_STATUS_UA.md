@@ -4,7 +4,56 @@
 попередні звіти збережено в розгортуваній історії. Не переносіть старі CI totals
 на нові коміти.
 
-## Поточна ітерація: kick, приватна історія та захист встановлювача
+## Поточна ітерація: ban/unban та актуальна карта коду
+
+База — **083d4bc**, чиста feature/core-v2; PR1 draft, main не змінено.
+Перед роботою підтверджено [успішний CI083d4bc](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40371041490).
+Це доказ базового стану, не результати нових змін.
+
+- Core V2 реєструє **16 slash-команд**. Додано `/ban user_id reason` та
+  `/unban user_id reason`; потрібен Ban Members у автора й бота.
+- `ModerationService` спільний для kick/ban/unban/history; попередні Python
+  імена KickService/KickResult збережені як aliases для сумісності.
+- Свіжі REST owner/actor/bot/roles перевіряються до claim і повторно після commit.
+  Ban поточного учасника перевіряє ієрархію автора/бота; non-member допускається
+  лише при exact404/10007 для цілі. Помилки actor/bot/guild не маскуються.
+- Ban явно передає `delete_message_seconds=0`: повідомлення зберігаються.
+  Unban не потребує поточного членства, читає бан за ID; лише404/10026 означає
+  відсутній запис ДО write, що блокує unban. Інші read failures теж не пишуть.
+- Atomic claim звіряє guild/interaction/action/actor/target/reason. Конкурентні
+  однойменні й cross-action запити мають одного власника; інші не переписують
+  справу й не викликають повторну API-дію. Після API exception/timeout/cancel —
+  pending; API success+DB error/CAS0 не видається за невдалу Discord-дію.
+- Немає application retry або автоматичного replay pending. SDK retries і
+  race між role/ban read та write лишаються межами Discord API. Applied означає
+  підтверджений запит, не доказ першого ban чи exactly-once. Історія приватна.
+- Нових application dependencies, intents, DDL/міграцій немає; schema2 збережено.
+  Claim додатково відхиляє NUL і невідомі/non-string action до SQL.
+- «Код структура.txt» замість старого E:\legacy дерева описує реальні Core V2,
+  launcher, legacy, flows, SQL/schema, локальні приватні файли, тести й docs.
+  Перевірено76 канонічних шляхів; дані/секрети/згенеровані pyc не включено в дерево.
+- [Модерація](MODERATION_UA.md), [аудит](PROJECT_AUDIT_UA.md),
+  [наступний промт](NEXT_DEVELOPMENT_PROMPT_UA.md); README має посилання на карту.
+
+Локально Linux/Python3.12.14: **721 tests,224 нові** (83 service,38 adapter,
+49 slash binding,15 cross-layer integration,39 repository regressions).
+- PostgreSQL17.11/native: **716 passed,5 Windows skipped**,210.82s.
+- Остаточний SQLite/default: **656 passed,65 skipped**
+  (60 PostgreSQL/5 Windows),62.87s.
+- Попередній default до15 cross-layer tests:641 passed,65 skipped,117.94s;
+  усі нові15 та рештаmoderation tests268passed перевірені окремо. Це не підміна
+  остаточного full run, який фіксується окремо.
+- Ruff, pip check, diff check та посилання українських docs пройшли.
+- Повторний pip-audit2.10.1/PyPI:24distributions Core/runtime/dev/installer,
+  **0 findings,0 skipped,pip26.2**, exit0. Це не аудит legacy/OS/native/Windows.
+- Нові test files включено в обидва focused Windows/Linux та PostgreSQL
+  maintenance invocations, усі full jobs/checks/log artifacts збережено.
+- Новий CI після публікації перевіряється за новим SHA; базові результати
+  083d4bc не приписуються змінам ban/unban.
+Live Discord, ручний Windows10/11/logon та24/7 не виконувались. Clear і перенесення
+старих warn/timeout/untimeout lifecycle залишаються наступними етапами.
+
+## Попередня ітерація: kick, приватна історія та захист встановлювача
 
 **Повний CI коду c86c177 успішний:** [push run40370321990](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40370321990),
 усі9 jobs,90s загалом. [PR run40370330021](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40370330021)

@@ -2,10 +2,10 @@
 
 Оглянуто відстежуване дерево, core_v2, tools/launcher, legacy yeboybot,
 точки входу, залежності, тести, CI та документацію. База ітерації —
-feature/core-v2@fafa177; поточна ітерація додає /kick і /modhistory
-з незалежним service/adapter/repository та pending diagnostics, плюс pip26.2
-і захист bootstrap. PG maintenance
-і legacy entrypoint уже перевірені в окремих сценаріях.
+feature/core-v2@083d4bc; нова ітерація додає /ban і /unban до спільного
+ModerationService та оновлює «Код структура.txt». Kick/history, pip26.2,
+PG maintenance й legacy entrypoint збережені. Базовий CI083d4bc має всі9jobs
+success; нові результати фіксуються окремо за новим SHA.
 SQLite schema2/migrations та fail-closed heartbeat збережені без повторної реалізації.
 main@14bd68a містить стару реалізацію; PR #1 залишається draft. GitHub HEAD
 і CI потрібно повторно звіряти перед наступною роботою.
@@ -21,8 +21,8 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Міграції SQLite | Partial | Registry, план, явний 1→2, backup, rollback, idempotence; немає manual Windows доказу |
 | PostgreSQL | Partial | [23] standard public Core snapshot/upgrade1→2/restore в окрему порожню БД; Linux17.11 локально й PG maintenance76 у CI перевірено; Windows native/TLS/custom schemas не підтверджені |
 | Автозапуск | Partial | Opt-in Task Scheduler root/SID, pythonw; реальне створення/logon не перевірено |
-| Slash-команди | Partial | 14 commands: попередні12 плюс kick/modhistory; live Discord ще не підтверджений |
-| Модерація | Partial | Новий kick: fresh permissions/hierarchy, atomic claim, ambiguity-safe audit; modhistory з pending diagnostics. Ban/unban/clear і автоматичний reconcile відсутні; старі timeout lifecycle потребують виправлення |
+| Slash-команди | Partial | 16 commands: попередні14 плюс ban/unban; live Discord ще не підтверджений |
+| Модерація | Partial | Kick/ban/unban: shared service, fresh permissions/hierarchy, atomic cross-action claim, ambiguity-safe audit; modhistory з pending diagnostics. Ban не видаляє повідомлення; unban за ID колишнього учасника. Clear/reconcile відсутні; старі timeout lifecycle потребують виправлення |
 | XP | Partial | Текстовий XP/cooldown/guild rankings; голосовий XP/rewards не підключені |
 | Нагадування | Partial | Durable lease/retry/access check; at-least-once, можливі повтори після crash |
 | Automod/welcome/autorole/panels | Disconnected | Поля/таблиці/helpers є; активних сценаріїв Discord немає |
@@ -59,8 +59,10 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 5. **P1 імпорт даних.** Legacy warnings/points не мають належної guild ізоляції.
    Не імпортувати глобальні JSON без явного зіставлення сервера й dry-run.
    Старі timed sanctions/create_task+sleep та memory voice XP не стійкі до restart.
-6. **P1 moderation lifecycle.** Kick і приватна history перевірені локально;
-   pending не запускає повторний DELETE. Старі warn/timeout/untimeout користуються
+6. **P1 moderation lifecycle.** Kick/ban/unban використовують спільний service;
+   приватна history діагностує pending без повторної API-дії. Unban вимагає
+   підтвердженого запису ban, ban приймає ID поточного/колишнього учасника й
+   явно зберігає повідомлення. Перевірка ролей не атомарна з Discord API. Старі warn/timeout/untimeout користуються
    попередніми checks/lifecycle й потребують окремого перенесення; повна модерація
    та автоматичне reconciliation ще не завершені.
 7. **P2 hygiene.** Відстежуються pyc, logs та queue JSON попри .gitignore.

@@ -224,13 +224,15 @@ class Database:
         return case_id
 
     async def claim_case(self, guild_id, case_id, user_id, actor_id, action, reason):
-        """Atomically reserve a kick request; retries never overwrite its audit row."""
+        """Atomically reserve an audited request; retries never overwrite its row."""
         if any(type(value) is not int or not 0 < value < 2**63
                for value in (guild_id, user_id, actor_id)):
             raise ValueError("Invalid moderation scope")
         if not isinstance(case_id, str) or not re.fullmatch(r"[0-9a-f]{32}", case_id):
             raise ValueError("Invalid moderation case ID")
-        if action != "kick" or not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 500:
+        if (not isinstance(action, str) or action not in {"kick", "ban", "unban"}
+                or not isinstance(reason, str) or not reason.strip()
+                or len(reason.strip()) > 500 or "\0" in reason):
             raise ValueError("Invalid moderation request")
         reason = reason.strip()
         now = time.time()

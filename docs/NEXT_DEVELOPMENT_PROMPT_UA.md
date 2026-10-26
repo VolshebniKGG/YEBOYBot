@@ -15,8 +15,9 @@ Duplicate/Missing/Untested. Не реалізовуй повторно заве�
 
 Відомий стан, який потрібно повторно перевірити:
 
-- Core V2 має 14 slash-команд: попередні 12 та kick/modhistory.
-  Kick має fresh REST authorization, role/owner recheck, committed deterministic
+- Core V2 має 16 slash-команд: попередні14 та ban/unban.
+  Kick/ban/unban мають спільний ModerationService, fresh REST authorization,
+  role/owner recheck, committed deterministic
   case claim, duplicate blocking і ambiguity-safe outcome. History читає тільки
   поточний guild, уміє pending/state/user ID/page й надсилає приватні відповіді.
 - Є guild-scoped XP, cases, durable reminders з lease/retry; доставка нагадувань
@@ -39,7 +40,7 @@ Duplicate/Missing/Untested. Не реалізовуй повторно заве�
   Heartbeat failure закриває клієнт і задачі; зовнішнього OS-crash supervisor немає.
 - Automod/welcome/autorole/voice XP/role panels не є завершеними активними модулями.
 
-Перевірені результати завершеної ітерації, які не треба реалізовувати повторно:
+Базові результати попередньої ітерації083d4bc (історія, не новий HEAD):
 
 - 497 tests,150 нових (132 moderation/18 installer). Локально Linux: SQLite
   449 passed/48 skipped, PostgreSQL17.11/native492 passed/5 Windows skipped.
@@ -67,30 +68,45 @@ Follow-up docs коміт може мати інший HEAD, але не дод�
 старі totals на нові зміни без перевірки. За відсутності регресії переходь до
 функціональної ітерації, не повторюй уже завершені P0 tasks.
 
-Найближчий функціональний етап — ban/unban зі спільним service/repository
-та тим самим audit lifecycle. Kick/modhistory не реалізовуй повторно. Потім
-окремою ітерацією додай clear із підтвердженням небезпечного видалення.
+Нова ban/unban ітерація розширила shared ModerationService без DDL/dependencies:
+ban зберігає повідомлення (delete_message_seconds=0), приймає numeric ID
+поточного/відсутнього учасника; unban не вимагає членства й перевіряє ban entry.
+Тільки exact404code10007 дозволяє відсутність цілі, exact404code10026 означає
+відсутній ban ДО надсилання unban. Інші preflight failures не надсилають дію;
+після write exception/timeout/cancel pending зберігається без сліпого retry.
+Atomic claim перевіряє action/guild/target/actor/reason; cross-action replay
+не перезаписує справу. Невідомий DB result після API success не є failed API.
+Оновлено «Код структура.txt»: реальна карта Core/launcher/legacy, flows/data/docs.
+Нова ітерація:721 tests,224 доданих. Локально Linux default656 passed/65 skipped,
+PostgreSQL17.11/native716 passed/5 Windows skipped; Ruff/pipcheck/diffcheck pass.
+Повторний Linux Core/dev/pip CVE-аудит24distributions:zero findings/0skips.
+Фактичні CI результати цієї ітерації звір у CORE_V2_STATUS_UA.md за SHA;
+старі497-test totals вище не є підтвердженням нового HEAD.
 
-1. Перевір moderation.py, discord_moderation.py, case reservation/history у db.py
-   та існуючі тести; розширюй ці межі поступово для майбутньої вебпанелі.
-   Старі warn/timeout/untimeout ще мають cached checks і старий HTTP-failed
-   lifecycle — це окремий борг, новий kick не робить їх перевіреними.
-2. Для кожної дії перевір actor/bot permissions, role hierarchy, guild_id,
-   причину, owner/self/bot targets та фактичний результат Discord API. Для ban
-   не видаляй історію повідомлень за замовчуванням; для unban не вимагай
-   поточного членства користувача й явно обробляй відсутній ban.
-3. Committed claim перед API й зіставлення payload блокують повтор interaction.
-   API exception/timeout/cancel можуть означати невідомий результат навіть за404;
-   SDK має власні transport retries. Не обіцяй exactly-once і не додавай сліпий retry.
-   DB failure/CAS0 після API success не видавай за невдалу дію. Відсутність
-   учасника не доводить kick: потрібна явна звірка Audit Log за case prefix.
-4. Для масового clear потрібне обмежене в часі підтвердження саме автора дії,
-   прив'язане до guild/channel; повторний click не виконує дію вдруге.
-5. Перевір інтеграційні й негативні сценарії: API 403/404/timeout, зміна ролей,
-   видалений учасник/канал, guild isolation, DB failure і повторний interaction.
-   Discord API в unit-тестах не запускай; live перевірку звітуй окремо.
-6. Заверши один сценарій з тестами, конфігурацією та українською документацією,
-   перш ніж додавати наступний. Не видаляй старі функції без перевіреної заміни.
+Найближчий функціональний етап — /clear з підтвердженням небезпечного видалення.
+Kick/ban/unban/modhistory не реалізовуй повторно.
+
+1. Прочитай shared service, adapter, claim/history у db.py та їхні тести.
+   Визнач bounded /clear UX: max message count, channel/thread scope і випадки
+   старих повідомлень/часткового bulk-delete. Не видаляй повідомлення мовчки.
+2. Перевір actor/bot Manage Messages та доступ View Channel/Read Message History,
+   guild_id/channel_id, причину; не покладайся на cached command defaults.
+   Confirmation має бути ephemeral, обмежений у часі, доступний тільки автору
+   й прив'язаний до guild/channel/запиту; повторний click не виконує дію вдруге.
+3. Committed claim і журнал мають передувати write API. Не обіцяй SQL/Discord
+   спільної транзакції чи exactly-once. Скасування/помилка/частковий результат
+   не повинні видавати невідоме за «все видалено» або «нічого не відбулося».
+   Не додавай сліпий replay pending після перезапуску.
+4. Перевір інтеграційні/негативні сценарії: чужий click, expired confirmation,
+   permission/role/channel changes, guild isolation, API403/404/timeout/cancel,
+   DB failure before/after action, повторний interaction/click, partial delete.
+   Unit-тести не входять у реальний Discord. Повні Windows/Linux/PG checks
+   та CVE audit залишаються в CI; параметричні IDs не містять великих payloads.
+5. Старі warn/timeout/untimeout ще мають cached checks і HTTP-failed lifecycle.
+   Перенесення на shared service — окремий найближчий борг. Нові kick/ban/unban
+   не роблять старі moderation handlers безпечними автоматично.
+6. Заверши один сценарій, включно з українською інструкцією, логічним комітом,
+   актуальною картою «Код структура.txt» та перевіркою CI перед наступним.
 
 Далі: доступні Discord event logs з урахуванням intents/API, /setup і /help,
 welcome/autorole, persistent role panels, automod з винятками/false positives,
