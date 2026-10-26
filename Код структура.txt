@@ -1,43 +1,186 @@
-E:\Discord Bot\Bot
-│
-├── run.py                      # Файл для запуску бота через Python файла bot.py
-├── run.bat                     # Файл для запуску бота через Windows
-├── requirements.txt            # Бібліотеки, необхідні для роботи
-├── README.md                   # Документація
-│
-├── config
-│   ├── options.ini             # Конфігурація (локально)
-│   ├── options.example.ini     # Шаблон конфігурації
-│
-├── Bin
-│   ├── ffmpeg.exe              # FFmpeg для обробки медіафайлів
-│   ├── ffprobe.exe             # FFprobe для перевірки метаданих медіафайлів
-│   │── README.md               # Документація цього файлу
-│
-│
-├── Data
-│   ├── server_names.txt        # Список імен серверів для внутрішнього використання
-│   ├── "983379337430585344"    # Папка з ID серверів та їх даними (кеш, ранги, черги пісень,та інше.)
-│        ├── json файл          # Збереження кешу JSON
-│        ├── song_queue.json    # Черга пісен у файлах для кожного серверу
-│
-├── yeboybot
-│   ├── music.py                # Музичні команди
-│   ├── help.py                 # Команди допомоги
-│   ├── rank.py                 # Команди для рейтингу користувачів та Функції для рейтингів 
-│   ├── admin.py                # Адміністративні функції (управління ролями, банами)
-│   ├── bot.py                  # Основний файл команд бота (наприклад, запуск бота, пропис всих логів до гілок і так далі)
-│   ├── moderation.py           # Функції для модерації (наприклад, попередження, мут)
-│   ├── user.py                 # Функції для взаємодії з користувачами
-│   ├── logging_setup.py        # Функції для логування (можна додати розширене логування)
-│   ├── youtube.py              # Інтеграція з YouTube API (наприклад, для відео чи пісень)
-│   ├── song_queue_handler      # 
-│   ├── help.py                 # Команда для допомоги (наприклад, опис всіх команд бота)
-│   ├── data_menager.py         # 
-│   ├── 
-│   ├── 
-│
-├── logs
-    ├── bot.log                 # Лог файли
-    ├── errors.log              # Лог помилок
+YEBOYBot — карта коду та архітектури
+===================================
+Гілка розробки: feature/core-v2
+Оновлено: 26.10.2026
 
+Це навігація реальними файлами репозиторію. Дерево скорочене: службові
+__init__.py, решту legacy helpers та список усіх тестів згорнуто для читабельності.
+Шляхи наведено від кореня YEBOYBot; папка може бути на будь-якому диску.
+Точні результати перевірок і відомі обмеження: docs/CORE_V2_STATUS_UA.md.
+
+1. З ЧОГО ПОЧИНАТИ
+-------------------
+Основний Windows-вхід — YEBOYBot.cmd: подвійний клік відкриває українське меню.
+Під час першого встановлення install_v2.bat знаходить Python 3.12 і викликає
+Python bootstrap. Наявне меню дає доступ до зупинки, залежностей і журналів.
+
+Потік керування:
+  YEBOYBot.cmd
+    -> tools/launcher/__main__.py     меню та виклик операцій
+    -> tools/launcher/process.py      керування процесом і перевірка стану
+    -> core_v2/managed.py              lock, heartbeat, контроль завершення
+    -> core_v2/bot.py                  Discord-клієнт, команди, фонові задачі
+
+Окремий старий режим: [22] у меню або run.bat -> tools/legacy_launcher.py
+-> run.py -> yeboybot/bot.py. Його пакети встановлюються лише в .venv-legacy.
+Нові функції розвиваються у Core V2; старі cogs збережено для сумісності.
+
+2. ОСНОВНІ ФАЙЛИ ТА КАТАЛОГИ
+----------------------------
+YEBOYBot/
+├── YEBOYBot.cmd                   Основний Windows Control Center
+├── install_v2.bat                 Пошук Python і запуск Core bootstrap
+├── start_v2.bat                   Додаткова точка входу для сумісності
+├── run.bat                       Меню ізольованого legacy-режиму
+├── run.py                        Перевірений вхід у legacy-бота
+├── requirements-legacy.txt       Окремі перевірені legacy-залежності
+├── requirements.txt              Історичний список; нові launcher його не ставлять
+├── .env.v2.example               Публічний шаблон Core-конфігурації без токена
+├── .gitignore                    Правила виключення локальних даних і секретів
+├── .gitattributes                Правила текстових файлів і закінчень рядків
+├── README.md                     Огляд і початок роботи
+├── Код структура.txt             Ця карта коду
+│
+├── core_v2/                      Активна реалізація Core V2
+│   ├── __main__.py               Прямий Python-вхід; не заміна CMD-меню на Windows
+│   ├── bot.py                    Discord lifecycle, XP, доставка нагадувань
+│   ├── commands.py               Slash-команди та адаптація interaction/відповідей
+│   ├── moderation.py             Сервіс модерації, перевірки, claim і результати
+│   ├── discord_moderation.py     Свіжі REST-дані ролей/учасників, Discord adapter
+│   ├── security.py               Спільні permission/role checks і безпечні помилки
+│   ├── db.py                     SQLAlchemy-схема й guild-scoped SQL-операції
+│   ├── config.py                 Settings зі змінних середовища та .env.v2
+│   ├── runtime.py                OS lock, налаштування логів, приховування секретів
+│   ├── managed.py                Контрольований процес, heartbeat, stop request
+│   ├── recovery.py               Обмежені повтори з backoff та fatal error checks
+│   ├── doctor.py                 Перевірки перед запуском без Discord login
+│   ├── backup.py                 SQLite online backup через штатний Backup API
+│   ├── migrations.py             Реєстр і застосування явних SQLite-міграцій
+│   ├── postgres_migrations.py    Перевірка й транзакційна PostgreSQL-міграція
+│   ├── requirements.txt          Runtime-залежності Core, зокрема discord.py
+│   ├── requirements-dev.txt      Залежності тестування й Ruff
+│   ├── pytest.ini                Налаштування pytest/asyncio
+│   ├── ruff.toml                 Налаштування статичного аналізу
+│   └── tests/                    Unit, integration та негативні сценарії
+│
+├── tools/                        Адміністративні й перевірочні інструменти
+│   ├── installer_policy.py       pip policy, очищене середовище, CA/proxy trust
+│   ├── legacy_launcher.py        Окремий legacy venv, install/import guard і меню
+│   ├── check_legacy_cogs.py       Offline smoke справжніх legacy cogs
+│   ├── ci_pg_clients.py          Native PG-клієнти disposable service для CI
+│   └── launcher/
+│       ├── __main__.py           Українське меню Control Center
+│       ├── bootstrap.py          Створення/відновлення ізольованого .venv-v2
+│       ├── configuration.py      Приховане введення токена й збереження налаштувань
+│       ├── process.py            Start/stop/restart і підтверджений стан клієнта
+│       ├── diagnostics.py        Локальні перевірки та очищений JSON-звіт
+│       ├── storage.py            SQLite backup/restore, каталог і retention archive
+│       ├── backup_manifest.py    Маніфести, SHA-256 та перевірка копій
+│       ├── migrations.py         Меню плану/backup/явної SQLite-міграції
+│       ├── pg_native.py          Обмежений виклик pg_dump/pg_restore та перевірки
+│       ├── pg_workflow.py        PostgreSQL plan/backup/upgrade/recovery і звіти
+│       ├── update.py             Контрольоване Git-оновлення без reset --hard
+│       ├── verify_update.py      Перевірки нового коду після оновлення
+│       └── autostart.py          Добровільний Windows Task Scheduler logon-task
+│
+├── yeboybot/                     Legacy-код; не модулі Core V2
+│   ├── bot.py                    Створення клієнта й підключення старих cogs
+│   ├── moderation.py             Старі prefix-команди модерації
+│   ├── user.py                   Старі користувацькі команди
+│   ├── help.py                   Довідка legacy-команд
+│   ├── rank.py                   Старий рейтинг і rank card
+│   ├── logging_setup.py          Legacy-логи з приховуванням credentials
+│   ├── data_manager.py           Legacy-робота з файлами даних
+│   ├── song_queue_handler.py     Legacy-черги відтворення
+│   ├── music.py                  Музика, увімкнена лише окремим вибором
+│   ├── player.py                 Керування старим відтворенням
+│   ├── playlist.py               Старі плейлисти
+│   ├── downloader.py             Legacy-завантаження медіа
+│   ├── youtube.py                Legacy-робота з YouTube
+│   └── spotify.py                Legacy-інтеграція Spotify
+│
+├── config/                       Публічні legacy-шаблони та переклади
+│   ├── example_options.ini       Справжня назва шаблону options.ini
+│   ├── example_permissions.ini   Шаблон старих дозволів
+│   ├── example_aliases.json      Шаблон aliases
+│   ├── _autoplaylist.txt         Наявний legacy-файл autoplaylist
+│   └── i18n/                     Наявні legacy-переклади
+│
+├── DLC/                          Наявні зображення та шрифти rank cards
+├── docs/                         Українські інструкції, аудит і roadmap
+└── .github/workflows/core-v2.yml  Windows/Linux/PG, installer, Ruff і CVE checks
+
+3. МЕЖІ АРХІТЕКТУРИ ТА СТАН МОДУЛІВ
+------------------------------------
+Новий moderation flow:
+  commands.py -> moderation.py -> db.py / discord_moderation.py
+
+Команда формує вхідні дані й приватну відповідь; сервіс перевіряє use-case;
+репозиторні операції ізолюють дані через guild_id; adapter виконує Discord REST.
+Перед небезпечною дією claim справи має бути збережений у БД. Невідомий API
+результат залишається pending; сліпого автоматичного повтору немає. Discord
+і SQL не мають спільної транзакції, exactly-once для API не гарантується.
+Цей flow використовують /kick, /ban і /unban; /modhistory читає справи сервера.
+Ban зберігає повідомлення. Unban працює за ID колишнього учасника й перевіряє
+запис блокування. Нові сценарії: core_v2/tests/test_ban_service.py,
+test_ban_gateway.py, test_ban_commands.py і test_ban_integration.py у тій самій
+папці tests/. Інтеграційні перевірки використовують SQLite та справжні SDK
+моделі з підміненою HTTP-відповіддю, без входу до живого Discord.
+Решту старих moderation-команд ще потрібно поступово перенести на ці межі.
+
+У Core уже підключено текстовий XP, рейтинги й durable-нагадування. Нагадування
+мають at-least-once delivery: після збою повтор повідомлення можливий.
+Таблиці/поля automod, welcome, autorole, voice XP і role panels не означають,
+що відповідні Discord-сценарії вже активні. Нові сервіси додаються послідовно.
+Повна модерація, подієвий аудит, /setup, /help та webpanel ще не завершені.
+Список актуальних slash-команд і межі функцій: docs/MODERATION_UA.md,
+docs/CORE_V2_QUICKSTART_UA.md та docs/PROJECT_AUDIT_UA.md.
+
+Core використовує schema2: v2_schema, v2_settings, v2_xp, v2_cases, v2_jobs,
+v2_role_panels. Наявна schema1 потребує явної перевіреної міграції з backup;
+Discord login автоматично її не застосовує. Для PostgreSQL підтримано лише
+стандартну public Core-схему; recovery відновлює власну копію в окрему порожню БД.
+
+4. ЛОКАЛЬНІ ФАЙЛИ: ДАНІ ТА СЕКРЕТИ
+-----------------------------------
+Це робочі шляхи, а не частина еталонного дерева вихідного коду:
+  .env.v2                Токен, URL БД та локальні Core-налаштування
+  .venv-v2/              Окреме середовище Core
+  .venv-legacy/          Окреме середовище legacy; не змішувати пакети між venv
+  data/v2/               SQLite за замовчуванням, lock/state files, reports і logs
+  backups/               Перевірені snapshots/маніфести та приватні дані серверів
+  config/options.ini     Локальний legacy-токен і налаштування
+  config/permissions.ini Локальні legacy-дозволи
+  logs/                  Історичні та локальні legacy-журнали
+
+DATABASE_URL може вказувати інший файл SQLite або PostgreSQL; data/v2/yeboy.db
+є лише типовим локальним шляхом. Копії даних серверів не шифруються й потребують
+приватного зберігання. Не публікуйте .env, токени, URL із паролем або журнали.
+Не видаляйте папки даних/копій чи невідоме неповне venv під час очищення коду.
+
+У Git історично відстежуються деякі pyc, logs і JSON-черги. Це не зразок для
+нових runtime-файлів; їх виведення з tracking потребує збереження локальних даних.
+Карта не містить вмісту таких файлів. У репозиторії немає еталонного Bin/ із
+FFmpeg: переносність старого music потребує окремого виправлення шляхів і TLS.
+
+5. ДЕ ШУКАТИ ПОТРІБНУ ІНФОРМАЦІЮ
+---------------------------------
+  README.md                           Встановлення й основні посилання
+  docs/WINDOWS_CMD_LAUNCHER_UA.md      Меню, запуск, оновлення, автозапуск, помилки
+  docs/CORE_V2_QUICKSTART_UA.md        Discord Application, token/intents і команди
+  docs/CORE_V2_STATUS_UA.md            Фактичні local/CI/Windows/live результати
+  docs/PROJECT_AUDIT_UA.md             Матриця функцій і відомі ризики
+  docs/LAUNCHER_AUDIT_UA.md            Критерії приймання launcher
+  docs/MODERATION_UA.md               Права, ролі, модераційні справи й обмеження
+  docs/MIGRATIONS_UA.md               SQLite-версії, backup і відновлення
+  docs/POSTGRES_RECOVERY_UA.md        Native PG backup/upgrade/recovery та межі
+  docs/LEGACY_LAUNCHER_UA.md           Окремий запуск старих функцій
+  docs/DEPENDENCY_AUDIT_UA.md          Scope CVE-аудиту та спосіб його повторення
+  docs/COMPETITIVE_SCENARIOS_UA.md     Перевірені джерела й методика з ProBot
+  docs/NEXT_DEVELOPMENT_PROMPT_UA.md  Поточний промт наступної ітерації
+
+Тести лежать у core_v2/tests/. Вони перевіряють SQL/міграції, process lifecycle,
+bootstrap, backup/recovery, permissions, Discord adapters і slash binding.
+Unit-тести не повинні входити в реальний Discord; SQL integration потребує
+окремої disposable БД. CI-успіх не замінює ручний Windows 10/11, живий Discord
+або перевірену експлуатацію 24/7. Старі тестові totals не переносити на новий HEAD.
