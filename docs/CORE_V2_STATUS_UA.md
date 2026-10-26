@@ -75,6 +75,45 @@ CI коду **b446028**, [PR run40368711425](https://github.com/VolshebniKGG/YEB
 - Повні jobs на момент цієї фіксації ще виконуються; ці focused results не є
   підтвердженням повного зеленого workflow.
 
+
+Повні Linux jobs b446028 також завершились успішно за журналами обох подій:
+SQLite **449 passed,48 skipped** (pytest11.04–11.43s), PostgreSQL **492 passed,
+5 skipped** (pytest31.10–31.40s). PR jobs121733311160 та121733311057.
+Вивід має рядок524410символів із oversized XML nodeid; timestamps навколо нього
+мають розриви216–258s, тоді як сам pytest звітує секунди. Це виміряний кандидат
+затримки console/log processing, а не підтверджений runtime deadlock.
+Windows full на17:36UTC ще не завершений. Зміна коротких IDs перевіряється
+новим CI; не називаємо причину всіх історичних скасувань доведеною.
+
+Після Windows path fix, код **f5685f06**, [PR run40369126215](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40369126215)
+і [push run40369117626](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40369117626):
+
+| Перевірка | Підтверджено в обох запусках |
+|---|---|
+| Focused Windows moderation/installer | **192 passed,10 skipped** |
+| Focused Ubuntu moderation/installer | **189 passed,13 skipped** |
+| PostgreSQL maintenance + moderation SQL | **208 passed** |
+| Legacy Windows | **51 passed**, first/repeat/import/offline cogs success |
+| Legacy Ubuntu | **49 passed,2 skipped**, first/repeat/import/offline cogs success |
+| Linux dependency audit | **24 distributions,0 findings,0 skipped,pip26.2** |
+
+PR artifacts: moderation-windows12670663745, moderation-ubuntu12670679739,
+postgres-maintenance12671751971, dependency-audit12672290753. Ruff успішний.
+Це GitHub Windows runner, не ручний Windows10/11 або живий Discord.
+Повні SQLite Windows/Linux і PG jobs на17:34UTC ще виконуються; їхній успіх
+не приписується focused jobs. Старі runs не скасовувалися. Конкретного тесту/стека
+їх затримки з доступних журналів поки не отримано; діагностика залишається P0.
+
+Точний CI shell pipeline з -vv/tee/JUnit локально завершився: **449 passed,
+48 skipped за43.82s**, без зависання завершення. Виявлено окрему виміряну
+проблему журналу: oversize XML у параметричному ID створював рядок524381символ,
+повний log600529bytes. Задані короткі IDs для XML і SID CSV payloads; тестові
+512KiB/16KiB дані й усі assertions збережені. Targeted autostart: **47 passed,
+1 Windows skipped**. Collect усіх497 tests після зміни не має nodeid>1024символів.
+Це виправлення читабельності логів, не доведене усунення CI затримки.
+Production-код після b446028 не змінювався; наступні зміни — test path/IDs
+і фіксація фактичних доказів. CI останнього follow-up потрібно звіряти за SHA.
+
 Live Discord kick/permissions/command visibility, ручний Windows10/11 та 24/7
 не перевірено. Ban/unban/clear, автоматичне pending reconciliation та виправлення
 старих warn/timeout/untimeout lifecycle залишаються наступними етапами.

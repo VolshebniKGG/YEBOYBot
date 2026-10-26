@@ -122,7 +122,8 @@ def test_extra_actions_principals_triggers_or_restart_are_foreign(context, extra
     assert a._inspect(ET.tostring(task), context) == "foreign"
 
 
-@pytest.mark.parametrize("payload", [b"<bad", b"x" * (512 * 1024 + 1)])
+@pytest.mark.parametrize("payload", [b"<bad", b"x" * (512 * 1024 + 1)],
+                         ids=["malformed-xml", "oversize-xml"])
 def test_unparseable_or_oversize_xml_is_unknown(context, payload):
     assert a._inspect(payload, context) == "unknown"
 
@@ -286,7 +287,8 @@ def test_sid_uses_csv_and_ignores_localized_account_name(tmp_path, monkeypatch, 
     assert a._sid(tmp_path) == SID
 
 
-@pytest.mark.parametrize("payload", [b'"account","not-sid"', b'"one","S-1-5-21"\n"two","S-1-5-22"', b"x" * 16385])
+@pytest.mark.parametrize("payload", [b'"account","not-sid"', b'"one","S-1-5-21"\n"two","S-1-5-22"', b"x" * 16385],
+                         ids=["invalid-sid", "multiple-accounts", "oversize-csv"])
 def test_invalid_whoami_output_is_refused(tmp_path, monkeypatch, payload):
     monkeypatch.setattr(a, "_run", lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, stdout=payload))
     with pytest.raises(a.AutostartError):

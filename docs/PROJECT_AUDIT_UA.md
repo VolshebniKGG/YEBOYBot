@@ -33,7 +33,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Legacy cogs | Partial | Реальні moderation/user/help/rank завантажені offline в disposable copy; поведінка команд/live API та music не перевірені |
 | run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI45/Linux43+2skip успішні на a6c8e49; ручний Windows/live API очікуються |
 | start_v2.bat | Duplicate | Додаткова стара точка входу збережена |
-| CI | Partial | На базовому fafa177 Linux309/38, PG342/5, maintenance76 і legacy обох ОС success; Windows full cancelled під час pytest без доступного stack/artifact. Для нового коду додано focused Windows/Linux та CVE audit job; перевіряти за SHA |
+| CI | Partial | На базовому fafa177 Linux309/38, PG342/5, maintenance76 і legacy обох ОС success; Windows full cancelled під час pytest без доступного stack/artifact. На f5685f06 focused Windows192/10, Ubuntu189/13, maintenance208, legacy51/49+2skip, CVE24/zero підтверджені. Full нових jobs ще не підтверджені; перевіряти за SHA |
 | Dependency audit | Partial | Linux Core/dev/pip:24 distributions, після pip26.2 zero known advisories; legacy/OS/Windows resolution не охоплені |
 
 ## Ризики, що потребують окремих завершених ітерацій

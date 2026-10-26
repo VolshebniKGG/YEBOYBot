@@ -111,3 +111,14 @@ $coreSite = & ".\.venv-v2\Scripts\python.exe" -I -c 'import sysconfig; print(sys
 Збережіть дату, версію інструмента й повний набір пакетів разом зі звітом.
 Ці Windows-команди наведені як спосіб повторення; наведений вище результат
 отримано на Linux, не на Windows.
+
+
+## Підтвердження в GitHub Actions
+
+Код **f5685f06**, [PR run40369126215](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40369126215):
+job dependency-audit успішний; JSON artifact **12672290753** містить24
+дистрибутиви,0 findings,0 skipped,pip26.2. Push40369117626 також успішний.
+Job використовує окремі application/audit venv і не змінює системний Python.
+Це Linux Core/runtime/dev/installer resolution; окремий audit-tool venv,
+legacy, native/OS та Windows-specific resolution до цього звіту не входять.
+Стан усього workflow цим результатом не підтверджується.

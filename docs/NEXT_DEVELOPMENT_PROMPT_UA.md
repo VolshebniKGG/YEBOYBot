@@ -54,6 +54,17 @@ Core/legacy installers примусово перевіряють pip26.2 у вл
 Наявний Core menu не auto-upgrade-ить pip: зупинка[3]→dependencies[5].
 Legacy/Cross-OS/native/OS CVE-аудит і routine refresh advisory data ще потрібні.
 
+Код f5685f06 має нові CI докази в push40369117626/PR40369126215:
+focused Windows192/10, Ubuntu189/13, PGmaintenance208, legacy Windows51 й
+Ubuntu49/2, dependency audit24distributions/zero/0skips/pip26.2. Full jobs ще
+виконувались на17:34UTC, їхній успіх не підтверджений. Windows8.3alias assertion
+виправлено; короткі IDs XML/SID CSV прибрали надмірні payloads із -vv logs,
+не зменшуючи вхідних даних чи assertions. Це не доведена причина full CI delay.
+Насамперед отримай завершені full job logs/artifacts і встанови конкретний
+тест/стек затримки; не видаляй перевірки й не видавай локальний repeat за CI.
+Точний локальний CI pipeline завершився449/48 за43.82s. Перевір actual HEAD,
+оскільки follow-up test/docs commits можуть мати нові runs.
+
 Найближчий функціональний етап — ban/unban зі спільним service/repository
 та тим самим audit lifecycle. Kick/modhistory не реалізовуй повторно. Потім
 окремою ітерацією додай clear із підтвердженням небезпечного видалення.
