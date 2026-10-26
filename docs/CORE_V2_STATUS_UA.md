@@ -60,6 +60,21 @@
   і відсутній artifact не дозволяють назвати конкретний тест/стек. Новий CI
   перевіряється окремо за SHA; старі результати новому коду не приписуються.
 
+
+CI коду **b446028**, [PR run40368711425](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40368711425):
+- Focused Ubuntu: **189 passed, 13 skipped**; PostgreSQL maintenance: **208 passed**.
+- Legacy first/repeat/install/import/cogs smoke: Windows **51 passed**, Ubuntu
+  **49 passed, 2 skipped**. Справжній Discord login не виконувався.
+- Dependency-audit: artifact12671432239 містить **24 distributions,0 findings,
+  0 skipped,pip26.2** для Linux Core/runtime/dev/installer resolution.
+- Focused Windows: **191 passed,10 skipped,1 failed** у test_bootstrap.py:127.
+  Єдиний failure — порівняння C:\Users\RUNNER~1 та C:\Users\runneradmin для
+  тієї самої temp-папки. Production install й moderation перевірки пройшли.
+  Тест виправлено через Path.resolve() зі збереженням цільового venv і pip flags;
+  тести не видалено, Windows результат після виправлення перевіряється окремо.
+- Повні jobs на момент цієї фіксації ще виконуються; ці focused results не є
+  підтвердженням повного зеленого workflow.
+
 Live Discord kick/permissions/command visibility, ручний Windows10/11 та 24/7
 не перевірено. Ban/unban/clear, автоматичне pending reconciliation та виправлення
 старих warn/timeout/untimeout lifecycle залишаються наступними етапами.

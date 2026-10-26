@@ -124,7 +124,10 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("--only-binary=:all:", installs[0])
         self.assertIn("-r", installs[1])
         for command in installs:
-            self.assertEqual(command[:4], [str(b.python_path(self.root)), "-I", "-m", "pip"])
+            # Windows temp paths can use RUNNER~1 while prepare resolves their
+            # long spelling. Compare the same target, retaining the venv guard.
+            self.assertEqual(Path(command[0]).resolve(), b.python_path(self.root).resolve())
+            self.assertEqual(command[1:4], ["-I", "-m", "pip"])
             self.assertTrue({"--isolated", "--require-virtualenv", "--no-cache-dir"} <= set(command))
 
     def test_valid_app_stamp_does_not_hide_installer_version_drift(self):
