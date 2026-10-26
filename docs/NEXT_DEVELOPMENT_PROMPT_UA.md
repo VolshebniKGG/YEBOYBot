@@ -39,31 +39,33 @@ Duplicate/Missing/Untested. Не реалізовуй повторно заве�
   Heartbeat failure закриває клієнт і задачі; зовнішнього OS-crash supervisor немає.
 - Automod/welcome/autorole/voice XP/role panels не є завершеними активними модулями.
 
-Базовий fafa177 підтвердив Ubuntu309/38, PostgreSQL342/5, PG maintenance76
-і legacy обох ОС; повний Windows job скасовано під час pytest, logs404 і відсутній
-artifact не дають конкретного тесту чи стека. Тести не скорочувалися.
-Поточна kick/history+installer ітерація має497 tests,150 нових: PostgreSQL17.11 —
-492 passed/5 Windows skipped; default SQLite —449 passed/48 skipped.
-Реальні SQLite/PG перевіряють atomic claims/history, справжні discord.py моделі —
-mocked HTTP. Live Discord, ручний Windows і 24/7 не підтверджені. Перевір новий
-CI за SHA; focused moderation і PG jobs не видавай за весь зелений workflow.
-Немає нових application dependencies/intents/DDL. Linux Core/dev/installer CVE-аудит
-24 distributions знайшов6 unique pip25.0.1 advisories; після pip26.2 zero/0skips.
-Core/legacy installers примусово перевіряють pip26.2 у власному venv до dependencies,
-навіть при valid marker, без глобальних pip змін. Не дублюй виправлення.
-Наявний Core menu не auto-upgrade-ить pip: зупинка[3]→dependencies[5].
-Legacy/Cross-OS/native/OS CVE-аудит і routine refresh advisory data ще потрібні.
+Перевірені результати завершеної ітерації, які не треба реалізовувати повторно:
 
-Код f5685f06 має нові CI докази в push40369117626/PR40369126215:
-focused Windows192/10, Ubuntu189/13, PGmaintenance208, legacy Windows51 й
-Ubuntu49/2, dependency audit24distributions/zero/0skips/pip26.2. Full jobs ще
-виконувались на17:34UTC, їхній успіх не підтверджений. Windows8.3alias assertion
-виправлено; короткі IDs XML/SID CSV прибрали надмірні payloads із -vv logs,
-не зменшуючи вхідних даних чи assertions. Це не доведена причина full CI delay.
-Насамперед отримай завершені full job logs/artifacts і встанови конкретний
-тест/стек затримки; не видаляй перевірки й не видавай локальний repeat за CI.
-Точний локальний CI pipeline завершився449/48 за43.82s. Перевір actual HEAD,
-оскільки follow-up test/docs commits можуть мати нові runs.
+- 497 tests,150 нових (132 moderation/18 installer). Локально Linux: SQLite
+  449 passed/48 skipped, PostgreSQL17.11/native492 passed/5 Windows skipped.
+- Повний CI коду **c86c177**: push40370321990 та PR40370330021, обидва усі9jobs
+  success за90/130s. Windows full454 passed/43 PostgreSQL skipped, Ubuntu full
+  449/48, PostgreSQL full492/5, focused Windows192/10, focused Ubuntu189/13,
+  PGmaintenance208, legacy Windows51, legacy Ubuntu49/2.
+- Виправлено Windows8.3alias assertion через resolved target, без послаблення
+  перевірки власного venv. Короткі parameter IDs XML/SID CSV зберегли oversized
+  payloads/assertions/timeouts та зменшили max test-log line524410→387символів.
+  Після цього обидва full CI успішні; історичні cancelled runs не є поточним станом.
+- Linux Core/runtime/dev/installer CVE-аудит:24 distributions,0 skipped.
+  Pip25.0.1 мав6 unique advisory IDs; після pip26.2 zero findings. Core/legacy
+  installers перевіряють власний ізольований venv до pip та enforce26.2 перед
+  dependencies, навіть при valid marker; global Python не змінюють. Не дублюй fix.
+  Наявне Core menu не auto-upgrade-ить pip: зупинка[3]→dependencies[5].
+  Audit-tool/legacy/Windows/native/OS resolution цим аудитом не охоплені;
+  потрібні routine advisory refresh і окреме розширення охоплення.
+- Реальні SQLite/PG перевіряють atomic claims/history, discord.py models — mocked
+  HTTP. Немає нових application dependencies/intents/DDL. Ручний Windows10/11
+  double-click/logon, live Discord, production24/7/performance baseline не перевірені.
+
+Follow-up docs коміт може мати інший HEAD, але не додає production функцій.
+Звір actual HEAD, локальні зміни, PR і нові CI runs перед редагуванням; не перенось
+старі totals на нові зміни без перевірки. За відсутності регресії переходь до
+функціональної ітерації, не повторюй уже завершені P0 tasks.
 
 Найближчий функціональний етап — ban/unban зі спільним service/repository
 та тим самим audit lifecycle. Kick/modhistory не реалізовуй повторно. Потім

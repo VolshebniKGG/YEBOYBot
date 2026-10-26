@@ -6,6 +6,40 @@
 
 ## Поточна ітерація: kick, приватна історія та захист встановлювача
 
+**Повний CI коду c86c177 успішний:** [push run40370321990](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40370321990),
+усі9 jobs,90s загалом. [PR run40370330021](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40370330021)
+також усі9 jobs success,130s. Тести не видалено, дані/межі/timeouts збережені.
+
+| Перевірка | Підтверджений результат |
+|---|---|
+| Windows full SQLite | **454 passed,43 PostgreSQL skipped**,40.41s |
+| Ubuntu full SQLite | **449 passed,48 skipped** (43 PostgreSQL/5 Windows),10.56s |
+| Ubuntu full PostgreSQL17 | **492 passed,5 Windows skipped**,29.78s |
+| Focused Windows moderation/installer | **192 passed,10 PostgreSQL skipped** |
+| Focused Ubuntu moderation/installer | **189 passed,13 skipped** |
+| PostgreSQL maintenance + moderation | **208 passed** |
+| Legacy Windows / Ubuntu | **51 passed /49 passed,2 skipped**, installs/offline cogs success |
+| Dependency audit | **24 distributions,0 findings,0 skipped,pip26.2**, Linux resolution |
+
+Ruff і artifact upload пройшли. Full jobs мають retained pytest logs/JUnit.
+Push artifacts: SQLiteWindows12672152245, SQLiteUbuntu12672261743,
+PostgreSQL12671563716, audit12672037335. PR: SQLiteWindows12671263997,
+SQLiteUbuntu12672166959, PostgreSQL12672791734.
+Windows runner — сервер GitHub Actions; ручний double-click/logon на Windows10/11,
+справжній Discord API та 24/7 лишаються неперевіреними.
+
+Після коротких parameter IDs max test-log line: Windows387, PostgreSQL385,
+Ubuntu386 символів замість524410. У Ubuntu перехід malformed→oversize XML→
+наступний тест має інтервали2.4/2.6ms замість сотень секунд навколо гігантського
+рядка. За незмінних payloads/assertions workflow завершився за90s. Ці докази
+підтверджують виправлення надмірного test-log output; не приписуємо йому всі
+історичні Windows cancellations без їхніх журналів.
+
+Коміти цієї ітерації: **1ef3ebd** moderation, **b446028** installer/CVE,
+**f5685f0** Windows path assertion, **c86c177** bounded test IDs/CI evidence.
+Наступний docs-only коміт фіксує ці результати, production-код не змінює.
+Нижче збережено проміжні фактичні перевірки й знайдені/виправлені failures.
+
 - Зареєстровано **14 slash-команд**, нові **/kick** і **/modhistory**.
 - KickService відокремлює use-case від Discord adapter і guild-scoped SQL.
   Fresh detached Guild REST snapshot перевіряє owner, actor/bot permissions,
