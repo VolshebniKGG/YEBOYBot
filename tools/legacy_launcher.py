@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 InstanceLock = importlib.import_module("core_v2.runtime").InstanceLock
+installer_policy = importlib.import_module("tools.installer_policy")
+clean_environment = installer_policy.clean_environment
 
 
 class LegacyError(RuntimeError):
@@ -35,15 +37,6 @@ def configure_console():
 
 def legacy_python(root):
     return Path(root) / ".venv-legacy" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-
-
-def clean_environment(source=None):
-    env = dict(os.environ if source is None else source)
-    for key in list(env):
-        if key.upper().startswith(("PYTHON", "PIP_")) or key.upper() in {"VIRTUAL_ENV", "VIRTUAL_ENV_PROMPT"}:
-            del env[key]
-    env.update(PYTHONUTF8="1", PIP_CONFIG_FILE=os.devnull)
-    return env
 
 
 @contextmanager
@@ -175,21 +168,39 @@ def _prepare(root, repair=False):
     validate_environment(root)
     digest = hashlib.sha256((root / "requirements-legacy.txt").read_bytes()).hexdigest()
     stamp = target / ".yeboy-legacy-requirements.sha256"
-    if not repair and stamp.exists() and stamp.read_text(encoding="ascii") == digest:
+    if stamp.is_symlink():
+        raise LegacyError("Marker legacy-встановлення не може бути посиланням; збережіть його окремо та повторіть [2].")
+    cached = not repair and stamp.exists() and stamp.read_text(encoding="ascii") == digest
+    interpreter = str(legacy_python(root))
+    try:
+        # An application requirements stamp cannot authorize an outdated installer.
+        version = _checked(root, [interpreter, "-I", "-c", installer_policy.PIP_VERSION_CHECK])
+        if not installer_policy.pip_is_current(version):
+            stamp.unlink(missing_ok=True)
+            _checked(root, installer_policy.pip_command(
+                interpreter, "install", "--only-binary=:all:", "--upgrade",
+                "pip==" + installer_policy.PIP_VERSION), timeout=900)
+            version = _checked(root, [interpreter, "-I", "-c", installer_policy.PIP_VERSION_CHECK])
+            if not installer_policy.pip_is_current(version):
+                raise LegacyError("Версію pip не підтверджено; залежності бота не встановлювались. Повторіть [2].")
+        if cached:
+            validate_environment(root, require_packages=True)
+            stamp.write_text(digest, encoding="ascii")
+            return
+        # Failed repairs, like first installations, cannot retain a success marker.
+        stamp.unlink(missing_ok=True)
+        _checked(root, installer_policy.pip_command(
+            interpreter, "install", "--only-binary=:all:",
+            "-r", str(root / "requirements-legacy.txt")), timeout=900)
         validate_environment(root, require_packages=True)
-        return
-    # No global/user installs, cache deletion, uninstall, or system config changes.
-    # Inherited CA trust is explicit because --isolated ignores PIP_CERT.
-    args = [str(legacy_python(root)), "-I", "-m", "pip", "--isolated",
-            "--require-virtualenv", "--disable-pip-version-check"]
-    cert = os.environ.get("PIP_CERT") or os.environ.get("REQUESTS_CA_BUNDLE")
-    if cert:
-        args += ["--cert", cert]
-    _checked(root, args + ["install", "--no-cache-dir", "--only-binary=:all:",
-                          "-r", str(root / "requirements-legacy.txt")], timeout=900)
-    validate_environment(root, require_packages=True)
-    _checked(root, [str(legacy_python(root)), "-I", "-m", "pip", "--isolated", "check"])
-    stamp.write_text(digest, encoding="ascii")
+        _checked(root, installer_policy.pip_command(interpreter, "check"))
+        version = _checked(root, [interpreter, "-I", "-c", installer_policy.PIP_VERSION_CHECK])
+        if not installer_policy.pip_is_current(version):
+            raise LegacyError("Залежності змінили версію pip; встановлення не підтверджено. Повторіть [2].")
+        stamp.write_text(digest, encoding="ascii")
+    except Exception:
+        stamp.unlink(missing_ok=True)
+        raise
 
 
 def prepare(root, repair=False):

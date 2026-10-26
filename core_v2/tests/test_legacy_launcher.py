@@ -116,6 +116,8 @@ def test_matching_stamp_does_not_trust_package_versions_that_drifted(tmp_path, m
     imports = []
 
     def guarded_check(root, command, **kwargs):
+        if legacy.installer_policy.PIP_VERSION_CHECK in command:
+            return legacy.installer_policy.PIP_VERSION
         if legacy.IMPORTS in command:
             imports.append(command)
             return ""
@@ -244,7 +246,10 @@ def install_root(tmp_path, monkeypatch):
 
     monkeypatch.setattr(legacy.venv, "EnvBuilder", builder)
     monkeypatch.setattr(legacy, "validate_environment", lambda *a, **k: None)
-    monkeypatch.setattr(legacy, "_checked", lambda root, args, **kwargs: commands.append(args) or "")
+    def checked(root, args, **kwargs):
+        commands.append(args)
+        return legacy.installer_policy.PIP_VERSION if legacy.installer_policy.PIP_VERSION_CHECK in args else ""
+    monkeypatch.setattr(legacy, "_checked", checked)
     return root, commands, builders
 
 
@@ -381,7 +386,7 @@ def test_direct_entry_from_other_cwd_refuses_system_python_without_importing_bot
     (root / "tools").mkdir(parents=True)
     (root / "core_v2").mkdir()
     (root / "yeboybot").mkdir()
-    for name in ("run.py", "tools/legacy_launcher.py", "tools/__init__.py", "core_v2/runtime.py", "core_v2/__init__.py"):
+    for name in ("run.py", "tools/legacy_launcher.py", "tools/installer_policy.py", "tools/__init__.py", "core_v2/runtime.py", "core_v2/__init__.py"):
         shutil.copy(legacy.ROOT / name, root / name)
     marker = root / "untrusted-import.txt"
     (root / "yeboybot/__init__.py").write_text(
@@ -465,3 +470,116 @@ def test_windows_replacement_batch_uses_checkout_path_and_preserves_exit_code(tm
     assert result.returncode == 7, result.stdout + result.stderr
     assert (root / "launcher-cwd.txt").read_text(encoding="utf-8") == str(root)
     assert not (tmp_path / "launcher-cwd.txt").exists()
+
+
+def installer_upgrades(commands):
+    return [command for command in commands if "--upgrade" in command and
+            "pip==" + legacy.installer_policy.PIP_VERSION in command]
+
+
+def test_valid_app_stamp_cannot_skip_installer_upgrade_or_repeat_it(install_root, monkeypatch):
+    root, commands, _ = install_root
+    legacy.prepare(root)
+    before = len(installation_commands(commands))
+    original = legacy._checked
+    state = {"version": "25.0.1"}
+    def checked(root, command, **kwargs):
+        if legacy.installer_policy.PIP_VERSION_CHECK in command:
+            commands.append(command)
+            return state["version"]
+        if "--upgrade" in command:
+            state["version"] = legacy.installer_policy.PIP_VERSION
+        return original(root, command, **kwargs)
+    monkeypatch.setattr(legacy, "_checked", checked)
+    legacy.prepare(root)
+    legacy.prepare(root)
+    upgrades = installer_upgrades(commands)
+    assert len(upgrades) == 1
+    assert len(installation_commands(commands)) == before + 1
+    assert upgrades[0][0] == str(legacy.legacy_python(root))
+    assert {"--isolated", "--require-virtualenv", "--no-cache-dir", "--only-binary=:all:"} <= set(upgrades[0])
+    assert (root / ".venv-legacy/.yeboy-legacy-requirements.sha256").exists()
+    assert (root / ".venv-v2/core-packages.txt").read_text() == "core-is-unchanged"
+
+
+def test_failed_installer_upgrade_invalidates_old_stamp_and_blocks_app_install(install_root, monkeypatch):
+    root, commands, _ = install_root
+    legacy.prepare(root)
+    commands.clear()
+    def fail(root, command, **kwargs):
+        commands.append(command)
+        if legacy.installer_policy.PIP_VERSION_CHECK in command:
+            return "25.0.1"
+        if "--upgrade" in command:
+            raise legacy.LegacyError("Synthetic pinned installer download failure")
+        pytest.fail("Application install reached after installer failure")
+    monkeypatch.setattr(legacy, "_checked", fail)
+    with pytest.raises(legacy.LegacyError):
+        legacy.prepare(root)
+    assert len(installer_upgrades(commands)) == 1
+    assert not any("-r" in command for command in commands)
+    assert not (root / ".venv-legacy/.yeboy-legacy-requirements.sha256").exists()
+
+
+def test_installer_upgrade_must_be_verified_before_app_install(install_root, monkeypatch):
+    root, commands, _ = install_root
+    original = legacy._checked
+    def unchanged_version(root, command, **kwargs):
+        if legacy.installer_policy.PIP_VERSION_CHECK in command:
+            commands.append(command)
+            return "25.0.1"
+        return original(root, command, **kwargs)
+    monkeypatch.setattr(legacy, "_checked", unchanged_version)
+    with pytest.raises(legacy.LegacyError, match="pip"):
+        legacy.prepare(root)
+    assert len(installer_upgrades(commands)) == 1
+    assert not any("-r" in command for command in commands)
+    assert not (root / ".venv-legacy/.yeboy-legacy-requirements.sha256").exists()
+
+
+def test_application_install_cannot_silently_downgrade_installer(install_root, monkeypatch):
+    root, commands, _ = install_root
+    original = legacy._checked
+    state = {"version": legacy.installer_policy.PIP_VERSION}
+    def changed_version(root, command, **kwargs):
+        if legacy.installer_policy.PIP_VERSION_CHECK in command:
+            commands.append(command)
+            return state["version"]
+        if "-r" in command:
+            state["version"] = "25.0.1"
+        return original(root, command, **kwargs)
+    monkeypatch.setattr(legacy, "_checked", changed_version)
+    with pytest.raises(legacy.LegacyError, match="pip"):
+        legacy.prepare(root)
+    assert any("-r" in command for command in commands)
+    assert not (root / ".venv-legacy/.yeboy-legacy-requirements.sha256").exists()
+
+
+def test_environment_guard_runs_before_installer_or_app_mutations(install_root, monkeypatch):
+    root, commands, _ = install_root
+    def unsafe(*args, **kwargs):
+        raise legacy.LegacyError("Untrusted environment")
+    monkeypatch.setattr(legacy, "validate_environment", unsafe)
+    with pytest.raises(legacy.LegacyError, match="Untrusted"):
+        legacy.prepare(root)
+    assert commands == []
+    assert not (root / ".venv-legacy/.yeboy-legacy-requirements.sha256").exists()
+
+
+def test_installer_marker_link_is_refused_without_modifying_user_file(install_root):
+    root, commands, _ = install_root
+    legacy.prepare(root)
+    marker = root / ".venv-legacy/.yeboy-legacy-requirements.sha256"
+    marker.unlink()
+    existing = root / "user-settings.txt"
+    existing.write_text("preserve-private-settings", encoding="utf-8")
+    try:
+        marker.symlink_to(existing)
+    except OSError:
+        pytest.skip("Symlink creation unavailable for this account")
+    commands.clear()
+    with pytest.raises(legacy.LegacyError, match="Marker"):
+        legacy.prepare(root)
+    assert existing.read_text(encoding="utf-8") == "preserve-private-settings"
+    assert marker.is_symlink()
+    assert commands == []

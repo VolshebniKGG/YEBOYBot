@@ -50,6 +50,9 @@ Spotify credentials. Ці файли не завантажуються авто�
   навіть попри спільний дистрибутив discord.py із Core V2.
 - Немає global uninstall, cache purge або break-system-packages; pip працює
   з `--require-virtualenv`, `--isolated`, `--no-cache-dir`, лише binary wheels.
+  До app dependencies перевіряється pip **26.2** саме в `.venv-legacy`;
+  чинний marker вимог не дозволяє пропустити застарілий pip. Версія після
+  оновлення підтверджується; помилка блокує app install і прибирає marker успіху.
   Повторний запуск звіряє SHA вимог, pinned версії й критичні імпорти.
   Це перевірка сумісності, а не CVE-аудит чи криптографічний lock усіх transitives.
 - Виявлені py-cord, зовнішні шляхи `.pth`, system-site-packages та посилання
@@ -68,6 +71,13 @@ Spotify credentials. Ці файли не завантажуються авто�
 показується код дочірнього бота; саме меню залишається доступним. Місцевий [3]
 не підтверджує Discord ready. Перше встановлення потребує мережі до PyPI;
 помилка мережі/сертифікатів не змінює системні пакети.
+
+Для оновлення вже встановленого legacy pip зупиніть старий процес через
+**Ctrl+C**, відкрийте **[22] → [2]** або **run.bat → [2]**. Core V2 та системний
+Python не змінюються. Виявлені у Linux Core pip 25.0.1 advisories і результат
+після оновлення описані в [DEPENDENCY_AUDIT_UA.md](DEPENDENCY_AUDIT_UA.md).
+Той CVE-звіт не охоплює legacy dependencies; встановлення pip 26.2 не замінює
+окремий аудит `.venv-legacy` і не виправляє відомий старий TLS/music debt.
 
 ## Перевірка розробником
 

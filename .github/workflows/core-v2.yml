@@ -179,10 +179,66 @@ jobs:
         run: |
           mkdir -p test-results
           set -o pipefail
-          python -u -X utf8 -m pytest core_v2/tests/test_pg_native.py core_v2/tests/test_postgres_migrations.py core_v2/tests/test_pg_workflow.py -vv --durations=10 -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/pytest.xml 2>&1 | tee test-results/pytest.log
+          python -u -X utf8 -m pytest core_v2/tests/test_pg_native.py core_v2/tests/test_postgres_migrations.py core_v2/tests/test_pg_workflow.py core_v2/tests/test_moderation_repository.py core_v2/tests/test_kick_service.py core_v2/tests/test_discord_moderation.py core_v2/tests/test_moderation_commands.py -vv --durations=10 -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/pytest.xml 2>&1 | tee test-results/pytest.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: postgres-maintenance
+          path: test-results/
+          retention-days: 7
+
+  moderation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r core_v2/requirements-dev.txt
+      - run: python -m ruff check --config core_v2/ruff.toml core_v2 tools
+      - name: Moderation and isolated-installer regressions
+        shell: bash
+        run: |
+          mkdir -p test-results
+          set -o pipefail
+          python -u -X utf8 -m pytest core_v2/tests/test_moderation_repository.py core_v2/tests/test_kick_service.py core_v2/tests/test_discord_moderation.py core_v2/tests/test_moderation_commands.py core_v2/tests/test_runtime.py core_v2/tests/test_bootstrap.py core_v2/tests/test_legacy_launcher.py -vv -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/moderation.xml 2>&1 | tee test-results/moderation.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: moderation-${{ matrix.os }}
+          path: test-results/
+          retention-days: 7
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare separate application and audit environments
+        shell: bash
+        run: |
+          python -m venv .venv-v2
+          python -m venv .venv-audit
+          .venv-v2/bin/python -I -m pip --isolated --require-virtualenv --disable-pip-version-check --no-cache-dir install --only-binary=:all: --upgrade pip==26.2
+          .venv-audit/bin/python -I -m pip --isolated --require-virtualenv --disable-pip-version-check --no-cache-dir install --only-binary=:all: --upgrade pip==26.2
+          .venv-v2/bin/python -I -m pip --isolated --require-virtualenv --disable-pip-version-check --no-cache-dir install --only-binary=:all: -r core_v2/requirements-dev.txt
+          .venv-audit/bin/python -I -m pip --isolated --require-virtualenv --disable-pip-version-check --no-cache-dir install --only-binary=:all: pip-audit==2.10.1
+      - name: Audit resolved Core, development and installer packages against PyPI advisories
+        shell: bash
+        run: |
+          mkdir -p test-results
+          .venv-audit/bin/python -I -m pip_audit --path .venv-v2/lib/python3.12/site-packages --format=json --output=test-results/dependency-audit.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: core-dependency-audit-linux
           path: test-results/
           retention-days: 7

@@ -4,7 +4,68 @@
 попередні звіти збережено в розгортуваній історії. Не переносіть старі CI totals
 на нові коміти.
 
-## Поточна ітерація: PostgreSQL backup → upgrade → recovery
+## Поточна ітерація: kick, приватна історія та захист встановлювача
+
+- Зареєстровано **14 slash-команд**, нові **/kick** і **/modhistory**.
+- KickService відокремлює use-case від Discord adapter і guild-scoped SQL.
+  Fresh detached Guild REST snapshot перевіряє owner, actor/bot permissions,
+  timeout, ієрархію з tie за role ID та невідомі role IDs; спільний кеш не змінюється.
+- Перед DELETE атомарно commit-иться case claim. Ключ із guild/interaction ID
+  блокує повторний application kick, зокрема після restart. Параметри запиту
+  мають збігатися; чужий guild або інший payload справу не перезаписує.
+- Права/ціль повторно перевіряються після claim. API exception/timeout/cancel
+  залишає результат непідтвердженим; DB failure/CAS0 після API success не видає
+  дію за невдалу. Автоматичного replay pending немає. SDK transport retries
+  збережені, exactly-once DELETE і атомарна role-check+API не обіцяються.
+- /modhistory має current permission check, user ID колишнього учасника,
+  state filter, стабільний порядок і сторінки по5; відповіді ephemeral, mentions
+  вимкнені, причини екрановано й обмежено з урахуванням UTF-16/emoji.
+  Старий failed показується як запис помилки, а не доказ скасованої дії.
+- Схема2 й міграції не змінювались, нових залежностей/intents немає.
+  Audit-header має case/actor prefix і bounded URL-encoded причину; повний текст у БД.
+- Додано focused moderation/installer Windows/Linux CI, SQL integration в PG job
+  та окремий Linux CVE audit з JSON artifact; усі full jobs/log/JUnit збережено.
+- [Інструкція](MODERATION_UA.md), [аудит](PROJECT_AUDIT_UA.md),
+  [наступний промт](NEXT_DEVELOPMENT_PROMPT_UA.md).
+
+Локально Linux/Python3.12.14: **497 tests**, **150 нових**
+(132 moderation +18 installer regressions).
+- PostgreSQL17.11 + native tools: **492 passed, 5 Windows-only skipped**, 274.24s.
+- SQLite/default без PostgreSQL: **449 passed, 48 skipped**
+  (5 Windows +43 PostgreSQL), 72.89s; повтор без конкурентних heavy tasks.
+- Є real SQLite/PostgreSQL atomic claim/guild/history checks і real discord.py
+  models з mocked HTTP. Конкурентні duplicate claims мають одного власника;
+  перевірені role/owner changes, permissions, ambiguous API404/5xx/network,
+  cancellation, DB failures, CAS0, Unicode limits та private response binding.
+- Ruff, pip check, diff check пройшли. Performance baseline не вимірювався.
+- CVE-аудит `pip-audit2.10.1`/PyPI: 24 встановлені distributions Core/dev/installer,
+  без пропусків. Для pip25.0.1 повернуто6 унікальних advisory IDs (12 raw записів);
+  після pip26.2 — 0 findings, exit0. Інші23 не мали відомих advisories.
+  Legacy/OS/native/Windows resolution цим аудитом не охоплені.
+  [Точний набір, IDs та методика](DEPENDENCY_AUDIT_UA.md).
+- Обидва bootstrap перевіряють власний ізольований venv до pip, прибирають
+  package redirects, зберігають proxy/CA, оновлюють pip26.2 до app dependencies
+  навіть при чинному marker. Failure блокує install і скидає marker; системний
+  Python не змінюється. Старе Core-меню доступне для зупинки[3]/repair[5].
+- Реальні fresh/repeat Core і legacy installs у різних venv у Linux-шляху з
+  кирилицею/пробілами пройшли, обидва pip26.2. Discord login не виконувався.
+- Один initial default run:448 passed/48 skipped/1 subprocess timeout15s
+  у test_process_exits_on_control_failure_and_releases_lock під паралельним
+  install+PG навантаженням. Три діагностичні запуски завершились за3.03–7.44s;
+  faulthandler показав імпорти SQLAlchemy/pytest, close<3ms. Увесь managed suite
+  без змін:10 passed/5.38s. Таймаут15s і всі тести збережено; це не доказ
+  причини історичного Windows CI. Повний default повторено без heavy-конкуренції.
+- На базовому fafa177 full Ubuntu309/38, PostgreSQL342/5, PG maintenance76 та
+  legacy обох ОС підтверджені; Windows full скасовано під час pytest, logs404
+  і відсутній artifact не дозволяють назвати конкретний тест/стек. Новий CI
+  перевіряється окремо за SHA; старі результати новому коду не приписуються.
+
+Live Discord kick/permissions/command visibility, ручний Windows10/11 та 24/7
+не перевірено. Ban/unban/clear, автоматичне pending reconciliation та виправлення
+старих warn/timeout/untimeout lifecycle залишаються наступними етапами.
+Переваги над ProBot без порівняльних вимірювань не заявляються.
+
+## Попередня ітерація: PostgreSQL backup → upgrade → recovery (fafa177)
 
 - **[23]** у YEBOYBot.cmd: read-only plan, native Core-backup, явна міграція1→2,
   restore власної копії тільки в окрему попередньо створену порожню БД.

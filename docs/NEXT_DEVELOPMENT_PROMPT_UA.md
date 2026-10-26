@@ -8,20 +8,23 @@ QA та український UX. Основна ОС користувача �
 
 Спершу звір GitHub/local HEAD, локальні зміни, PR та CI. Прочитай AGENTS.md,
 якщо існує, README, CORE_V2_STATUS_UA, PROJECT_AUDIT_UA, MIGRATIONS_UA,
-WINDOWS_CMD_LAUNCHER_UA, LEGACY_LAUNCHER_UA, POSTGRES_RECOVERY_UA та
-COMPETITIVE_SCENARIOS_UA. Перевір код; історичні результати документації не
+WINDOWS_CMD_LAUNCHER_UA, LEGACY_LAUNCHER_UA, POSTGRES_RECOVERY_UA, MODERATION_UA,
+COMPETITIVE_SCENARIOS_UA та DEPENDENCY_AUDIT_UA. Перевір код; історичні результати не
 приписуй новому SHA. Онови матрицю Working/Partial/Disconnected/Broken/
 Duplicate/Missing/Untested. Не реалізовуй повторно завершені можливості.
 
 Відомий стан, який потрібно повторно перевірити:
 
-- Core V2 має 12 slash-команд: status, levels, rank, leaderboard, warn, warnings,
-  unwarn, timeout, untimeout, remind, reminders, cancel-reminder.
+- Core V2 має 14 slash-команд: попередні 12 та kick/modhistory.
+  Kick має fresh REST authorization, role/owner recheck, committed deterministic
+  case claim, duplicate blocking і ambiguity-safe outcome. History читає тільки
+  поточний guild, уміє pending/state/user ID/page й надсилає приватні відповіді.
 - Є guild-scoped XP, cases, durable reminders з lease/retry; доставка нагадувань
   at-least-once. Exactly-once для Discord send не обіцяється.
 - Schema2 і SQLite 1→2 через [21] мають verified backup, транзакцію, rollback,
   stale-source guard і report. Cases.updated заповнюється created для старих
-  записів; нові переходи пишуть фактичний час. Pending reconciliation ще немає.
+  записів; нові переходи пишуть фактичний час. Є pending diagnostics через
+  /modhistory; автоматичного reconciliation/replay немає.
 - [23] додає PostgreSQL Core-backup/SHA/TOC, явний upgrade 1→2 та pg_restore
   лише в окрему попередньо створену порожню БД. Підтримано стандартні шість
   public Core-таблиць; custom dependencies відхиляються. Це не backup сервера.
@@ -36,26 +39,38 @@ Duplicate/Missing/Untested. Не реалізовуй повторно заве�
   Heartbeat failure закриває клієнт і задачі; зовнішнього OS-crash supervisor немає.
 - Automod/welcome/autorole/voice XP/role panels не є завершеними активними модулями.
 
-Перевірки application коду a5dd3ef та CI-підготовки f14273a: локально 347 tests,
-76 нових; з PostgreSQL 17.11 — 342 passed/5 Windows skipped, без PG —
-309 passed/38 skipped. CI f14273a, run40273263180: postgres-maintenance —
-76 passed, legacy Windows — 45 passed, legacy Ubuntu — 43 passed/2 skipped.
-Повні Windows/Linux/PG jobs на момент звіту ще виконувалися; перевір їхній
-актуальний статус. Не видавай focused 76 за успіх усього workflow.
-APT client17 був недоступний на Ubuntu runner; виправлений CI використовує
-справжні native17 tools із того самого service container через stdio.
-Логи/JUnit зберігаються як artifacts. BlobNotFound не доводить дефект коду;
-для зависання потрібні конкретний тест і стек. Не прибирай перевірки.
+Базовий fafa177 підтвердив Ubuntu309/38, PostgreSQL342/5, PG maintenance76
+і legacy обох ОС; повний Windows job скасовано під час pytest, logs404 і відсутній
+artifact не дають конкретного тесту чи стека. Тести не скорочувалися.
+Поточна kick/history+installer ітерація має497 tests,150 нових: PostgreSQL17.11 —
+492 passed/5 Windows skipped; default SQLite —449 passed/48 skipped.
+Реальні SQLite/PG перевіряють atomic claims/history, справжні discord.py моделі —
+mocked HTTP. Live Discord, ручний Windows і 24/7 не підтверджені. Перевір новий
+CI за SHA; focused moderation і PG jobs не видавай за весь зелений workflow.
+Немає нових application dependencies/intents/DDL. Linux Core/dev/installer CVE-аудит
+24 distributions знайшов6 unique pip25.0.1 advisories; після pip26.2 zero/0skips.
+Core/legacy installers примусово перевіряють pip26.2 у власному venv до dependencies,
+навіть при valid marker, без глобальних pip змін. Не дублюй виправлення.
+Наявний Core menu не auto-upgrade-ить pip: зупинка[3]→dependencies[5].
+Legacy/Cross-OS/native/OS CVE-аудит і routine refresh advisory data ще потрібні.
 
-Найближчий функціональний етап — повна модерація та audit lifecycle. Рухайся
-невеликими завершеними сценаріями: kick, ban, unban, clear, modhistory.
+Найближчий функціональний етап — ban/unban зі спільним service/repository
+та тим самим audit lifecycle. Kick/modhistory не реалізовуй повторно. Потім
+окремою ітерацією додай clear із підтвердженням небезпечного видалення.
 
-1. Повторно перевір існуючі security/cases/commands і поступово відділи спільну
-   service/repository логіку для майбутньої вебпанелі.
+1. Перевір moderation.py, discord_moderation.py, case reservation/history у db.py
+   та існуючі тести; розширюй ці межі поступово для майбутньої вебпанелі.
+   Старі warn/timeout/untimeout ще мають cached checks і старий HTTP-failed
+   lifecycle — це окремий борг, новий kick не робить їх перевіреними.
 2. Для кожної дії перевір actor/bot permissions, role hierarchy, guild_id,
-   причину, owner/self/bot targets та фактичний результат Discord API.
-3. Записуй pending/applied/failed коректно; для справ після crash спершу
-   визначай результат або неоднозначність, не повторюй небезпечний API навмання.
+   причину, owner/self/bot targets та фактичний результат Discord API. Для ban
+   не видаляй історію повідомлень за замовчуванням; для unban не вимагай
+   поточного членства користувача й явно обробляй відсутній ban.
+3. Committed claim перед API й зіставлення payload блокують повтор interaction.
+   API exception/timeout/cancel можуть означати невідомий результат навіть за404;
+   SDK має власні transport retries. Не обіцяй exactly-once і не додавай сліпий retry.
+   DB failure/CAS0 після API success не видавай за невдалу дію. Відсутність
+   учасника не доводить kick: потрібна явна звірка Audit Log за case prefix.
 4. Для масового clear потрібне обмежене в часі підтвердження саме автора дії,
    прив'язане до guild/channel; повторний click не виконує дію вдруге.
 5. Перевір інтеграційні й негативні сценарії: API 403/404/timeout, зміна ролей,
@@ -70,8 +85,8 @@ voice XP/rewards та scheduled announcements. Без Message Content Intent в�
 content-фільтри не показуй активними. Legacy JSON без guild_id потребують dry-run
 і явного зіставлення серверів, а не автоматичного імпорту.
 
-Підтримуй окремі експлуатаційні задачі: CVE-аудит залежностей (pip check ним
-не є), безпечне припинення tracking pyc/logs/queues зі збереженням локальних даних,
+Підтримуй окремі експлуатаційні задачі: повторення CVE-аудиту й охоплення
+legacy/Cross-OS/native залежностей (pip check ним не є), безпечне припинення tracking pyc/logs/queues зі збереженням локальних даних,
 systemd, resource baseline p50/p95/p99, event-loop lag, RAM/CPU та soak/failure tests.
 Не додавай Redis/Celery/Kubernetes або розподілений шардинг без виміряної потреби.
 Порівнюй UX/setup/recovery з ProBot лише за однаковими відтворюваними сценаріями;
