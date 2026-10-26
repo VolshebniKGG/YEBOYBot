@@ -12,7 +12,8 @@ sys.path.insert(0, str(ROOT))
 
 
 def main():
-    from tools.legacy_launcher import validate_environment
+    from tools.legacy_launcher import configure_console, validate_environment
+    configure_console()
     validate_environment(ROOT, require_packages=True)
     with tempfile.TemporaryDirectory(prefix="YEBOYBot legacy ") as directory:
         root = Path(directory)

@@ -1,8 +1,9 @@
-# Аудит проєкту YEBOYBot — 25.10.2026
+# Аудит проєкту YEBOYBot — 26.10.2026
 
 Оглянуто відстежуване дерево, core_v2, tools/launcher, legacy yeboybot,
 точки входу, залежності, тести, CI та документацію. База ітерації —
-feature/core-v2@2fc94e8; поточна ітерація ізолює legacy entrypoint.
+feature/core-v2@2fc94e8; legacy entrypoint ізольовано у 8b1897a,
+наступне виправлення враховує Windows sys.path і redirected UTF-8.
 SQLite schema2/migrations та fail-closed heartbeat збережені без повторної реалізації.
 main@14bd68a містить стару реалізацію; PR #1 залишається draft. GitHub HEAD
 і CI потрібно повторно звіряти перед наступною роботою.
@@ -30,7 +31,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Legacy cogs | Partial | Реальні moderation/user/help/rank завантажені offline в disposable copy; поведінка команд/live API та music не перевірені |
 | run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI/manual очікуються |
 | start_v2.bat | Duplicate | Додаткова стара точка входу збережена |
-| CI | Partial | Windows/Linux/SQLite/PostgreSQL матриця; нові завершені Windows результати не отримані |
+| CI | Partial | На 8b1897a Ubuntu SQLite/PG/legacy success; Windows legacy failure виправлено в коді, повний Windows pytest cancelled/BlobNotFound, новий прогін потрібний |
 
 ## Ризики, що потребують окремих завершених ітерацій
 

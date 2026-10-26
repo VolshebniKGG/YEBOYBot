@@ -26,6 +26,13 @@ class LegacyError(RuntimeError):
     pass
 
 
+def configure_console():
+    # -I ignores PYTHONUTF8, including when stdout is redirected by Windows CI.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def legacy_python(root):
     return Path(root) / ".venv-legacy" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
@@ -82,7 +89,7 @@ for name in names:
 print(json.dumps(dict(prefix=sys.prefix, base=sys.base_prefix,
     version=list(sys.version_info[:2]), isolated=bool(sys.flags.isolated),
     user_site=site.ENABLE_USER_SITE, paths=sys.path, packages=versions,
-    stdlib=[sysconfig.get_path('stdlib'), sysconfig.get_path('platstdlib'),
+    stdlib=[sysconfig.get_path('stdlib'), sysconfig.get_path('platstdlib'), str(Path(sys.base_prefix)),
         str(Path(sys.base_prefix) / 'DLLs'),
         str(Path(sys.base_prefix) / f'python{sys.version_info.major}{sys.version_info.minor}.zip'),
         str(Path(sysconfig.get_path('stdlib')).parent / f'python{sys.version_info.major}{sys.version_info.minor}.zip'),
@@ -228,7 +235,7 @@ def run_bot(root, music=False):
     _verify(root, dict(prefix=sys.prefix, base=sys.base_prefix, version=list(sys.version_info[:2]),
                        isolated=bool(sys.flags.isolated), user_site=site.ENABLE_USER_SITE,
                        paths=sys.path, packages=packages,
-                       stdlib=[sysconfig.get_path("stdlib"), sysconfig.get_path("platstdlib"),
+                       stdlib=[sysconfig.get_path("stdlib"), sysconfig.get_path("platstdlib"), str(Path(sys.base_prefix)),
                                str(Path(sys.base_prefix) / "DLLs"),
                                str(Path(sys.base_prefix) / f"python{sys.version_info.major}{sys.version_info.minor}.zip"),
                                str(Path(sysconfig.get_path("stdlib")).parent / f"python{sys.version_info.major}{sys.version_info.minor}.zip"),
@@ -242,6 +249,7 @@ def run_bot(root, music=False):
 
 
 def bot_entry(root=ROOT, music=False):
+    configure_console()
     try:
         return run_bot(root, music)
     except KeyboardInterrupt:
@@ -254,6 +262,7 @@ def bot_entry(root=ROOT, music=False):
 
 
 def main(argv=None):
+    configure_console()
     parser = argparse.ArgumentParser(description="Ізольований legacy-запуск YEBOYBot")
     parser.add_argument("--install", action="store_true", help="встановити лише .venv-legacy; не запускати Discord")
     parser.add_argument("--check", action="store_true", help="перевірити встановлене середовище без запуску Discord")

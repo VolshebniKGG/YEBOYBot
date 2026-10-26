@@ -396,6 +396,43 @@ def test_direct_entry_from_other_cwd_refuses_system_python_without_importing_bot
     assert "Traceback" not in result.stderr
 
 
+@pytest.mark.parametrize("mode,expected,exit_code", [
+    ("check", "Українська помилка", 1),
+    ("menu", "застарілий режим", 0),
+    ("bot", "Українська помилка", 1),
+])
+def test_ukrainian_output_survives_ascii_redirected_streams(tmp_path, mode, expected, exit_code):
+    # -I ignores PYTHONUTF8, as on Windows with a legacy redirected code page.
+    # Force ASCII on every platform so this regression is reproducible on Linux too.
+    code = (
+        "import builtins, io, sys\n"
+        f"sys.path.insert(0, {str(legacy.ROOT)!r})\n"
+        "from tools import legacy_launcher as launcher\n"
+        "sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='ascii', errors='strict')\n"
+        "sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='ascii', errors='strict')\n"
+        "assert sys.stdout.encoding == 'ascii'\n"
+        "def fail(*args, **kwargs):\n"
+        "    raise launcher.LegacyError('Українська помилка')\n"
+        "mode = sys.argv[1]\n"
+        "if mode == 'bot':\n"
+        "    launcher.run_bot = fail\n"
+        "    result = launcher.bot_entry()\n"
+        "elif mode == 'menu':\n"
+        "    builtins.input = lambda prompt: '0'\n"
+        "    result = launcher.main([])\n"
+        "else:\n"
+        "    launcher.validate_environment = fail\n"
+        "    result = launcher.main(['--check'])\n"
+        "raise SystemExit(result)\n"
+    )
+    result = subprocess.run([sys.executable, "-I", "-c", code, mode], cwd=tmp_path,
+                            capture_output=True, timeout=30, env=legacy.clean_environment())
+    assert result.returncode == exit_code, result.stderr.decode("utf-8", errors="replace")
+    assert expected in result.stdout.decode("utf-8")
+    assert b"Traceback" not in result.stderr
+    assert b"UnicodeEncodeError" not in result.stderr
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Native Windows CMD required")
 def test_windows_missing_python_returns_failure_without_installing(tmp_path):
     script = tmp_path / "run.bat"

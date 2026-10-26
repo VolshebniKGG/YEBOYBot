@@ -34,7 +34,18 @@ jobs:
           if errorlevel 1 exit /b 1
       - run: python -m pip check
       - run: python -m ruff check --config core_v2/ruff.toml core_v2 tools
-      - run: python -m pytest core_v2/tests -vv --durations=10 -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true
+      - name: Tests with retained output
+        shell: bash
+        run: |
+          mkdir -p test-results
+          set -o pipefail
+          python -u -X utf8 -m pytest core_v2/tests -vv --durations=10 -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/pytest.xml 2>&1 | tee test-results/pytest.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sqlite-${{ matrix.os }}
+          path: test-results/
+          retention-days: 7
   postgres:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -59,7 +70,18 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r core_v2/requirements-dev.txt
-      - run: python -m pytest core_v2/tests -vv --durations=10 -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true
+      - name: PostgreSQL tests with retained output
+        shell: bash
+        run: |
+          mkdir -p test-results
+          set -o pipefail
+          python -u -X utf8 -m pytest core_v2/tests -vv --durations=10 -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/pytest.xml 2>&1 | tee test-results/pytest.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postgres
+          path: test-results/
+          retention-days: 7
 
   legacy-install:
     strategy:
@@ -87,3 +109,21 @@ jobs:
           else
             .venv-legacy/bin/python -I tools/check_legacy_cogs.py
           fi
+      - name: Legacy regression tests in isolated environment
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            LEGACY_PY=.venv-legacy/Scripts/python.exe
+          else
+            LEGACY_PY=.venv-legacy/bin/python
+          fi
+          "$LEGACY_PY" -I -m pip --require-virtualenv install pytest==9.1.1 pytest-asyncio==1.4.0
+          mkdir -p test-results
+          set -o pipefail
+          "$LEGACY_PY" -u -X utf8 -m pytest core_v2/tests/test_legacy_launcher.py core_v2/tests/test_legacy_bot.py -vv -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/legacy.xml 2>&1 | tee test-results/legacy.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: legacy-${{ matrix.os }}
+          path: test-results/
+          retention-days: 7

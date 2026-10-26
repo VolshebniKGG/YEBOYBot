@@ -31,6 +31,10 @@ pre-import guard, OS locks, exact requirements/імпорти, .pth/py-cord reje
 append/redacted logs. Music opt-in, старі cogs збережені. Не повторюй цю роботу.
 Core V2 .venv-v2 не змішуй з legacy. Перший/repeat install і actual cogs offline
 smoke пройшли локально Linux, live Discord/music/ручний Windows не підтверджені.
+На 8b1897a Ubuntu SQLite/PG/legacy CI успішні; Windows legacy install виявив
+штатний CPython executable sys.path і cp1252 output errors, для них є виправлення
+й regressions. Повний Windows pytest скасовано; logs404 не дають конкретного тесту
+або стека. Наступний CI зберігає pytest.log/JUnit artifacts без скорочення suite.
 Перевір новий CI за SHA; native CMD сценарії не вважай виконаними за Linux tests.
 Старі nocheckcertificate=True й E:-hardcoded FFmpeg лишилися відомим ризиком.
 Не перенось їх у Core V2. Історичний root requirements не є launcher requirements.

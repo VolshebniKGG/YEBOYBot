@@ -1,4 +1,4 @@
-# Поточний стан Core V2 — 25.10.2026
+# Поточний стан Core V2 — 26.10.2026
 
 Гілка feature/core-v2; main не змінено, PR #1 — draft. Нижче актуальний стан,
 попередні звіти збережено в розгортуваній історії. Не переносіть старі CI totals
@@ -23,9 +23,9 @@
 - [Інструкція](LEGACY_LAUNCHER_UA.md), [аудит](PROJECT_AUDIT_UA.md),
   [наступний P0-промт](NEXT_DEVELOPMENT_PROMPT_UA.md).
 
-Локально Linux/Python 3.12.14: **258 passed, 10 skipped** із 268 tests:
-5 native Windows (включно з двома новими CMD), 5 PostgreSQL. Додано 42 tests;
-це 40 passed + 2 Windows skipped у цій ітерації, а не повторення старого звіту.
+Локально Linux/Python 3.12.14: **261 passed, 10 skipped** із 271 tests:
+5 native Windows (включно з двома новими CMD), 5 PostgreSQL. Додано 45 tests;
+це 43 passed + 2 Windows skipped у цій ітерації, а не повторення старого звіту.
 Ruff, pip check в обох окремих venv та diff check пройшли. CVE-аудит не виконувався.
 Реальні legacy dependencies installed; repeat install і critical imports пройшли.
 Disposable source copy завантажила справжні Moderation/User/Help/RankCog,
@@ -33,10 +33,23 @@ Disposable source copy завантажила справжні Moderation/User/H
 Без DLC assets використано fallback; rendering/реальні команди не перевірялися.
 PostgreSQL suite локально в цій ітерації не запускали — змін БД немає.
 
-CI нового коміту перевіряється після публікації. Попередній run40229046476
-на 2fc94e8 скасований; це не успіх нового Windows коду. Ручний Windows 10/11,
-live Discord/music та 24/7 не підтверджені. Legacy all-intents/TLS/hardcoded paths,
-рольова безпека команд і неізольовані legacy JSON залишаються окремими ризиками.
+CI на **8b1897a**, run40231450946: Ubuntu SQLite **258 passed/10 skipped**,
+PostgreSQL **263 passed/5 skipped**, legacy first/repeat install/probe/offline cogs —
+success на Ubuntu. Windows legacy install відмовив на штатному executable-directory
+у sys.path; обробка помилки додатково виявила cp1252 UnicodeEncodeError, бо -I
+ігнорує PYTHONUTF8. Обидві причини виправлено: exact base-prefix дозволений поряд
+зі stdlib, сторонні .pth досі відхиляються; stdin/stdout/stderr явно UTF-8.
+Три subprocess regressions примусово використовують ASCII для menu/check/bot errors.
+Ці нові результати не приписуються старому SHA; новий CI перевіряється окремо.
+
+Повний Windows job121283871503 на 8b1897a скасовано під час pytest; dependencies,
+first/repeat Core install, pip check та Ruff успішні. Логи Windows pytest повертають
+404 BlobNotFound; конкретний тест/стек і причина затримки не встановлені.
+Додано збереження unbuffered pytest.log/JUnit як 7-денні CI artifacts (always),
+та окремі legacy regression tests у legacy job обох ОС. Повний suite не скорочено.
+Ручний Windows 10/11, live Discord/music та 24/7 не підтверджені. Legacy
+all-intents/TLS/hardcoded paths, рольова безпека команд і неізольовані legacy JSON
+залишаються окремими ризиками.
 Наступна P0-ітерація: native PostgreSQL backup → upgrade → restore зі збереженням
 даних; наявна PostgreSQL v1 досі заблокована до цього workflow.
 

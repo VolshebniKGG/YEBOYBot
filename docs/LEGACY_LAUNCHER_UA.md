@@ -38,6 +38,8 @@ Spotify credentials. Ці файли не завантажуються авто�
 - Лише `.venv-legacy`, без system/user site-packages; запуск Python з `-I`.
   Змінні PYTHON/PIP, що можуть змінити шлях імпорту або місце встановлення,
   очищуються; proxy/CA trust зберігаються. Глобальний pip config відключається.
+  Українські stdin/stdout/stderr явно UTF-8, включно з перенаправленим виводом Windows.
+  Штатний каталог виконуваного CPython дозволений точно, без дозволу сторонніх підкаталогів.
 - `requirements-legacy.txt` замінює встановлення історичного root requirements
   для цього входу. Старий файл збережений, але не використовується лаунчером.
   Не встановлюйте root requirements вручну в Core V2.
@@ -75,7 +77,8 @@ Spotify credentials. Ці файли не завантажуються авто�
 в тимчасовий каталог без конфігурації/даних, справжні cogs додаються і закриваються
 без мережевого запуску. Відсутні assets перевіряють резервний фон/шрифт.
 
-CI містить окреме встановлення legacy на Windows/Linux та offline cogs smoke;
+CI містить окреме встановлення legacy на Windows/Linux, offline cogs smoke
+та legacy regression tests (pytest встановлюється лише для CI в legacy venv);
 основні tests містять негативні сценарії, locks, шляхи з пробілами/кирилицею
 і нативні CMD тести. Фактичні результати й ручні обмеження — у
 [CORE_V2_STATUS_UA.md](CORE_V2_STATUS_UA.md). Початковий небезпечний run.bat
