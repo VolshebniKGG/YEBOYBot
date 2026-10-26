@@ -17,7 +17,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Process recovery | Partial | Python exception backoff і fail-closed control; зовнішнього crash supervisor немає |
 | SQLite backup | Partial | Snapshot, manifest/SHA, staged restore, archive без видалення; ручний Windows не завершено |
 | Міграції SQLite | Partial | Registry, план, явний 1→2, backup, rollback, idempotence; немає manual Windows доказу |
-| PostgreSQL | Partial | [23] standard public Core snapshot/upgrade1→2/restore в окрему порожню БД; Linux17.11 перевірено; Windows native/TLS/custom schemas не підтверджені |
+| PostgreSQL | Partial | [23] standard public Core snapshot/upgrade1→2/restore в окрему порожню БД; Linux17.11 локально й PG maintenance76 у CI перевірено; Windows native/TLS/custom schemas не підтверджені |
 | Автозапуск | Partial | Opt-in Task Scheduler root/SID, pythonw; реальне створення/logon не перевірено |
 | Slash-команди | Partial | 12 commands: status/levels/rank/leaderboard/warn/warnings/unwarn/timeout/untimeout/remind/reminders/cancel-reminder |
 | Модерація | Partial | Permissions/hierarchy/cases; kick/ban/unban/clear/modhistory та pending reconciliation відсутні |
@@ -31,7 +31,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Legacy cogs | Partial | Реальні moderation/user/help/rank завантажені offline в disposable copy; поведінка команд/live API та music не перевірені |
 | run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI45/Linux43+2skip успішні на a6c8e49; ручний Windows/live API очікуються |
 | start_v2.bat | Duplicate | Додаткова стара точка входу збережена |
-| CI | Partial | На a6c8e49 legacy Windows/Linux success; full suites ще виконуються. На 8b1897a Ubuntu SQLite/PG success, full Windows cancelled/BlobNotFound |
+| CI | Partial | На f14273a PG maintenance76 та legacy обох ОС success; повні jobs ще виконуються. NativePGWindows/liveDiscord не підтверджені |
 
 ## Ризики, що потребують окремих завершених ітерацій
 

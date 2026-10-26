@@ -46,6 +46,12 @@
   261/10, legacy Windows45 і Linux43/2 success; повні Windows/PG jobs не завершилися
   на момент огляду, їхній успіх новому коду не приписується.
 
+CI коду **f14273a**, [run40273263180](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40273263180):
+**postgres-maintenance — 76 passed**, native pg_dump/pg_restore17.11; JUnit/log
+опубліковані в artifact postgres-maintenance. Legacy Windows45 і Ubuntu43/2
+також success. Повні SQLite Windows/Linux і PG suites на момент фіксації ще
+виконуються; успіх focused76 не видається за повний зелений workflow.
+
 Native PG workflow на Windows, production TLS, live Discord, ручний Windows10/11
 та 24/7 залишаються неперевіреними. Порівняльних вимірювань ProBot немає.
 Наступний функціональний етап: модерація з permissions/hierarchy/guild isolation,
