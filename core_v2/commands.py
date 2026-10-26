@@ -7,11 +7,54 @@ from discord import app_commands
 from discord.ext import commands
 
 from .security import UserError, permission, target_check, respond
+from .security import guild_context
+from .moderation import KickService, ModerationError
+from .discord_moderation import DiscordGateway, history_embed
 
 
 class Core(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.moderation = KickService(bot.db, DiscordGateway(bot))
+
+    @app_commands.command(name="kick", description="Вигнати учасника з перевіркою прав та записом справи")
+    @app_commands.default_permissions(kick_members=True)
+    @app_commands.guild_only()
+    async def kick(self, interaction: discord.Interaction, member: discord.Member,
+                   reason: app_commands.Range[str, 1, 500]):
+        guild = guild_context(interaction)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            result = await self.moderation.kick(guild.id, interaction.user.id, member.id, interaction.id, reason)
+        except ModerationError as error:
+            raise UserError(str(error)) from None
+        state = {"pending": "Непідтверджено", "applied": "Застосовано", "failed": "Не виконано"}.get(result.status)
+        message = f"{result.message}\nID справи: `{result.case_id}`"
+        if state:
+            message += f"\nЗбережений стан: {state}."
+        await interaction.followup.send(message, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.command(name="modhistory", description="Історія справ цього сервера, зокрема непідтверджених")
+    @app_commands.default_permissions(moderate_members=True)
+    @app_commands.guild_only()
+    @app_commands.choices(state=[app_commands.Choice(name="Непідтверджено", value="pending"),
+                                app_commands.Choice(name="Застосовано", value="applied"),
+                                app_commands.Choice(name="Зафіксовано помилку", value="failed"),
+                                app_commands.Choice(name="Відкликано", value="revoked")])
+    async def modhistory(self, interaction: discord.Interaction, user_id: app_commands.Range[str, 1, 19] | None = None,
+                         state: app_commands.Choice[str] | None = None,
+                         page: app_commands.Range[int, 1, 1000] = 1):
+        guild = guild_context(interaction)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            if user_id is not None and (len(user_id) > 19 or not user_id.isascii() or not user_id.isdecimal()):
+                raise ModerationError("Вкажіть числовий ID учасника, зокрема колишнього.")
+            rows = await self.moderation.history(guild.id, interaction.user.id,
+                user_id=None if user_id is None else int(user_id), status=None if state is None else state.value, page=page)
+        except ModerationError as error:
+            raise UserError(str(error)) from None
+        await interaction.followup.send(embed=history_embed(rows, page), ephemeral=True,
+                                        allowed_mentions=discord.AllowedMentions.none())
 
     @app_commands.command(name="status", description="Стан ядра та бази даних")
     @app_commands.guild_only()

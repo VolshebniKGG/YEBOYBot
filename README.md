@@ -42,3 +42,7 @@ Core V2 зупиняє клієнт при втраті heartbeat-контрол
 [Наступний промт розробки](docs/NEXT_DEVELOPMENT_PROMPT_UA.md).
 
 [Сценарії YEBOYBot/ProBot та методика порівняння](docs/COMPETITIVE_SCENARIOS_UA.md).
+
+Core V2 має `/kick` і `/modhistory`: свіжі перевірки прав/ролей, запис справи
+до API та приватна історія непідтверджених результатів.
+[Налаштування й межі модерації](docs/MODERATION_UA.md).

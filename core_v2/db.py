@@ -1,5 +1,6 @@
 """Guild-scoped SQL operations; SQLite local, PostgreSQL for sustained load."""
 import asyncio
+import re
 import sqlite3
 import time
 import uuid
@@ -221,6 +222,52 @@ class Database:
             await conn.execute(cases.insert().values(id=case_id, guild_id=guild_id, user_id=user_id,
                 actor_id=actor_id, action=action, reason=reason[:500], created=now, updated=now, status=status))
         return case_id
+
+    async def claim_case(self, guild_id, case_id, user_id, actor_id, action, reason):
+        """Atomically reserve a kick request; retries never overwrite its audit row."""
+        if any(type(value) is not int or not 0 < value < 2**63
+               for value in (guild_id, user_id, actor_id)):
+            raise ValueError("Invalid moderation scope")
+        if not isinstance(case_id, str) or not re.fullmatch(r"[0-9a-f]{32}", case_id):
+            raise ValueError("Invalid moderation case ID")
+        if action != "kick" or not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 500:
+            raise ValueError("Invalid moderation request")
+        reason = reason.strip()
+        now = time.time()
+        statement = self.insert(cases).values(id=case_id, guild_id=guild_id,
+            user_id=user_id, actor_id=actor_id, action=action, reason=reason,
+            created=now, updated=now, status="pending")
+        statement = statement.on_conflict_do_nothing(index_elements=[cases.c.id]).returning(cases.c.id)
+        async with self.engine.begin() as connection:
+            inserted = (await connection.execute(statement)).scalar_one_or_none()
+            row = (await connection.execute(select(cases).where(
+                cases.c.id == case_id, cases.c.guild_id == guild_id))).mappings().first()
+            if row is None or any(row[name] != value for name, value in {
+                    "user_id": user_id, "actor_id": actor_id, "action": action, "reason": reason}.items()):
+                raise ValueError("Moderation case ID is already bound to a different request")
+            return dict(row), inserted is not None
+
+    async def case_history(self, guild_id, user_id=None, status=None, page=1, page_size=5):
+        """Bounded read of this guild's cases, including unresolved pending rows."""
+        if type(guild_id) is not int or not 0 < guild_id < 2**63:
+            raise ValueError("Invalid moderation scope")
+        if user_id is not None and (type(user_id) is not int or not 0 < user_id < 2**63):
+            raise ValueError("Invalid moderation target")
+        if status is not None and (not isinstance(status, str) or status not in {
+                "pending", "applied", "failed", "revoked"}):
+            raise ValueError("Invalid moderation status")
+        if type(page) is not int or not 1 <= page <= 1000 or type(page_size) is not int or not 1 <= page_size <= 10:
+            raise ValueError("Invalid moderation page")
+        statement = select(cases).where(cases.c.guild_id == guild_id)
+        if user_id is not None:
+            statement = statement.where(cases.c.user_id == user_id)
+        if status is not None:
+            statement = statement.where(cases.c.status == status)
+        statement = statement.order_by(cases.c.created.desc(), cases.c.id.desc())
+        statement = statement.limit(page_size).offset((page - 1) * page_size)
+        async with self.engine.connect() as connection:
+            rows = (await connection.execute(statement)).mappings().all()
+            return [dict(row) for row in rows]
 
     async def finish_case(self, guild_id, case_id, status):
         if status not in {"applied", "failed"}:

@@ -14,7 +14,7 @@
 3. Розпакуйте та двічі натисніть `YEBOYBot.cmd`. Venv і залежності встановлюються автоматично.
 4. Виберіть [12], введіть токен приховано та ID тестового сервера.
 5. Запросіть бота на тестовий сервер зі scopes `bot` і `applications.commands`.
-   Права: View Channels, Send Messages, Embed Links, Moderate Members.
+   Права: View Channels, Send Messages, Embed Links, Moderate Members; для /kick — Kick Members.
    Роль бота має бути вище ролей учасників, яких він модерує.
    Administrator не потрібний. Message Content Intent і Presence Intent не потрібні.
 6. Зупиніть старий процес, якщо він використовує той самий токен.
@@ -61,6 +61,8 @@ cp .env.v2.example .env.v2
 | /levels enabled | Увімкнути/вимкнути текстовий XP; Manage Server |
 | /rank member | XP і рівень на поточному сервері |
 | /leaderboard page | 10 учасників на сторінку |
+| /kick member reason | Вигнати учасника; Kick Members, актуальна ієрархія та audit case |
+| /modhistory user_id state page | Приватна історія справ цього сервера, зокрема pending; по 5 на сторінку |
 | /warn member reason | Зберегти попередження; Moderate Members |
 | /warnings member | Останні 10 чинних попереджень; Moderate Members |
 | /unwarn case_id | Відкликати попередження цього сервера |
@@ -72,8 +74,11 @@ cp .env.v2.example .env.v2
 
 XP: 5 балів за повідомлення не частіше разу на 60 секунд; ботам і вебхукам не нараховується.
 Рівень = ціла частина квадратного кореня з (XP / 100) + 1.
-Голосовий XP ще не підключений. Автомодерація, welcome, авторолі, музика, kick/ban,
+Голосовий XP ще не підключений. Автомодерація, welcome, авторолі, музика, ban/unban/clear,
 панель сайту і перенесення старих даних — наступні етапи.
+
+Для нових команд після оновлення: **[11]** → тестовий Guild ID → **[2]**;
+потрібна синхронізація SYNC_COMMANDS=test. [Модерація й pending](MODERATION_UA.md).
 
 ## Дані, журнали та резервування
 
