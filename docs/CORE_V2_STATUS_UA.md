@@ -33,7 +33,16 @@ Disposable source copy завантажила справжні Moderation/User/H
 Без DLC assets використано fallback; rendering/реальні команди не перевірялися.
 PostgreSQL suite локально в цій ітерації не запускали — змін БД немає.
 
-CI на **8b1897a**, run40231450946: Ubuntu SQLite **258 passed/10 skipped**,
+CI коду **a6c8e49**, [run40269481755](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40269481755):
+- **Windows Server 2025 / Python 3.12.10:** legacy first/repeat install, probe,
+  real cogs offline smoke та **45 passed**. Обидва native CMD тести (missing Python,
+  кирилиця/пробіли/cwd/exit code) пройшли. Ручний Windows 10/11 double-click не перевірявся.
+- **Ubuntu:** legacy install/smoke та **43 passed, 2 Windows-only skipped**.
+- Test logs/JUnit опубліковані як legacy-windows-latest і legacy-ubuntu-latest
+  artifacts. Повні SQLite/PG/Windows jobs на момент фіксації ще виконувались;
+  цей результат підтверджує саме legacy-ітерацію, не повний зелений workflow.
+
+Попередній CI на **8b1897a**, run40231450946: Ubuntu SQLite **258 passed/10 skipped**,
 PostgreSQL **263 passed/5 skipped**, legacy first/repeat install/probe/offline cogs —
 success на Ubuntu. Windows legacy install відмовив на штатному executable-directory
 у sys.path; обробка помилки додатково виявила cp1252 UnicodeEncodeError, бо -I

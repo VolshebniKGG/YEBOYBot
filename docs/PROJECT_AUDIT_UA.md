@@ -29,9 +29,9 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Метрики/аналітика | Missing | Немає p95/p99, CPU/RAM/loop lag, resource baseline і soak evidence |
 | Tickets/polls/giveaways/webpanel | Missing | Наявність Flask/Redis у legacy dependencies не реалізує ці сервіси |
 | Legacy cogs | Partial | Реальні moderation/user/help/rank завантажені offline в disposable copy; поведінка команд/live API та music не перевірені |
-| run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI/manual очікуються |
+| run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI45/Linux43+2skip успішні на a6c8e49; ручний Windows/live API очікуються |
 | start_v2.bat | Duplicate | Додаткова стара точка входу збережена |
-| CI | Partial | На 8b1897a Ubuntu SQLite/PG/legacy success; Windows legacy failure виправлено в коді, повний Windows pytest cancelled/BlobNotFound, новий прогін потрібний |
+| CI | Partial | На a6c8e49 legacy Windows/Linux success; full suites ще виконуються. На 8b1897a Ubuntu SQLite/PG success, full Windows cancelled/BlobNotFound |
 
 ## Ризики, що потребують окремих завершених ітерацій
 
@@ -39,7 +39,8 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
    не виконує global pip uninstall/cache purge/break-system-packages. [22] або
    run.bat керує .venv-legacy; run.py перевіряє його до імпорту cogs. Є негативні
    тести, реальне встановлення й offline cogs smoke на Linux; native Windows
-   smoke додано до CI, успіх ще потребує підтвердження. Початковий скрипт не виконували.
+   smoke й45 legacy tests успішні у Windows CI на a6c8e49. Ручний Windows10/11
+   не перевірений. Початковий скрипт не виконували.
 2. **Ізоляція залежностей.** Історичний root requirements з py-cord2.6.1 залишено,
    але новий запуск його не встановлює. Legacy async add_cog потребує discord.py;
    новий requirements-legacy використовує discord.py2.7.1 у власній .venv-legacy,

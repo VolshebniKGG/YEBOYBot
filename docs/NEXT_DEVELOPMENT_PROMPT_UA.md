@@ -35,7 +35,11 @@ smoke пройшли локально Linux, live Discord/music/ручний Win
 штатний CPython executable sys.path і cp1252 output errors, для них є виправлення
 й regressions. Повний Windows pytest скасовано; logs404 не дають конкретного тесту
 або стека. Наступний CI зберігає pytest.log/JUnit artifacts без скорочення suite.
-Перевір новий CI за SHA; native CMD сценарії не вважай виконаними за Linux tests.
+На a6c8e49 legacy Windows CI підтвердив45 passed, first/repeat install і real cogs
+без login; Ubuntu43 passed/2 Windows skipped. Logs/JUnit artifacts існують.
+Це automated Windows Server2025, не ручний Windows10/11 doubleclick/live Discord.
+Повні SQLite/PG/Windows jobs run40269481755 перевір за актуальним статусом;
+не приписуй targeted45tests повному Windows suite. Ручні критерії лишаються окремо.
 Старі nocheckcertificate=True й E:-hardcoded FFmpeg лишилися відомим ризиком.
 Не перенось їх у Core V2. Історичний root requirements не є launcher requirements.
 

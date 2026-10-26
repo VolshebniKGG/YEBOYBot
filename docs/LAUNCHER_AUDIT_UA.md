@@ -27,7 +27,7 @@
 | Нагадування | Partial | Збереження, lease/retry; можлива повторна доставка після crash |
 | Automod/welcome/autorole/role panels | Disconnected | Резерв конфігурації/схеми, активних модулів немає |
 | Старий yeboybot | Partial | [22]/run.bat, окреме .venv-legacy, offline load moderation/user/help/rank; music opt-in, live дії не перевірені |
-| Legacy entrypoint | Partial | run.bat без registry/global pip, run.py з guard і locks; Windows CI/manual не підтверджені; start_v2.bat лишився додатковим входом |
+| Legacy entrypoint | Partial | run.bat без registry/global pip, run.py з guard і locks; Windows legacy CI45 passed на a6c8e49, ручний Windows/live не підтверджені; start_v2.bat лишився додатковим входом |
 
 ## Найближчі завершувані етапи
 
