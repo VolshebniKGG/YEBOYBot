@@ -38,7 +38,11 @@
   backup/file/credentials failures, commit/report ambiguity й cancellation drain.
 - Ruff, pip check та diff check успішні. pip check не є CVE-аудитом;
   CVE-аудит і performance baseline у цій ітерації не виконувались.
-- CI нового коду перевіряється після публікації. До змін faf3385 мав Ubuntu full
+- CI a5dd3ef зупинився до PG-тестів: Ubuntu apt не мав postgresql-client-17.
+  CI-підготовку виправлено: tools/ci_pg_clients.py використовує реальні native17
+  binaries із вже запущеного disposable PG service container через stdio, без
+  установки системних пакетів runner. Тести й version checks не послаблено.
+- CI виправленого коду перевіряється після публікації. До змін faf3385 мав Ubuntu full
   261/10, legacy Windows45 і Linux43/2 success; повні Windows/PG jobs не завершилися
   на момент огляду, їхній успіх новому коду не приписується.
 

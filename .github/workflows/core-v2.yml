@@ -71,16 +71,16 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r core_v2/requirements-dev.txt
-      - name: Native PostgreSQL 17 client tools
+      - name: Native PostgreSQL 17 clients from test service
         shell: bash
+        env:
+          YEBOY_TEST_PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
-          if [ ! -x /usr/lib/postgresql/17/bin/pg_dump ]; then
-            sudo apt-get update
-            sudo apt-get install -y postgresql-client-17
-          fi
-          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
-          /usr/lib/postgresql/17/bin/pg_dump --version
-          /usr/lib/postgresql/17/bin/pg_restore --version
+          python -m tools.ci_pg_clients "$RUNNER_TEMP/pg-clients"
+          echo "$RUNNER_TEMP/pg-clients" >> "$GITHUB_PATH"
+          echo "YEBOY_TEST_PG_CONTAINER=$YEBOY_TEST_PG_CONTAINER" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/pg-clients/pg_dump" --version
+          "$RUNNER_TEMP/pg-clients/pg_restore" --version
       - name: PostgreSQL tests with retained output
         shell: bash
         run: |
@@ -164,16 +164,16 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r core_v2/requirements-dev.txt
-      - name: Native PostgreSQL 17 client tools
+      - name: Native PostgreSQL 17 clients from test service
         shell: bash
+        env:
+          YEBOY_TEST_PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
-          if [ ! -x /usr/lib/postgresql/17/bin/pg_dump ]; then
-            sudo apt-get update
-            sudo apt-get install -y postgresql-client-17
-          fi
-          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
-          /usr/lib/postgresql/17/bin/pg_dump --version
-          /usr/lib/postgresql/17/bin/pg_restore --version
+          python -m tools.ci_pg_clients "$RUNNER_TEMP/pg-clients"
+          echo "$RUNNER_TEMP/pg-clients" >> "$GITHUB_PATH"
+          echo "YEBOY_TEST_PG_CONTAINER=$YEBOY_TEST_PG_CONTAINER" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/pg-clients/pg_dump" --version
+          "$RUNNER_TEMP/pg-clients/pg_restore" --version
       - name: PostgreSQL migration and recovery integration
         shell: bash
         run: |
