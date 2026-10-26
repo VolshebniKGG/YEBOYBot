@@ -4,7 +4,50 @@
 попередні звіти збережено в розгортуваній історії. Не переносіть старі CI totals
 на нові коміти.
 
-## Поточна ітерація: безпечний legacy entrypoint
+## Поточна ітерація: PostgreSQL backup → upgrade → recovery
+
+- **[23]** у YEBOYBot.cmd: read-only plan, native Core-backup, явна міграція1→2,
+  restore власної копії тільки в окрему попередньо створену порожню БД.
+- SQLite workflow/схема2 і legacy запуск збережено. Login не застосовує міграції.
+- До DDL: валідація стандартної public Core-схеми, OS/advisory/SHARE table locks,
+  native custom archive, SHA-256/manifest/TOC. Дані двох guild, pending cases,
+  timestamps, XP, jobs, panels та прості btree-індекси зберігаються.
+- Кастомні залежності (types/functions/defaults/FK/CHECK/partition/inheritance/
+  RLS/collations/opclasses/access methods) відхиляються до зміни даних.
+  Це backup шести Core-таблиць, не всього PostgreSQL сервера/ролей/файлів.
+- Credentials передаються native tools через очищене child environment;
+  немає password/URL в argv, raw stderr або JSON-звіті. .env/token не копіюються.
+- Recovery не використовує clean/drop, не створює БД й не перезаписує поточну.
+  Config URL не перемикається автоматично. Після COMMIT connection loss —
+  unknown_commit, а не вигаданий rollback. Ctrl+C дочікується bounded worker.
+- Звіт data/v2/postgres-report.json містить phase/status/backup/error_type.
+  PostgreSQL Git-updater, SQLite→PG import і складні custom schemas не реалізовані.
+- Додано окремий PostgreSQL maintenance CI job; повні Windows/Linux/PG checks
+  збережені. Нових Python application dependencies немає; потрібні штатні native tools.
+- [Інструкція](POSTGRES_RECOVERY_UA.md), [матриця з ProBot](COMPETITIVE_SCENARIOS_UA.md),
+  [наступний промт](NEXT_DEVELOPMENT_PROMPT_UA.md).
+
+Перевірено локально Linux/Python3.12.14: **347 tests**, із них **76 нових**.
+- Без PostgreSQL: **309 passed, 38 skipped** (5 Windows +33 PG).
+- З PostgreSQL17.11: **342 passed, 5 Windows-only skipped**.
+- Реальні pg_dump/pg_restore17.11 запускалися в disposable Docker через stdio
+  wrappers; SQLAlchemy/asyncpg — у Linux host до loopback TCP контейнера.
+  Test fixture створює/видаляє лише власні нові yeboy_test_* БД.
+- Перевірено full payload/index preservation, v1/v2 native restore, rollback після
+  DDL failure, stale plan/config switch, unknown marker, locks, custom dependencies,
+  backup/file/credentials failures, commit/report ambiguity й cancellation drain.
+- Ruff, pip check та diff check успішні. pip check не є CVE-аудитом;
+  CVE-аудит і performance baseline у цій ітерації не виконувались.
+- CI нового коду перевіряється після публікації. До змін faf3385 мав Ubuntu full
+  261/10, legacy Windows45 і Linux43/2 success; повні Windows/PG jobs не завершилися
+  на момент огляду, їхній успіх новому коду не приписується.
+
+Native PG workflow на Windows, production TLS, live Discord, ручний Windows10/11
+та 24/7 залишаються неперевіреними. Порівняльних вимірювань ProBot немає.
+Наступний функціональний етап: модерація з permissions/hierarchy/guild isolation,
+підтвердженням clear та діагностикою pending без сліпого повтору Discord API.
+
+## Попередня ітерація: безпечний legacy entrypoint (faf3385)
 
 - run.bat замінено thin UTF-8/CRLF входом до stdlib Python controller.
   Видалені registry edits, global uninstall/cache purge/break-system-packages.

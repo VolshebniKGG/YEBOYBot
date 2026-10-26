@@ -2,8 +2,8 @@
 
 Оглянуто відстежуване дерево, core_v2, tools/launcher, legacy yeboybot,
 точки входу, залежності, тести, CI та документацію. База ітерації —
-feature/core-v2@2fc94e8; legacy entrypoint ізольовано у 8b1897a,
-наступне виправлення враховує Windows sys.path і redirected UTF-8.
+feature/core-v2@faf3385; поточна ітерація додає native PostgreSQL maintenance
+і матрицю функціональних сценаріїв з ProBot. Legacy entrypoint уже ізольовано.
 SQLite schema2/migrations та fail-closed heartbeat збережені без повторної реалізації.
 main@14bd68a містить стару реалізацію; PR #1 залишається draft. GitHub HEAD
 і CI потрібно повторно звіряти перед наступною роботою.
@@ -17,7 +17,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Process recovery | Partial | Python exception backoff і fail-closed control; зовнішнього crash supervisor немає |
 | SQLite backup | Partial | Snapshot, manifest/SHA, staged restore, archive без видалення; ручний Windows не завершено |
 | Міграції SQLite | Partial | Registry, план, явний 1→2, backup, rollback, idempotence; немає manual Windows доказу |
-| PostgreSQL | Partial | Fresh schema2 й запити; v1 upgrade/backup/restore workflow відсутній |
+| PostgreSQL | Partial | [23] standard public Core snapshot/upgrade1→2/restore в окрему порожню БД; Linux17.11 перевірено; Windows native/TLS/custom schemas не підтверджені |
 | Автозапуск | Partial | Opt-in Task Scheduler root/SID, pythonw; реальне створення/logon не перевірено |
 | Slash-команди | Partial | 12 commands: status/levels/rank/leaderboard/warn/warnings/unwarn/timeout/untimeout/remind/reminders/cancel-reminder |
 | Модерація | Partial | Permissions/hierarchy/cases; kick/ban/unban/clear/modhistory та pending reconciliation відсутні |
@@ -48,9 +48,11 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 3. **P0/P1 legacy переносність/безпека.** Music жорстко очікує E:\Discord Bot\Bot\bin\ffmpeg.exe
    і ffprobe; legacy downloader/youtube/music мають nocheckcertificate=True.
    Перенесення має включати OS-neutral paths та перевірку TLS.
-4. **P0 PostgreSQL upgrade.** Guard v1 безпечний, але стару PG інсталяцію не оновити
-   через меню. Native pg_dump/verification/upgrade/recovery — окремий блокувальний
-   сценарій перед rollout для таких користувачів.
+4. **PostgreSQL workflow додано.** [23] робить native dump/перевірку/явний upgrade
+   й recovery в окрему порожню БД; підтверджено збереження даних на PostgreSQL17.11.
+   Підтримується лише стандартна public Core-схема, без custom dependencies;
+   ці копії не замінюють backup всього сервера. Native Windows/TLS і PG code-updater
+   потребують окремих перевірок. Деталі — POSTGRES_RECOVERY_UA.md.
 5. **P1 імпорт даних.** Legacy warnings/points не мають належної guild ізоляції.
    Не імпортувати глобальні JSON без явного зіставлення сервера й dry-run.
    Старі timed sanctions/create_task+sleep та memory voice XP не стійкі до restart.
@@ -69,11 +71,10 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 
 ## Орієнтир ProBot
 
-Публічні актуальні характеристики ProBot у цій ітерації не досліджувалися.
-Порівняльних вимірювань немає. Український onboarding, контроль власних даних,
-прозорий audit/recovery та self-hosting — цільові сценарії, а не доведені переваги.
-Наступні порівняння повинні фіксувати джерело/дату, однаковий сценарій, обладнання
-та методику. Недоступні внутрішні метрики ProBot позначати «Невідомо».
+Публічні джерела й13 сценаріїв зібрано в [COMPETITIVE_SCENARIOS_UA.md](COMPETITIVE_SCENARIOS_UA.md).
+Підтверджені функції не доводять вищу швидкість/надійність чи кращий UX.
+Український onboarding, контроль власних даних і recovery — вимірювані гіпотези,
+а не оголошені переваги. Внутрішні метрики ProBot недоступні, позначені «Невідомо».
 
 Точні результати перевірок цієї ітерації — у CORE_V2_STATUS_UA.md;
 наступне завдання — NEXT_DEVELOPMENT_PROMPT_UA.md.

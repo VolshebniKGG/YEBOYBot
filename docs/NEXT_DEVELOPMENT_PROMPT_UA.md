@@ -7,7 +7,8 @@
 
 Спершу звір поточний GitHub/local HEAD, незбережені зміни, PR та CI. Прочитай
 AGENTS.md, якщо є, README, CORE_V2_STATUS_UA, MIGRATIONS_UA,
-PROJECT_AUDIT_UA, WINDOWS_CMD_LAUNCHER_UA, LEGACY_LAUNCHER_UA та актуальний код. Не покладайся
+PROJECT_AUDIT_UA, WINDOWS_CMD_LAUNCHER_UA, LEGACY_LAUNCHER_UA,
+POSTGRES_RECOVERY_UA, COMPETITIVE_SCENARIOS_UA та актуальний код. Не покладайся
 на історичні «наступні кроки». Не реалізовуй повторно завершені функції.
 
 Відомий стан після попередньої ітерації, який треба повторно перевірити:
@@ -16,7 +17,8 @@ PROJECT_AUDIT_UA, WINDOWS_CMD_LAUNCHER_UA, LEGACY_LAUNCHER_UA та актуал�
 - v2_cases.updated backfill із created, а нові переходи записують актуальний час.
   Pending reconciliation це ще не реалізує.
 - Нова SQLite/PostgreSQL БД — v2; наявна v1 не мігрує під час login.
-  PostgreSQL v1 upgrade через меню заблокований до native backup workflow.
+  PostgreSQL v1 тепер має явний native workflow [23] для стандартної public схеми;
+  під час login upgrade все ще блокується. Не повторюй реалізацію native maintenance.
 - Heartbeat failure закриває клієнт/задачі, без recovery loop; зовнішнього
   супервізора kill/segfault/аварій ОС ще немає.
 - Є 12 slash-команд, guild-scoped XP, warnings/timeout, durable reminders,
@@ -43,13 +45,15 @@ smoke пройшли локально Linux, live Discord/music/ручний Win
 Старі nocheckcertificate=True й E:-hardcoded FFmpeg лишилися відомим ризиком.
 Не перенось їх у Core V2. Історичний root requirements не є launcher requirements.
 
-Найближчий завершуваний P0: native PostgreSQL pg_dump → перевірка backup →
-транзакційний upgrade1→2 → перевірене pg_restore recovery. Секрети не передавай
-у commandline/logs, backup залишай приватним. Тести використовують тільки
-одноразову yeboy_test/ізольовані схеми. Перевір backup failure, permission error,
-rollback, повторне застосування, збереження settings/XP/jobs/cases і відмову
-невідомої версії до DDL. Не видавай fresh PostgreSQL підтримку за upgrade readiness.
+PostgreSQL P0 реалізовано: [23] native Core dump/SHA/TOC → locks/transaction1→2
+→ pg_restore тільки в окрему порожню БД. Джерело/поточна БД не перезаписується,
+паролі/URL не передаються вargv/report. Unknown COMMIT/cancel/report-aftercommit
+мають явну діагностику. Sourcecustom dependencies відхиляються; backup scope —
+шість public Coreтаблиць, не весь сервер. PGupdater/SQLiteimport/nativeWindows/TLS
+не вважай завершеними. Локально347tests: PG342/5skip, безPG309/38skip;
+76нових. ПеревірCIактуальногоSHA, не приписуйстарийуспіхновомукоду.
 
+Найближчий завершуваний етап: модерація й audit lifecycle.
 Далі переходь до одного завершеного P1-модуля модерації: kick/ban/unban/clear/
 modhistory. Виділяй спільну бізнес-логіку поступово; перевіряй actor/bot permissions,
 role hierarchy, guild_id, причини, Discord API failures і lifecycle справ.

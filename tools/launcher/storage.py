@@ -29,7 +29,7 @@ def database_path(root=ROOT):
     url = make_url(os.environ.get("DATABASE_URL") or config.get("DATABASE_URL") or
                    "sqlite+aiosqlite:///data/v2/yeboy.db")
     if url.drivername != "sqlite+aiosqlite" or not url.database or url.database == ":memory:" or url.query:
-        raise StorageError("Це меню підтримує лише файлову SQLite без URL-параметрів. Для PostgreSQL використовуйте pg_dump.")
+        raise StorageError("Це меню підтримує лише файлову SQLite без URL-параметрів. Для PostgreSQL використовуйте [23].")
     path = Path(url.database)
     return (path if path.is_absolute() else root / path).resolve()
 

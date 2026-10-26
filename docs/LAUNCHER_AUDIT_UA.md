@@ -18,10 +18,10 @@
 | Відновлення після exceptions | Partial | Обмежений retry/backoff; kill/segfault не відновлює |
 | Git-оновлення | Partial | Fast-forward, backup, smoke; ZIP та PostgreSQL відхиляються |
 | SQLite backup/restore | Partial | Backup API, `.db.json` з SHA-256/UTC/розміром, перевірка знімка перед restore, legacy opt-in; [20] — підтверджене архівування без видалення, ручний Windows-сценарій не перевірено |
-| PostgreSQL | Partial | asyncpg та CI є; backup/restore меню відсутні |
+| PostgreSQL | Partial | [23] native Core-backup/upgrade1→2/restore у порожню БД; Linux17.11 перевірено, native Windows/TLS/customschemas не підтверджені |
 | Автозапуск Windows | Partial | [15]: opt-in завдання після входу поточного SID, без пароля/admin, перевірка належності; реальне створення/видалення на Windows 10/11 потребує ручної перевірки |
 | Телеметрія / експорт діагностики | Partial | [4]/[18]: read-only SQLite/config/import checks і JSON без секретів; CPU/RAM/lag ще відсутні |
-| Версійовані міграції | Partial | Реєстр ревізій і явний SQLite 1→2 через [21], backup/rollback; PG upgrade і ручний Windows не перевірені |
+| Версійовані міграції | Partial | Явний SQLite1→2 [21] і PostgreSQL1→2 [23], verifiedbackup/rollback; nativePGWindows і ручний Windows не перевірені |
 | Core V2 moderation | Partial | warn/warnings/unwarn, timeout/untimeout; kick/ban/unban/clear/modhistory відсутні |
 | XP | Partial | Текстовий XP/cooldown/rank; голосовий XP та rewards відсутні |
 | Нагадування | Partial | Збереження, lease/retry; можлива повторна доставка після crash |
@@ -33,7 +33,7 @@
 
 1. Перевірити bootstrap у Windows CI та вручну на Windows 10/11 без Python Launcher.
 2. Пройти ручний сценарій діагностики [4]/[18] та резервування/відновлення [7]/[8]/[20] на Windows.
-3. Підготувати окремий перевірений PostgreSQL backup/restore workflow; SQLite-меню його не замінює.
+3. Перевірити native PostgreSQL workflow [23] на Windows/TLS; Core-backup у public не замінює повний backup кастомної БД.
 4. Перевірити opt-in Task Scheduler [15] вручну на Windows та реалізувати окремий supervisor аварій процесу.
 5. Після стабілізації лаунчера — міграції та модерація з перевіркою hierarchy.
 

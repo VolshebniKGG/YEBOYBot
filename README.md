@@ -32,8 +32,13 @@ Core V2 зупиняє клієнт при втраті heartbeat-контрол
 
 Наявна SQLite v1 після оновлення потребує явної міграції: **[3] → [21] →
 МІГРУВАТИ → [4] → [1]**. Нова БД створюється одразу зі схемою v2.
-[Міграції та відновлення](docs/MIGRATIONS_UA.md). PostgreSQL v1→v2 через меню
-ще не підтримується; прозорий upgrade наявної PostgreSQL v1 не обіцяється.
+[Міграції та відновлення](docs/MIGRATIONS_UA.md). Для стандартної PostgreSQL v1:
+**[3] → [23] → [1] план → [3] міграція** з native backup перед DDL.
+**[23] → [4]** відновлює власну Core-копію лише в окрему порожню БД.
+Потрібні штатні pg_dump/pg_restore; автоматичної зміни схеми під час login немає.
+[Інструкція PostgreSQL](docs/POSTGRES_RECOVERY_UA.md).
 
 [Поточний аудит проєкту](docs/PROJECT_AUDIT_UA.md) ·
 [Наступний промт розробки](docs/NEXT_DEVELOPMENT_PROMPT_UA.md).
+
+[Сценарії YEBOYBot/ProBot та методика порівняння](docs/COMPETITIVE_SCENARIOS_UA.md).

@@ -49,8 +49,26 @@
 
 ## PostgreSQL
 
-Нова PostgreSQL БД створюється зі схемою 2; робочі запити та guard тестуються
-з PostgreSQL. Наявна v1 відхиляється через `MigrationRequired` без зміни даних.
-План/застосування [21] підтримують **лише SQLite**. Native `pg_dump` →
-verification → PostgreSQL upgrade → `pg_restore` recovery ще не реалізовано.
-Не розглядайте цей код як прозорий upgrade наявної PostgreSQL v1 інсталяції.
+Нова PostgreSQL БД створюється зі схемою2. Наявна v1 під час login досі
+відхиляється через MigrationRequired без DDL: автоматичної міграції немає.
+Для явного upgrade стандартної public Core-схеми використовуйте **[23]**:
+[1] read-only план, [2] перевірена Core-копія, [3] підтверджений1→2.
+Локальний OS lock, advisory lock та SHARE table locks утримуються від перевірки
+джерела через pg_dump до транзакційних DDL/data/marker і COMMIT. Налаштування,
+XP, jobs, cases/pending statuses, panel rows та звичайні індекси зберігаються.
+
+[23]→[4] використовує pg_restore тільки для окремої попередньо створеної порожньої
+БД. Поточна БД не перезаписується, немає clean/drop/автоперемикання URL.
+Результат COMMIT при втраті з'єднання позначається unknown_commit; перевірте
+фактичну схему, не повторюйте операцію навмання. Після відновлення v1 потрібен
+сумісний код або повторний upgrade на цілі. PostgreSQL code updater і перенос
+SQLite→PostgreSQL залишаються окремими задачами.
+
+Підтримуються стандартні шість Core-таблиць у public. Кастомні типи/функції,
+constraints/defaults/partition/inheritance/RLS потребують окремого повного
+recovery workflow й відхиляються до backup/DDL. Native client tools мають
+відповідати major сервера для backup; токен/.env не копіюються, URL/password
+не передаються в argv чи звіт. Копії містять приватні дані серверів, не шифруються;
+SHA-256/TOC не доводять авторство. Лише довірені власні архіви.
+
+[Повна PostgreSQL інструкція та обмеження](POSTGRES_RECOVERY_UA.md).

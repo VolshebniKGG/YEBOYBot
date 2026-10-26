@@ -29,7 +29,7 @@ def _prepare(root):
         result = engine.plan_sqlite(path)
         return path, dict(result, source_id=_identity(path))
     except storage.StorageError as error:
-        raise MigrationError("Міграції меню підтримують файлову SQLite. PostgreSQL v1 потребує окремого перевіреного pg_dump workflow.") from error
+        raise MigrationError("[21] підтримує файлову SQLite. Для PostgreSQL v1 використовуйте перевірений pg_dump workflow через [23].") from error
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
         raise MigrationError("План не отримано: перевірте наявність, цілісність і підтримувану схему БД. Нова БД створюється під час запуску [1].") from error
 
