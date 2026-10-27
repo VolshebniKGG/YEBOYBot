@@ -48,17 +48,50 @@
 Новий набір містить **1074 тести, 353 доданих**: 82 plan, 101 repository,
 43 service, 58 adapter, 59 UI та 10 integration. Локально Linux/Python3.12.14
 після expiry fix: SQLite/default **977 passed, 97 skipped** за100.00s,
-JUnit:1074tests/0failures/0errors. PostgreSQL повний прогін ще виконується.
+JUnit:1074tests/0failures/0errors.
 Окремо відтворено й виправлено негативний PostgreSQL-тест oversize-body:
 SQLAlchemy/asyncpg повертає DBAPIError зі SQLSTATE22001, а не DataError.
 Тест вимагає саме22001 і перевіряє незмінність початкового рядка після rollback;
-цільовий повтор —1passed. Повний результат нижче фіксується після завершення.
-Нові CI-докази фіксуються за SHA окремо від попередньої ітерації.
+цільовий повтор —1passed. Перший локальний повний PostgreSQL/native17.11 прогін
+зі старим очікуванням класу винятку мав1068passed/1failed/5skipped за648.51s.
+Його не позначаємо зеленим і не видаємо за остаточну перевірку виправленого тесту.
+Повний повтор виправленого набору підтверджено в новому CI нижче.
+Окремий фінальний локальний набір усіх шести clear test-файлів із реальними
+SQLite/PostgreSQL після виправлення — **353passed,0skipped** за90.68s;
+JUnit353tests/0failures/0errors. Native17.11 dump/restore сценарії початкового
+повного прогону пройшли; його єдина помилка була очікуванням driver exception.
 Ruff, pip check та diff check успішні. Посилання документації та UTF-8 карту
 коду перевірено; відсутніх відносних посилань немає.
 CVE-аудит27.10.2026 pip-audit2.10.1/PyPI:24distributions,0findings,0skipped,pip26.2;
 Linux Core/runtime/dev/installer, не legacy/OS/native/Windows/tool resolution.
 Реальне видалення в Discord, ручний Windows10/11 та24/7 не виконувались.
+
+### Підтверджений CI коду 8bb380f
+
+[Push40510725655](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40510725655)
+завершився за102s, [PR40510734573](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40510734573)
+за124s. Обидва exactHEAD8bb380fe788a2a27fe1623910c085c25506ca774 мають
+**усі9jobs success**, зокрема виправлений oversize-body тест.
+
+| Job | Passed | Skipped |
+|---|---:|---:|
+| Повний Windows | 982 | 92 PostgreSQL |
+| Повний Ubuntu | 977 | 97 PostgreSQL/Windows |
+| Повний PostgreSQL | 1069 | 5 Windows |
+| Focused Windows | 720 | 59 PostgreSQL |
+| Focused Ubuntu | 717 | 62 PostgreSQL/Windows |
+| PostgreSQL maintenance | 785 | 0 |
+| Legacy Windows | 51 | 0 |
+| Legacy Ubuntu | 49 | 2 Windows |
+| Dependency audit | success | 0 distributions |
+
+Windows logs підтверджують перше й повторне install_v2.bat; native
+pg_dump/pg_restore17.11. PR advisory JSON artifact12737156079 розібрано:
+24distributions/0findings/0skips/pip26.2 у зазначеному вище Linux scope.
+Log/JUnit artifacts (push/PR): Windows12737241236/12736768277,
+Ubuntu12736219875/12737705352, PG12736274950/12736129898,
+PGmaintenance12736124838/12737131720, audit12737415845/12737156079.
+Це автоматичні Windows CI докази, не ручний Windows/logon або live Discord.
 
 ## Попередня ітерація: ban/unban та актуальна карта коду (4aa63d8)
 

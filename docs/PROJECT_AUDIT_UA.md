@@ -33,7 +33,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Legacy cogs | Partial | Реальні moderation/user/help/rank завантажені offline в disposable copy; поведінка команд/live API та music не перевірені |
 | run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI45/Linux43+2skip успішні на a6c8e49; ручний Windows/live API очікуються |
 | start_v2.bat | Duplicate | Додаткова стара точка входу збережена |
-| CI | Partial | База 4aa63d8: push40375663900 і PR40375699446 мають усі9jobs success; повний Windows661/60, Ubuntu656/65, PostgreSQL716/5, focused399/27 і396/30, PGmaintenance432, legacy51 і49/2. Це докази попередньої ітерації; нові clear totals фіксуються окремо за SHA у CORE_V2_STATUS_UA. Ручний Windows/live API не підтверджені |
+| CI | Partial | Clear8bb380f: push40510725655 і PR40510734573 мають усі9jobs success; повний Windows982/92, Ubuntu977/97, PostgreSQL1069/5, focused720/59 і717/62, PGmaintenance785, legacy51 і49/2. Audit24/zero/0skips. Докладні докази й локальний виправлений driver-test у CORE_V2_STATUS_UA; ручний Windows/live API не підтверджені |
 | Dependency audit | Partial | Linux Core/dev/pip:24 distributions, після pip26.2 zero known advisories; legacy/OS/Windows resolution не охоплені |
 
 ## Ризики, що потребують окремих завершених ітерацій

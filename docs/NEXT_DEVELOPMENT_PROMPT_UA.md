@@ -96,14 +96,35 @@ permissions/overwrites та схвалені messages перевіряються
 незалежним підрахунком нових видалень. Docs: CLEAR_UA.md і «Код структура.txt».
 Фактичні нові totals/CI звір у CORE_V2_STATUS_UA.md; не перенось721-test baseline
 на наступні зміни. Цю реалізацію не дублюй, доки немає підтвердженої регресії.
-Clear додає353 тести; загалом1074. Фінальний SQLite/default977passed/97skipped
-після expiry-fix перевірено локально; PostgreSQL повний результат і новіCI
-звір у поточному статусі за SHA. Oversize-body негативний PG-тест перевіряє
+Clear додає353 тести; загалом1074. SQLite/default977passed/97skipped
+після expiry-fix перевірено локально. Код8bb380f має обидва повні CI success:
+push40510725655 і PR40510734573, усі9jobs у кожному; Windows982/92,
+Ubuntu977/97, PostgreSQL1069/5, focused720/59 і717/62, maintenance785,
+legacy51 і49/2, audit24/zero/0skips. Нові HEAD звіряй окремо.
+Перший локальний PG/native run зі старим очікуванням класу винятку мав
+1068passed/1failed/5skipped; виправлений target1passed, повний повтор уCI
+1069/5. Не називай той початковий локальний run зеленим.
+Фінальний локальний clear-набір із реальними SQLite/PostgreSQL:353passed/0skipped.
+Oversize-body негативний PG-тест перевіряє
 DBAPIError із точним SQLSTATE22001 та збереження рядка, не загальний Exception.
 
-Наступний пріоритет — перенести старі /warn, /timeout, /untimeout на спільні
-свіжі перевірки та безпечний lifecycle. Kick/ban/unban/clear/status не переписуй
-повторно. Тримай ітерацію обмеженою одним завершеним сценарієм.
+Найближча ітерація — ідемпотентний `/warn` зі свіжою авторизацією та атомарним
+guild-scoped SQL-записом. Старий `_moderation` у commands.py використовує
+кешовані interaction.user/guild.me, а create_case у db.py генерує випадковий UUID:
+повтор interaction може створити друге попередження. Збережи зв'язок запиту
+з guild/interaction/actor/target/reason, захист від different-payload/cross-action
+replay, concurrent SQLite/PG writes та коректний результат після DB failure.
+Для warn немає Discord mutation API; не додавай удаваний REST-виклик або
+duration-схему. Перевір compatibility старих warnings/unwarn/history.
+Kick/ban/unban/clear/status не переписуй повторно. Один завершений сценарій
+не потребує одночасного переписування всієї модерації.
+
+Потім окрема ітерація `/timeout` і `/untimeout`. Відомий борг: старий код
+маркує HTTPException як failed навіть при невідомому результаті PATCH,
+не розрізняє API success/DB failure, повтор обчислює новий expiry від поточного
+часу й може продовжити санкцію; untimeout не приймає користувацьку причину.
+Наявна схема case не зберігає duration/expiry. Простого розширення action
+allowlist у claim_case недостатньо; не ховай метадані в reason.
 
 1. Встанови фактичні permission/hierarchy/owner/admin/timeout правила Discord.
    Не використовуй cached member/guild role data як остаточну авторизацію.
