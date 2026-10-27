@@ -3,17 +3,15 @@ setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul
 set "PYTHONUTF8=1"
 cd /d "%~dp0"
-py -3.12 -c "import sys; sys.exit(sys.version_info[:2] != (3, 12))" >nul 2>nul
-if not errorlevel 1 goto use_launcher
-python -c "import sys; sys.exit(sys.version_info[:2] != (3, 12))" >nul 2>nul
-if not errorlevel 1 goto use_python
-echo Потрібен Python 3.12. Завантажте з https://www.python.org/downloads/
-echo Під час встановлення увімкніть Python Launcher або Add python.exe to PATH.
-echo Після встановлення повторно відкрийте YEBOYBot.cmd.
+if errorlevel 1 exit /b 1
+set "SETUP_PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%SETUP_PS%" goto missing
+if not exist "%~dp0tools\windows_setup.ps1" goto missing
+set "SETUP_MODE=Ensure"
+if "%~1"=="--repair" set "SETUP_MODE=Repair"
+"%SETUP_PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\windows_setup.ps1" -Mode %SETUP_MODE%
+exit /b %ERRORLEVEL%
+:missing
+echo Потрібні всі файли проєкту та Windows PowerShell 5.1. Повторно розпакуйте архів.
+echo Python 3.12: https://www.python.org/downloads/
 exit /b 1
-:use_launcher
-py -3.12 -m tools.launcher.bootstrap %*
-exit /b %ERRORLEVEL%
-:use_python
-python -m tools.launcher.bootstrap %*
-exit /b %ERRORLEVEL%

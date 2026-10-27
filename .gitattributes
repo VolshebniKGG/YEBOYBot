@@ -1,2 +1,5 @@
 # CMD requires CRLF on checkout; store normalized text in Git.
 run.bat text eol=crlf
+YEBOYBot.cmd text eol=crlf
+install_v2.bat text eol=crlf
+tools/windows_setup.ps1 text eol=crlf

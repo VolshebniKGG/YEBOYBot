@@ -3,24 +3,20 @@ setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul
 set "PYTHONUTF8=1"
 cd /d "%~dp0"
-set "ROOT=%~dp0"
-set "PY=%ROOT%.venv-v2\Scripts\python.exe"
-if exist "%PY%" goto menu
-call "%ROOT%install_v2.bat"
 if errorlevel 1 goto failed
-:menu
-"%PY%" -c "import sys, discord, sqlalchemy, aiosqlite, asyncpg, dotenv; sys.exit(sys.version_info[:2] != (3, 12))" >nul 2>nul
-if errorlevel 1 goto repair
-"%PY%" -m tools.launcher
+set "SETUP_PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%SETUP_PS%" goto no_powershell
+if not exist "%~dp0tools\windows_setup.ps1" goto incomplete
+"%SETUP_PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\windows_setup.ps1" -Mode Launcher
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" pause
 exit /b %RC%
-:repair
-echo Середовище неповне або несумісне. Спроба відновлення залежностей...
-call "%ROOT%install_v2.bat" --repair
-if errorlevel 1 goto failed
-goto menu
+:no_powershell
+echo Не знайдено вбудований Windows PowerShell 5.1. Перевірте компоненти та правила Windows.
+goto failed
+:incomplete
+echo Розпакуйте весь архів YEBOYBot: потрібен tools\windows_setup.ps1.
 :failed
-echo Встановлення не завершено. Виправте помилку вище та повторіть запуск.
+echo Запуск не завершено. Дані й конфігурація бота не видаляються.
 pause
 exit /b 1

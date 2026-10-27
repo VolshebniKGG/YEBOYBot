@@ -2,9 +2,10 @@
 
 Оглянуто відстежуване дерево, core_v2, tools/launcher, legacy yeboybot,
 точки входу, залежності, тести, CI та документацію. База ітерації —
-feature/core-v2@4aa63d8; поточна ітерація додає confirmed clear/manual jobs
-та owner-scoped receipt status. Попередні ban/unban і карта коду підтверджені
-повними Windows/Linux/PG CI на4aa63d8. Нові результати clear фіксуються за SHA.
+feature/core-v2@a61ef0b; поточна ітерація додає PowerShell-панель до Python,
+opt-in per-user WinGet та встановлення всіх залежностей Core V2.
+Попередні clear/ban/unban і карта коду підтверджені повним CI наa61ef0b.
+Нові результати встановлення фіксуються за SHA, окремо від цих доказів.
 SQLite schema2/migrations та fail-closed heartbeat збережені без повторної реалізації.
 main@14bd68a містить стару реалізацію; PR #1 залишається draft. GitHub HEAD
 і CI потрібно повторно звіряти перед наступною роботою.
@@ -14,7 +15,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 
 | Частина | Стан | Фактичний обсяг |
 |---|---|---|
-| Windows launcher | Partial | Bootstrap, token wizard, start/stop/restart, locks, heartbeat, logs, diagnostics |
+| Windows launcher | Partial | Панель до Python, opt-in WinGet Python3.12x64, усі Core dependencies, [24]/[5] parent-exit перед pip; token wizard/start/stop/restart/locks/heartbeat/logs збережені. Новий Windows CI окремо; реальна інсталяція Python на чистому ПК не підтверджена |
 | Process recovery | Partial | Python exception backoff і fail-closed control; зовнішнього crash supervisor немає |
 | SQLite backup | Partial | Snapshot, manifest/SHA, staged restore, archive без видалення; ручний Windows не завершено |
 | Міграції SQLite | Partial | Registry, план, явний 1→2, backup, rollback, idempotence; немає manual Windows доказу |

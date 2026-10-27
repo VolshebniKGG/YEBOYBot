@@ -12,7 +12,7 @@
 | Компонент | Стан | Підстава / обмеження |
 |---|---|---|
 | YEBOYBot.cmd → tools.launcher | Partial | Меню, фоновий запуск, stop/restart є; ручний подвійний клік не перевірено |
-| Початкове встановлення | Partial | Новий bootstrap, Python 3.12, fallback py/python, повторюваний pip; Windows CI перевіряється окремо |
+| Початкове встановлення | Partial | PowerShell-панель до Python, opt-in official WinGet Python3.12x64, registry/LocalAppData rediscovery, перевірений Core bootstrap. [24]/[5] закривають меню перед pip; native system installation на чистому Windows не виконувалась; новий CI перевіряється за SHA |
 | Керування процесом | Partial | OS lock/nonce; збій heartbeat завершує клієнт і задачі, ControlFailure без retry; live Discord та супервізор ОС не підтверджені |
 | Discord readiness | Untested | Готовність записує on_ready; live API не перевірено |
 | Відновлення після exceptions | Partial | Обмежений retry/backoff; kill/segfault не відновлює |

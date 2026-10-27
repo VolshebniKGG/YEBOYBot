@@ -4,7 +4,49 @@
 попередні звіти збережено в розгортуваній історії. Не переносіть старі CI totals
 на нові коміти.
 
-## Поточна ітерація: підтверджене очищення повідомлень
+## Поточна ітерація: встановлення на чистому Windows-ПК
+
+База — a61ef0b, її [PR CI40511736421](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40511736421)
+успішний, усі9jobs. Нові результати цієї ітерації перевіряються окремо.
+
+- YEBOYBot.cmd тепер відкриває початкову панель через вбудований PowerShell5.1,
+  навіть без Python. [1] дозволяє встановити відсутній Python3.12x64 для поточного
+  користувача через офіційний WinGet та підготувати всі залежності Core V2.
+- Пошук використовує py/python, Python registry та LocalAppData; після інсталяції
+  повторюється без залежності від оновлення PATH у відкритій консолі.
+  Автоматичне встановлення через сучасний py під час discovery вимкнено;
+  початкові process-env flags відновлюються в finally. Немає прихованої згоди.
+- WinGet має exactpackage/source/user/x64, штатну перевірку hash і явне погодження
+  умов після вибору пункту. Немає довільного EXE-fallback, підвищення прав або
+  постійної зміни ExecutionPolicy. За відсутності App Installer є офіційні посилання.
+- Наявний Python bootstrap перевіряє venv/locks/pip26.2, dependencies/imports/pipcheck,
+  зберігає config/data; schema2, Discord-команди й залежності не змінені.
+  «Готово» означає локальне середовище, а не авторизований Discord-клієнт.
+- [24] повертає повне встановлення; [5] оновлює бібліотеки. У Windows Python-меню
+  спочатку завершується (службові коди24/25), щоб звільнити .pyd перед pip;
+  після перевірки зовнішній launcher відкриває меню заново в тому самому вікні.
+- install_v2.bat збережено для сумісності й CI; Ensure/Repair не встановлюють
+  системний Python без вибору користувачем пункту в головному CMD.
+- Додано 51 тест:12 Python-menu handoff та39 PowerShell/CMD сценаріїв.
+  Native installer у тестах замінено boundary mocks; Windows-код виконує
+  справжній PowerShell5.1, discovery перевіряє вже наявний CI Python.
+  Є реальний CMD→готове.venv→меню smoke у fullWindows job та cancel на порожній
+  PATH без Python, кирилиця/пробіли/апостроф/&, failure/retry/EOF/consent.
+- Оновлено [CLEAN_PC_SETUP_UA.md](CLEAN_PC_SETUP_UA.md), README, quickstart,
+  Windows-інструкцію та «Код структура.txt». Старі legacy-функції лишаються [22].
+
+Локально Linux/Python3.12.14: повний набір **990passed/135skipped** за148.66s,
+1125tests/0failures/0errors. Пропущено PostgreSQL і Windows; WindowsPS5.1 тут
+не виконувався. Ruff, pip check, diff check, UTF-8 BOM та відносні docs links пройдено.
+Повторний pip-audit2.10.1/PyPI:24distributions/0findings/0skips,pip26.2;
+лише Linux Core/runtime/dev/installer, не interpreter/OS/legacy/Windows/native.
+Новий CI перевіряється окремо; не переносимо докази a61ef0b на цей код.
+Реальне встановлення системного Python на порожній
+Windows10/11, ручний double-click/logon і live Discord не виконані.
+Потрібні інтернет та дозвіл Windows; токен власник вводить один раз через[12].
+Відсутні Discord-модулі не стають реалізованими від встановлення пакетів.
+
+## Попередня ітерація: підтверджене очищення повідомлень
 
 База **4aa63d8** має обидва повні CI успішні (докази ban/unban нижче).
 Додано `/clear amount reason` та `/clear-status request_id`: **18 slash-команд**.

@@ -282,7 +282,7 @@ class RealEnvironmentTests(unittest.TestCase):
 
 @unittest.skipUnless(__import__("os").name == "nt", "Windows CMD only")
 class WindowsBootstrapTests(unittest.TestCase):
-    def test_missing_python_returns_actionable_failure(self):
+    def test_incomplete_download_returns_actionable_failure(self):
         import os
         import shutil
         with tempfile.TemporaryDirectory(prefix="Бот з пробілами ") as directory:
@@ -295,5 +295,6 @@ class WindowsBootstrapTests(unittest.TestCase):
                 cwd=directory, env=env, capture_output=True,
                 text=True, encoding="utf-8", errors="replace", timeout=30)
             self.assertEqual(result.returncode, 1)
+            self.assertIn("PowerShell", result.stdout, result.stderr)
             self.assertIn("https://www.python.org/downloads/", result.stdout, result.stderr)
             self.assertFalse((Path(directory) / ".venv-v2").exists())

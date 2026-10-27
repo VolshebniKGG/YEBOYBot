@@ -15,6 +15,20 @@ Duplicate/Missing/Untested. Не реалізовуй повторно заве�
 
 Відомий стан, який потрібно повторно перевірити:
 
+- YEBOYBot.cmd має pre-Python PowerShell5.1 panel [1]install/[0]cancel для чистого
+  Windows10/11x64. Python3.12 ставиться лише opt-in через exact officialwinget,
+  для поточного користувача, без hashbypass/підвищення прав/постійної policychange.
+  Без WinGet — офіційні App Installer/Python links, не неперевірений EXE.
+  Discovery вимикає modernpy autoinstall і відновлює env; повторно шукає registry
+  й LocalAppData після встановлення, без залежності від нового PATH.
+  [24]/[5] Windows меню передають коди24/25 після виходу Python, лише тоді pip;
+  Linux repair збережено. Не дублюй установлення, звір новий CI за SHA у STATUS.
+  51 новий тест (12menu/39PS), без actual nativeinstaller; ручний clean-PC setup
+  і live Discord досі окремі критерії. Читай CLEAN_PC_SETUP_UA.md.
+  Локально Linux після цієї зміни1125tests:990passed/135skipped;
+  Ruff/pipcheck/diffcheck пройдено, CVE24/zero/0skips у Linux Core scope.
+  Windows і PostgreSQL результати нового коду звір за SHA у STATUS, не за baseline.
+
 - Core V2 має 18 slash-команд: попередні16 та clear/clear-status.
   Kick/ban/unban мають спільний ModerationService, fresh REST authorization,
   role/owner recheck, committed deterministic

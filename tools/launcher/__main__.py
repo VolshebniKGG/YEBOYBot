@@ -8,6 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PY = sys.executable
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+SETUP_EXIT_CODE = 24
+REPAIR_EXIT_CODE = 25
 
 
 def run(*args):
@@ -17,6 +19,23 @@ def run(*args):
 def setup():
     from .configuration import wizard
     wizard(ROOT)
+
+
+def full_setup():
+    """Release loaded Python libraries before the outer CMD starts setup."""
+    if sys.platform != "win32":
+        print("Повне встановлення через цей пункт доступне лише у Windows.")
+        return 1
+    print("Меню завершується; встановлення продовжиться в головному вікні YEBOYBot.cmd.")
+    return SETUP_EXIT_CODE
+
+
+def repair_dependencies():
+    """Windows pip must run after this menu releases imported native modules."""
+    if sys.platform == "win32":
+        print("Меню завершується; залежності оновляться в головному вікні YEBOYBot.cmd.")
+        return REPAIR_EXIT_CODE
+    return run("-m", "tools.launcher.bootstrap", "--repair")
 
 
 def start():
@@ -48,7 +67,8 @@ def main():
         "3": ("Зупинити бота", lambda: print("Зупинено" if process.stop() else "Не зупинено")),
         "1": ("Запустити Discord-бота", start),
         "4": ("Перевірити конфігурацію та БД", lambda: run("-m", "tools.launcher.diagnostics")),
-        "5": ("Оновити Python-залежності", lambda: run("-m", "tools.launcher.bootstrap", "--repair")),
+        "24": ("Повне встановлення / відновлення Core V2", full_setup),
+        "5": ("Оновити Python-залежності", repair_dependencies),
         "6": ("Оновити YEBOYBot із GitHub", update.menu),
         "7": ("Створити резервну копію SQLite", backup),
         "8": ("Відновити SQLite з резервної копії", storage.restore_menu),
@@ -77,6 +97,10 @@ def main():
             continue
         try:
             result = actions[choice][1]()
+            if choice == "24" and result == SETUP_EXIT_CODE:
+                return SETUP_EXIT_CODE
+            if choice == "5" and result == REPAIR_EXIT_CODE and sys.platform == "win32":
+                return REPAIR_EXIT_CODE
             if choice == "6" and result:
                 return 0
         except (storage.StorageError, update.UpdateError, configuration.ConfigurationError, migrations.MigrationError) as exc:
