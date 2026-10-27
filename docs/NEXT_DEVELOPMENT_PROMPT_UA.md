@@ -27,7 +27,13 @@ Duplicate/Missing/Untested. Не реалізовуй повторно заве�
   і live Discord досі окремі критерії. Читай CLEAN_PC_SETUP_UA.md.
   Локально Linux після цієї зміни1125tests:990passed/135skipped;
   Ruff/pipcheck/diffcheck пройдено, CVE24/zero/0skips у Linux Core scope.
-  Windows і PostgreSQL результати нового коду звір за SHA у STATUS, не за baseline.
+  Код804d009 має обидва CI success: push40521511034/PR40521522298, усі9jobs.
+  Windows1033/92, Ubuntu990/135, PG1082/43, focused770/60 і730/100, maintenance785.
+  У fullWindows усі39PS/CMD і12menu tests пройшли. NativeWinGet boundary mocked,
+  не називай це перевіреним download/install на порожньому ПК.
+  Початковий ac92c31 мав1failedWin testчерезCRTquoting уCMDtestinvocation;
+  виправлено /s /c outer/inner quotes без зменшення складності шляху/assertions.
+  Нові SHA звір за STATUS; старі/невдалі runs не називай зеленими.
 
 - Core V2 має 18 slash-команд: попередні16 та clear/clear-status.
   Kick/ban/unban мають спільний ModerationService, fresh REST authorization,

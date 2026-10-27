@@ -15,7 +15,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 
 | Частина | Стан | Фактичний обсяг |
 |---|---|---|
-| Windows launcher | Partial | Панель до Python, opt-in WinGet Python3.12x64, усі Core dependencies, [24]/[5] parent-exit перед pip; token wizard/start/stop/restart/locks/heartbeat/logs збережені. Новий Windows CI окремо; реальна інсталяція Python на чистому ПК не підтверджена |
+| Windows launcher | Partial | Панель до Python, opt-in WinGet Python3.12x64, усі Core dependencies, [24]/[5] parent-exit перед pip; token wizard/start/stop/restart/locks/heartbeat/logs збережені. На804d009 Windows1033/92 та39PS+12menu успішні; реальна інсталяція Python на чистому ПК не підтверджена |
 | Process recovery | Partial | Python exception backoff і fail-closed control; зовнішнього crash supervisor немає |
 | SQLite backup | Partial | Snapshot, manifest/SHA, staged restore, archive без видалення; ручний Windows не завершено |
 | Міграції SQLite | Partial | Registry, план, явний 1→2, backup, rollback, idempotence; немає manual Windows доказу |
@@ -34,7 +34,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Legacy cogs | Partial | Реальні moderation/user/help/rank завантажені offline в disposable copy; поведінка команд/live API та music не перевірені |
 | run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI45/Linux43+2skip успішні на a6c8e49; ручний Windows/live API очікуються |
 | start_v2.bat | Duplicate | Додаткова стара точка входу збережена |
-| CI | Partial | Clear8bb380f: push40510725655 і PR40510734573 мають усі9jobs success; повний Windows982/92, Ubuntu977/97, PostgreSQL1069/5, focused720/59 і717/62, PGmaintenance785, legacy51 і49/2. Audit24/zero/0skips. Докладні докази й локальний виправлений driver-test у CORE_V2_STATUS_UA; ручний Windows/live API не підтверджені |
+| CI | Partial | Setup804d009: push40521511034 і PR40521522298 мають усі9jobs success; повний Windows1033/92, Ubuntu990/135, PostgreSQL1082/43, focused770/60 і730/100, maintenance785, legacy51 і49/2. Audit24/zero/0skips. Початкову CMD-test quoting помилку виправлено зі збереженням складного шляху. Деталі у CORE_V2_STATUS_UA; ручний Windows/WinGet install/live API не підтверджені |
 | Dependency audit | Partial | Linux Core/dev/pip:24 distributions, після pip26.2 zero known advisories; legacy/OS/Windows resolution не охоплені |
 
 ## Ризики, що потребують окремих завершених ітерацій

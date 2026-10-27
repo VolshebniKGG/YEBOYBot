@@ -35,19 +35,47 @@
 - Оновлено [CLEAN_PC_SETUP_UA.md](CLEAN_PC_SETUP_UA.md), README, quickstart,
   Windows-інструкцію та «Код структура.txt». Старі legacy-функції лишаються [22].
 
-Локально Linux/Python3.12.14: повний набір **990passed/135skipped** за148.66s,
+Локально Linux/Python3.12.14 після804d009: повний набір **990passed/135skipped** за83.38s,
 1125tests/0failures/0errors. Пропущено PostgreSQL і Windows; WindowsPS5.1 тут
 не виконувався. Ruff, pip check, diff check, UTF-8 BOM та відносні docs links пройдено.
 Повторний pip-audit2.10.1/PyPI:24distributions/0findings/0skips,pip26.2;
 лише Linux Core/runtime/dev/installer, не interpreter/OS/legacy/Windows/native.
-Новий CI перевіряється окремо; не переносимо докази a61ef0b на цей код.
+Новий CI804d009 підтверджено окремо; докази a61ef0b на цей код не переносили.
 Перший setup-кодac92c31: Windows full1failed/1032passed/92skipped,
 focused1failed/769passed/60skipped. Єдина помилка — новий тест запускав cmd /c
 через CRT list2cmdline quoting, яке не зберігало шлях з пробілами та&.
 Виправлено саме cmd-specific /d /s /c outer/inner quote pairs; шлях із
 кирилицею/апострофом/& та всі assertions збережено. Real prepared-Core menu smoke,
-інші38PS та12menu tests у fullWindows пройшли. Новий CI fix-коміту потрібен
-окремо; початкові Windows runs не позначаємо зеленими.
+інші38PS та12menu tests у fullWindows пройшли. Fix-коміт804d009 має нові повні
+успішні CI; початкові Windows runs не позначаємо зеленими.
+
+### CI встановлення — 804d009
+
+[Push40521511034](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40521511034)
+завершився за168s, [PR40521522298](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40521522298)
+за151s. Обидва exactHEAD804d00904767e1d0ce57df52904d412fea727937 мають
+**усі9jobs success**.
+
+| Job | Passed | Skipped |
+|---|---:|---:|
+| Повний Windows | 1033 | 92 PostgreSQL |
+| Повний Ubuntu | 990 | 135 PostgreSQL/Windows |
+| Повний PostgreSQL | 1082 | 43 Windows |
+| Focused Windows | 770 | 60 PostgreSQL/непідготовлений Core venv |
+| Focused Ubuntu | 730 | 100 PostgreSQL/Windows |
+| PostgreSQL maintenance | 785 | 0 |
+| Legacy Windows | 51 | 0 |
+| Legacy Ubuntu | 49 | 2 Windows |
+| Dependency audit | success | 0 distributions |
+
+У повному Windows усі39PS/CMD та12menu tests пройшли, включно з порожнім PATH,
+кириличним шляхом O'Connor& та справжнім меню з підготовленого Core venv.
+Перше й повторне install_v2.bat підтверджено logs; nativePGclients17.11.
+Повні Windows artifacts: push12741873227/PR12741414208; PG12742770119/12742212160.
+AdvisoryJSON12742366786 розібрано:24distributions/0findings/0skips/pip26.2.
+Ці результати не є actual WinGet download/install на порожньому Windows:
+system-installer boundary у тестах підмінено; PS5.1/nativeCMD виконувались реально.
+
 Реальне встановлення системного Python на порожній
 Windows10/11, ручний double-click/logon і live Discord не виконані.
 Потрібні інтернет та дозвіл Windows; токен власник вводить один раз через[12].
