@@ -17,6 +17,14 @@ def _literal(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def _cmd_entry(script):
+    # cmd /s /c removes its OUTER quote pair. list2cmdline uses CRT backslash
+    # escaping, which cmd does not understand for this nested command string.
+    # Windows filenames cannot contain double quotes; keep the inner path pair
+    # so spaces, apostrophes and ampersands are literal, as with Explorer launch.
+    return f'"{os.environ["COMSPEC"]}" /d /s /c ""{script}""'
+
+
 def _run_ps(tmp_path, body, *, input_text="", source=SOURCE):
     """Exercise the real PS functions while replacing only OS side effects."""
     directory = tmp_path / "Бот з пробілами O'Connor"
@@ -78,7 +86,7 @@ def test_main_cmd_without_python_displays_panel_and_can_exit_from_arbitrary_cwd(
     environment = dict(os.environ)
     environment["PATH"] = str(tmp_path / "empty-path")
     result = subprocess.run(
-        [os.environ["COMSPEC"], "/d", "/c", str(root / "YEBOYBot.cmd")],
+        _cmd_entry(root / "YEBOYBot.cmd"),
         cwd=tmp_path, env=environment, input="0\n", text=True,
         encoding="utf-8", errors="replace", capture_output=True, timeout=45,
     )
@@ -96,7 +104,7 @@ def test_main_cmd_enters_real_prepared_core_menu_from_arbitrary_cwd(tmp_path):
     if not (ROOT / ".venv-v2/Scripts/python.exe").is_file():
         pytest.skip("CI Core installation not prepared")
     result = subprocess.run(
-        [os.environ["COMSPEC"], "/d", "/c", str(ROOT / "YEBOYBot.cmd")],
+        _cmd_entry(ROOT / "YEBOYBot.cmd"),
         cwd=tmp_path, input="0\n", text=True, encoding="utf-8", errors="replace",
         capture_output=True, timeout=60,
     )

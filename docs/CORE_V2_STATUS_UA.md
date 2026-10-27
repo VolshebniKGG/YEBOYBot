@@ -41,6 +41,13 @@
 Повторний pip-audit2.10.1/PyPI:24distributions/0findings/0skips,pip26.2;
 лише Linux Core/runtime/dev/installer, не interpreter/OS/legacy/Windows/native.
 Новий CI перевіряється окремо; не переносимо докази a61ef0b на цей код.
+Перший setup-кодac92c31: Windows full1failed/1032passed/92skipped,
+focused1failed/769passed/60skipped. Єдина помилка — новий тест запускав cmd /c
+через CRT list2cmdline quoting, яке не зберігало шлях з пробілами та&.
+Виправлено саме cmd-specific /d /s /c outer/inner quote pairs; шлях із
+кирилицею/апострофом/& та всі assertions збережено. Real prepared-Core menu smoke,
+інші38PS та12menu tests у fullWindows пройшли. Новий CI fix-коміту потрібен
+окремо; початкові Windows runs не позначаємо зеленими.
 Реальне встановлення системного Python на порожній
 Windows10/11, ручний double-click/logon і live Discord не виконані.
 Потрібні інтернет та дозвіл Windows; токен власник вводить один раз через[12].
