@@ -56,7 +56,7 @@ YEBOYBot/
 │   ├── __main__.py               Прямий Python-вхід; не заміна CMD-меню на Windows
 │   ├── bot.py                    Discord lifecycle, XP, доставка нагадувань
 │   ├── commands.py               Slash-команди та адаптація interaction/відповідей
-│   ├── moderation.py             Сервіс модерації, перевірки, claim і результати
+│   ├── moderation.py             Сервіс модерації, свіжі checks, claim і local warn
 │   ├── discord_moderation.py     Свіжі REST-дані ролей/учасників, Discord adapter
 │   ├── clear_plan.py             Обмежений незмінний план підтвердження та payload v1
 │   ├── clear_repository.py       Ручні clear-запити в v2_jobs, atomic claim/expiry
@@ -64,7 +64,7 @@ YEBOYBot/
 │   ├── discord_clear.py          Свіжі права каналу й видалення лише схвалених ID
 │   ├── clear_commands.py         Приватні кнопки підтвердження та clear-status
 │   ├── security.py               Спільні permission/role checks і безпечні помилки
-│   ├── db.py                     SQLAlchemy-схема й guild-scoped SQL-операції
+│   ├── db.py                     SQLAlchemy, guild-scoped SQL та atomic record_warning
 │   ├── config.py                 Settings зі змінних середовища та .env.v2
 │   ├── runtime.py                OS lock, налаштування логів, приховування секретів
 │   ├── managed.py                Контрольований процес, heartbeat, stop request
@@ -150,7 +150,22 @@ test_ban_gateway.py, test_ban_commands.py і test_ban_integration.py у тій �
 мають states clear_* у v2_jobs і не стають фоновими pending-нагадуваннями.
 Unknown не повторюється після restart; старі ephemeral-кнопки не відновлюються.
 Опис обмежень і перевірок: docs/CLEAR_UA.md.
-Решту старих moderation-команд ще потрібно поступово перенести на ці межі.
+
+Створення /warn: commands.py -> ModerationService.warn у moderation.py
+-> DiscordGateway.load (fresh guild/owner/roles/actor/bot/target)
+-> Database.record_warning у db.py (одна транзакція warn/applied).
+Moderate Members автора/бота та ієрархія — політика локального попередження.
+Discord mutation/DM/Audit Log запис не викликається. Детермінований guild+interaction
+ID та immutable payload блокують повторний запис; revoked і часові мітки
+зберігаються. DB outcome після помилки COMMIT може бути unconfirmed, тому
+нова ручна команда з новим interaction ID не є безпечним сліпим повтором.
+Старі UUID-записи сумісні; нової схеми або міграції немає.
+warning_embeds у discord_moderation.py обмежує приватний /warnings список
+до 10 записів, екранує причини й рахує UTF-16; повний текст лишається в БД.
+Читання /warnings, /unwarn та старі timeout/untimeout ще потребують свіжої
+авторизації/lifecycle. Не плутати це зі завершеним створенням /warn.
+Нові сценарії: core_v2/tests/test_warn_repository.py, test_warn_service.py,
+test_warn_commands.py і test_warn_integration.py у тій самій папці tests/.
 
 У Core уже підключено текстовий XP, рейтинги й durable-нагадування. Нагадування
 мають at-least-once delivery: після збою повтор повідомлення можливий.

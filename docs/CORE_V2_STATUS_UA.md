@@ -4,7 +4,51 @@
 попередні звіти збережено в розгортуваній історії. Не переносіть старі CI totals
 на нові коміти.
 
-## Поточна ітерація: встановлення на чистому Windows-ПК
+## Поточна ітерація: ідемпотентний /warn і безпечний список попереджень
+
+База809db8a має [успішний CI40522292914](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40522292914),
+усі9jobs. Це перевірка попереднього коду, не нових warning-змін. Відсоток
+готовності встановлення/продукту не присвоюємо: ручний чистий Windows і live
+Discord досі не перевірені. Незалежна функціональна робота продовжена.
+
+- `/warn` тепер використовує shared ModerationService: свіжі REST guild/owner/roles,
+  actor/bot/target, Moderate Members, захист себе/цього бота/власника та ієрархію.
+  Власник обходить тільки власну ієрархію; bot rank перевіряється завжди.
+  Це політика локального warning, не вимога mutation API Discord.
+- `record_warning` атомарно додає warn/applied в існуючу v2_cases. Ключ — guild
+  та interaction ID; immutable actor/target/action/reason перевіряються при replay.
+  Повтор не створює другого запису, не змінює timestamps і не відновлює revoked.
+  Changed payload/cross-action/cross-guild конфлікти не переписують дані.
+- DB error/timeout може означати невідомий COMMIT: відповідь unconfirmed не
+  стверджує відсутність запису. Cancellation поширюється; автоматичного retry немає.
+  Warning не викликає Discord mutation/DM і не створює Discord Audit Log entry.
+- Причина1–500 після trim без C0/C1/сурогатів. Старі UUID warning rows збережені;
+  schema2/шість таблиць/dependencies/intents не змінені. Поточних цілей читаємо
+  навіть при replay; після виходу цілі новий SQL не виконується, історія лишається.
+  Нова ручна slash-команда має новий ID та створює окреме попередження.
+- `/warnings`: десять активних записів за created/idDESC, приватно й без mentions.
+  Escaped reasons≤300UTF16/title≤64 укладаються в aggregate6000. Повний текст
+  зберігається в БД; /modhistory теж обмежує показ і не обіцяє повної причини.
+  DB read має10s timeout та безпечне повідомлення. Read/revoke authorization
+  `/warnings`/`/unwarn` поки cached; timeout/untimeout також мають старий lifecycle.
+- Додано222 тести:94repository,87service,25commands,16integration.
+  Є realSQLite/PG конкуренція, rollback/unknown ack після commit, revoked replay,
+  legacy compatibility, cross-action collisions, SDK role/timeout/cache checks,
+  lost followup без нового запису, bounded Unicode/Markdown outputs.
+
+Локально Linux/Python3.12.14 повний набір: **1186passed/161skipped** за62.42s,
+1347tests/0failures/0errors. Первинний full знайшов регістр української фрази
+в історичному assertion; текст виправлено, assertions не прибиралися.
+Окремий repository-набір на realSQLite/PostgreSQL:94passed/0skipped;
+фінальний набір усіх нових тестів із PG — **222passed/0skipped** за14.68s,
+JUnit222tests/0failures/0errors. Реальні Discord REST responses підмінено;
+SDK-моделі, SQL-транзакції й конкурентні записи виконувались реально.
+Ruff/pipcheck/diffcheck пройдено. Повторний Linux Core/runtime/dev/installer
+pip-audit2.10.1:24distributions/0findings/0skips,pip26.2; не OS/interpreter/legacy/Windows/native.
+Нові CI результати фіксуються за SHA. Live Discord/ручний Windows/24×7 не виконувались.
+Код, [MODERATION_UA.md](MODERATION_UA.md), README/Quickstart та «Код структура.txt» узгоджені.
+
+## Попередня ітерація: встановлення на чистому Windows-ПК
 
 База — a61ef0b, її [PR CI40511736421](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40511736421)
 успішний, усі9jobs. Нові результати цієї ітерації перевіряються окремо.

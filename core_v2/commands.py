@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import math
 import time
@@ -9,7 +10,7 @@ from discord.ext import commands
 from .security import UserError, permission, target_check, respond
 from .security import guild_context
 from .moderation import ModerationService, ModerationError, valid_id
-from .discord_moderation import DiscordGateway, history_embed
+from .discord_moderation import DiscordGateway, history_embed, warning_embeds
 from .clear_commands import preview as clear_preview, status as clear_status
 
 
@@ -21,7 +22,8 @@ def moderation_user_id(value):
 
 
 async def moderation_response(interaction, result):
-    state = {"pending": "Непідтверджено", "applied": "Застосовано", "failed": "Зафіксовано помилку"}.get(result.status)
+    state = {"pending": "Непідтверджено", "applied": "Застосовано",
+             "failed": "Зафіксовано помилку", "revoked": "Відкликано"}.get(result.status)
     message = f"{result.message}\nID справи: `{result.case_id}`"
     if state:
         message += f"\nЗбережений стан: {state}."
@@ -175,11 +177,14 @@ class Core(commands.Cog):
     @app_commands.guild_only()
     async def warn(self, interaction: discord.Interaction, member: discord.Member,
                    reason: app_commands.Range[str, 1, 500]):
-        guild = await self.checked_target(interaction, member, "moderate_members")
+        guild = guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
-        case = await self.bot.db.create_case(guild.id, member.id, interaction.user.id,
-                                             "warn", reason, status="applied")
-        await respond(interaction, f"Попередження збережено. ID: {case}")
+        try:
+            result = await self.moderation.warn(guild.id, interaction.user.id, member.id,
+                                                interaction.id, reason)
+        except ModerationError as error:
+            raise UserError(str(error)) from None
+        await moderation_response(interaction, result)
 
     @app_commands.command(name="warnings", description="Останні 10 чинних попереджень учасника")
     @app_commands.default_permissions(moderate_members=True)
@@ -187,13 +192,18 @@ class Core(commands.Cog):
     async def warnings(self, interaction: discord.Interaction, member: discord.Member):
         permission(interaction, "moderate_members")
         await interaction.response.defer(ephemeral=True)
-        rows = await self.bot.db.warnings(interaction.guild_id, member.id)
-        # Separate embeds keep each field below Discord limits.
-        embeds = [discord.Embed(title=r["id"], description=r["reason"]) for r in rows]
+        try:
+            async with asyncio.timeout(10):
+                rows = await self.bot.db.warnings(interaction.guild_id, member.id)
+        except Exception:
+            raise UserError("Не вдалося прочитати попередження. Перевірте доступність БД.") from None
+        embeds = warning_embeds(rows)
         if embeds:
-            await interaction.followup.send(embeds=embeds, ephemeral=True)
+            await interaction.followup.send(embeds=embeds, ephemeral=True,
+                                            allowed_mentions=discord.AllowedMentions.none())
         else:
-            await respond(interaction, "Попереджень немає.")
+            await interaction.followup.send("Попереджень немає.", ephemeral=True,
+                                            allowed_mentions=discord.AllowedMentions.none())
 
     @app_commands.command(name="unwarn", description="Відкликати попередження за ID")
     @app_commands.default_permissions(moderate_members=True)

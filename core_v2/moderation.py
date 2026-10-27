@@ -134,6 +134,50 @@ class ModerationService:
     async def unban(self, guild_id, actor_id, target_id, request_id, reason):
         return await self._act("unban", guild_id, actor_id, target_id, request_id, reason)
 
+    async def warn(self, guild_id, actor_id, target_id, request_id, reason):
+        """Authorize current members, then atomically record one local warning."""
+        for value in (guild_id, actor_id, target_id, request_id):
+            valid_id(value)
+        if (not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 500 or
+                any(ord(character) < 32 or 127 <= ord(character) <= 159 or
+                    0xD800 <= ord(character) <= 0xDFFF for character in reason)):
+            raise ModerationError("Вкажіть причину від 1 до 500 символів без керівних символів.")
+        reason = reason.strip()
+        # Warnings are local records, not Discord sanctions. Even a duplicate
+        # receipt requires fresh authorization; cached interaction roles cannot
+        # grant access or recreate a revoked warning.
+        context = await self._load(guild_id, actor_id, target_id)
+        _context(context, guild_id, actor_id, target_id)
+        valid_id(context.bot.id)
+        if not _permission(context.actor, context.owner_id, MODERATE):
+            raise ModerationError("Вам потрібен дозвіл «Модерувати учасників».")
+        if not _permission(context.bot, context.owner_id, MODERATE):
+            raise ModerationError("Боту потрібен дозвіл «Модерувати учасників».")
+        _protected_target(context, target_id)
+        _hierarchy(context)
+        case_id = f"{guild_id:016x}{request_id:016x}"
+        # Import only at the storage boundary: the service remains injectable,
+        # and importing moderation types does not eagerly construct a database.
+        from .db import WarningConflict
+        try:
+            async with asyncio.timeout(10):
+                row, created = await self.db.record_warning(
+                    guild_id, case_id, target_id, actor_id, reason)
+        except WarningConflict:
+            raise ModerationError("Цей ID запиту вже пов'язаний з іншими параметрами. Попередній запис не змінено.") from None
+        except Exception as error:
+            # COMMIT may have succeeded before the connection or acknowledgement
+            # failed. Never translate this uncertainty into 'not created'.
+            log.warning("Warning storage outcome unconfirmed guild=%s case=%s error=%s",
+                        guild_id, case_id, type(error).__name__)
+            return ModerationResult(case_id, "unconfirmed", message=(
+                "Запис попередження не підтверджено. Перевірте /warnings або /modhistory; "
+                "не створюйте новий запит навмання."))
+        if not created:
+            return ModerationResult(case_id, "duplicate", row["status"],
+                                    "Цей запит уже зареєстровано. Нове попередження не додано; збережений стан не змінено.")
+        return ModerationResult(case_id, "applied", "applied", "Попередження збережено.")
+
     async def _preflight(self, action, guild_id, actor_id, target_id):
         # A banned person need not be a current guild member. Permissions still
         # come from a fresh guild/actor/bot snapshot after the committed claim.

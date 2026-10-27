@@ -2,10 +2,10 @@
 
 Оглянуто відстежуване дерево, core_v2, tools/launcher, legacy yeboybot,
 точки входу, залежності, тести, CI та документацію. База ітерації —
-feature/core-v2@a61ef0b; поточна ітерація додає PowerShell-панель до Python,
-opt-in per-user WinGet та встановлення всіх залежностей Core V2.
-Попередні clear/ban/unban і карта коду підтверджені повним CI наa61ef0b.
-Нові результати встановлення фіксуються за SHA, окремо від цих доказів.
+feature/core-v2@809db8a; поточна ітерація додає ідемпотентний локальний /warn
+зі свіжими правами й атомарним записом та виправляє bounded /warnings display.
+Windows setup, clear/ban/unban і карта коду підтверджені повним CI на809db8a.
+Нові результати warning-змін фіксуються за SHA, окремо від цих доказів.
 SQLite schema2/migrations та fail-closed heartbeat збережені без повторної реалізації.
 main@14bd68a містить стару реалізацію; PR #1 залишається draft. GitHub HEAD
 і CI потрібно повторно звіряти перед наступною роботою.
@@ -23,6 +23,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Автозапуск | Partial | Opt-in Task Scheduler root/SID, pythonw; реальне створення/logon не перевірено |
 | Slash-команди | Partial | 18 commands: попередні16 плюс clear/clear-status; live Discord ще не підтверджений |
 | Модерація | Partial | Kick/ban/unban: shared service, fresh permissions/hierarchy, atomic cross-action claim, ambiguity-safe audit; modhistory з pending diagnostics. Ban не видаляє повідомлення; unban за ID колишнього учасника. Clear має окреме підтвердження/receipt; automatic reconcile відсутній; старі timeout lifecycle потребують виправлення |
+| Попередження | Partial | /warn: fresh authority + atomic local warn/applied, deterministic guild/interaction key, immutable payload/revoked replay; /warnings bounded10 UTF16 outputs. Read/revoke authorization warnings/unwarn ще cached; liveDiscord не перевірений |
 | Очищення повідомлень | Partial | До25/recent7days/TextChannel, immutableIDs, ephemeral60s confirm, atomicmanualjobclaim/expiry, ownstatus, no replay unknown; liveDiscord/manualWindows не перевірені |
 | XP | Partial | Текстовий XP/cooldown/guild rankings; голосовий XP/rewards не підключені |
 | Нагадування | Partial | Durable lease/retry/access check; at-least-once, можливі повтори після crash |

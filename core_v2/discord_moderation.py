@@ -92,28 +92,42 @@ class DiscordGateway:
         raise ModerationError("Не вдалося підтвердити блокування через Discord. Дію не надсилали.") from None
 
 
+def _clip_utf16(value, budget):
+    """Bound Discord text after escaping, including non-BMP characters."""
+    if len(value.encode("utf-16-le", errors="replace")) // 2 <= budget:
+        return value
+    result, length = [], 0
+    for character in value:
+        units = len(character.encode("utf-16-le", errors="replace")) // 2
+        if length + units > budget - 1:
+            break
+        result.append(character)
+        length += units
+    return "".join(result) + "…"
+
+
+def warning_embeds(rows):
+    """Ten active warnings fit Discord's aggregate 6000 UTF-16-unit limit."""
+    result = []
+    for row in rows[:10]:
+        reason = discord.utils.escape_markdown(discord.utils.escape_mentions(str(row["reason"])))
+        title = discord.utils.escape_markdown(discord.utils.escape_mentions(str(row["id"])))
+        embed = discord.Embed(title=_clip_utf16(title, 64), description=_clip_utf16(reason, 300))
+        embed.set_footer(text="Історія та стан: /modhistory")
+        result.append(embed)
+    return result
+
+
 def history_embed(rows, page):
     embed = discord.Embed(title=f"Історія модерації · сторінка {page}",
-                          description="Непідтверджені справи потребують звірки з Discord Audit Log; автоматичного повтору немає. Запис помилки сам собою не доводить скасування дії.")
+                          description="Непідтверджені Discord-дії звіряйте з Audit Log, локальні попередження — із записами БД; автоматичного повтору немає. Запис помилки сам собою не доводить скасування дії.")
     states = {"pending": "Непідтверджено", "applied": "Застосовано", "failed": "Зафіксовано помилку", "revoked": "Відкликано"}
     actions = {"kick": "Kick", "ban": "Блокування", "unban": "Зняття блокування",
                "warn": "Попередження", "timeout": "Timeout", "untimeout": "Зняття timeout"}
     def stamp(value):
         return f"<t:{int(value)}:f>" if isinstance(value, (int, float)) and math.isfinite(value) and value > 0 else "Невідомо"
-    def clip(value, budget):
-        # Count UTF-16 units conservatively so non-BMP emoji also fit Discord fields.
-        if len(value.encode("utf-16-le", errors="replace")) // 2 <= budget:
-            return value
-        result, length = [], 0
-        for character in value:
-            units = len(character.encode("utf-16-le", errors="replace")) // 2
-            if length + units > budget - 1:
-                break
-            result.append(character)
-            length += units
-        return "".join(result) + "…"
     for row in rows[:5]:
-        reason = clip(discord.utils.escape_markdown(discord.utils.escape_mentions(str(row["reason"]))), 600)
+        reason = _clip_utf16(discord.utils.escape_markdown(discord.utils.escape_mentions(str(row["reason"]))), 600)
         case_id = discord.utils.escape_markdown(str(row["id"]))[:64]
         value = (f"Стан: {states.get(row['status'], 'Невідомо')}\n"
                  f"Учасник: `{row['user_id']}` · Модератор: `{row['actor_id']}`\n"

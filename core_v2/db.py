@@ -19,6 +19,10 @@ class MigrationRequired(RuntimeError):
     """A supported older database requires an explicit backed-up migration."""
 
 
+class WarningConflict(ValueError):
+    """A warning request key is already bound to different immutable input."""
+
+
 meta = MetaData()
 versions = Table("v2_schema", meta, Column("version", Integer, primary_key=True))
 settings = Table("v2_settings", meta,
@@ -249,6 +253,33 @@ class Database:
                 raise ValueError("Moderation case ID is already bound to a different request")
             return dict(row), inserted is not None
 
+    async def record_warning(self, guild_id, case_id, user_id, actor_id, reason):
+        """Commit one applied local warning; re-delivery never changes its row."""
+        if any(type(value) is not int or not 0 < value < 2**63
+               for value in (guild_id, user_id, actor_id)):
+            raise ValueError("Invalid warning scope")
+        if not isinstance(case_id, str) or not re.fullmatch(r"[0-9a-f]{32}", case_id):
+            raise ValueError("Invalid warning case ID")
+        if (not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 500 or
+                any(ord(character) < 32 or 127 <= ord(character) <= 159 or
+                    0xD800 <= ord(character) <= 0xDFFF for character in reason)):
+            raise ValueError("Invalid warning reason")
+        reason = reason.strip()
+        now = time.time()
+        statement = self.insert(cases).values(id=case_id, guild_id=guild_id,
+            user_id=user_id, actor_id=actor_id, action="warn", reason=reason,
+            created=now, updated=now, status="applied")
+        statement = statement.on_conflict_do_nothing(index_elements=[cases.c.id]).returning(cases.c.id)
+        async with self.engine.begin() as connection:
+            inserted = (await connection.execute(statement)).scalar_one_or_none()
+            row = (await connection.execute(select(cases).where(
+                cases.c.id == case_id, cases.c.guild_id == guild_id))).mappings().first()
+            if row is None or any(row[name] != value for name, value in {
+                    "user_id": user_id, "actor_id": actor_id,
+                    "action": "warn", "reason": reason}.items()):
+                raise WarningConflict("Warning request is already bound to different input")
+            return dict(row), inserted is not None
+
     async def case_history(self, guild_id, user_id=None, status=None, page=1, page_size=5):
         """Bounded read of this guild's cases, including unresolved pending rows."""
         if type(guild_id) is not int or not 0 < guild_id < 2**63:
@@ -282,7 +313,7 @@ class Database:
         async with self.engine.connect() as conn:
             rows = await conn.execute(select(cases).where(cases.c.guild_id == guild_id,
                 cases.c.user_id == user_id, cases.c.action == "warn", cases.c.status == "applied"
-                ).order_by(cases.c.created.desc()).limit(10))
+                ).order_by(cases.c.created.desc(), cases.c.id.desc()).limit(10))
             return [dict(r) for r in rows.mappings()]
 
     async def revoke_warning(self, guild_id, case_id):
