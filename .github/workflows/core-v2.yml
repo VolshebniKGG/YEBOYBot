@@ -179,7 +179,7 @@ jobs:
         run: |
           mkdir -p test-results
           set -o pipefail
-          python -u -X utf8 -m pytest core_v2/tests/test_pg_native.py core_v2/tests/test_postgres_migrations.py core_v2/tests/test_pg_workflow.py core_v2/tests/test_moderation_repository.py core_v2/tests/test_kick_service.py core_v2/tests/test_discord_moderation.py core_v2/tests/test_moderation_commands.py core_v2/tests/test_ban_service.py core_v2/tests/test_ban_gateway.py core_v2/tests/test_ban_commands.py core_v2/tests/test_ban_integration.py -vv --durations=10 -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/pytest.xml 2>&1 | tee test-results/pytest.log
+          python -u -X utf8 -m pytest core_v2/tests/test_pg_native.py core_v2/tests/test_postgres_migrations.py core_v2/tests/test_pg_workflow.py core_v2/tests/test_moderation_repository.py core_v2/tests/test_kick_service.py core_v2/tests/test_discord_moderation.py core_v2/tests/test_moderation_commands.py core_v2/tests/test_ban_service.py core_v2/tests/test_ban_gateway.py core_v2/tests/test_ban_commands.py core_v2/tests/test_ban_integration.py core_v2/tests/test_clear_plan.py core_v2/tests/test_clear_repository.py core_v2/tests/test_clear_service.py core_v2/tests/test_clear_gateway.py core_v2/tests/test_clear_commands.py core_v2/tests/test_clear_integration.py -vv --durations=10 -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/pytest.xml 2>&1 | tee test-results/pytest.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -206,7 +206,7 @@ jobs:
         run: |
           mkdir -p test-results
           set -o pipefail
-          python -u -X utf8 -m pytest core_v2/tests/test_moderation_repository.py core_v2/tests/test_kick_service.py core_v2/tests/test_discord_moderation.py core_v2/tests/test_moderation_commands.py core_v2/tests/test_ban_service.py core_v2/tests/test_ban_gateway.py core_v2/tests/test_ban_commands.py core_v2/tests/test_ban_integration.py core_v2/tests/test_runtime.py core_v2/tests/test_bootstrap.py core_v2/tests/test_legacy_launcher.py -vv -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/moderation.xml 2>&1 | tee test-results/moderation.log
+          python -u -X utf8 -m pytest core_v2/tests/test_moderation_repository.py core_v2/tests/test_kick_service.py core_v2/tests/test_discord_moderation.py core_v2/tests/test_moderation_commands.py core_v2/tests/test_ban_service.py core_v2/tests/test_ban_gateway.py core_v2/tests/test_ban_commands.py core_v2/tests/test_ban_integration.py core_v2/tests/test_clear_plan.py core_v2/tests/test_clear_repository.py core_v2/tests/test_clear_service.py core_v2/tests/test_clear_gateway.py core_v2/tests/test_clear_commands.py core_v2/tests/test_clear_integration.py core_v2/tests/test_runtime.py core_v2/tests/test_bootstrap.py core_v2/tests/test_legacy_launcher.py -vv -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/moderation.xml 2>&1 | tee test-results/moderation.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

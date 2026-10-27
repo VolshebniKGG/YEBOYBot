@@ -1,7 +1,7 @@
 YEBOYBot — карта коду та архітектури
 ===================================
 Гілка розробки: feature/core-v2
-Оновлено: 26.10.2026
+Оновлено: 27.10.2026
 
 Це навігація реальними файлами репозиторію. Дерево скорочене: службові
 __init__.py, решту legacy helpers та список усіх тестів згорнуто для читабельності.
@@ -47,6 +47,11 @@ YEBOYBot/
 │   ├── commands.py               Slash-команди та адаптація interaction/відповідей
 │   ├── moderation.py             Сервіс модерації, перевірки, claim і результати
 │   ├── discord_moderation.py     Свіжі REST-дані ролей/учасників, Discord adapter
+│   ├── clear_plan.py             Обмежений незмінний план підтвердження та payload v1
+│   ├── clear_repository.py       Ручні clear-запити в v2_jobs, atomic claim/expiry
+│   ├── clear_service.py          Preview/confirm/cancel/status без повтору unknown API
+│   ├── discord_clear.py          Свіжі права каналу й видалення лише схвалених ID
+│   ├── clear_commands.py         Приватні кнопки підтвердження та clear-status
 │   ├── security.py               Спільні permission/role checks і безпечні помилки
 │   ├── db.py                     SQLAlchemy-схема й guild-scoped SQL-операції
 │   ├── config.py                 Settings зі змінних середовища та .env.v2
@@ -126,6 +131,13 @@ Ban зберігає повідомлення. Unban працює за ID кол
 test_ban_gateway.py, test_ban_commands.py і test_ban_integration.py у тій самій
 папці tests/. Інтеграційні перевірки використовують SQLite та справжні SDK
 моделі з підміненою HTTP-відповіддю, без входу до живого Discord.
+Окремий flow /clear: commands.py -> clear_commands.py -> clear_service.py
+-> clear_repository.py / discord_clear.py. Підтвердження діє 60 секунд для
+автора/каналу/сервера; максимум 25 переглянутих повідомлень. До API зберігаються
+саме схвалені ID, а /clear-status читає власний request receipt. Clear-запити
+мають states clear_* у v2_jobs і не стають фоновими pending-нагадуваннями.
+Unknown не повторюється після restart; старі ephemeral-кнопки не відновлюються.
+Опис обмежень і перевірок: docs/CLEAR_UA.md.
 Решту старих moderation-команд ще потрібно поступово перенести на ці межі.
 
 У Core уже підключено текстовий XP, рейтинги й durable-нагадування. Нагадування
@@ -172,6 +184,7 @@ FFmpeg: переносність старого music потребує окре�
   docs/PROJECT_AUDIT_UA.md             Матриця функцій і відомі ризики
   docs/LAUNCHER_AUDIT_UA.md            Критерії приймання launcher
   docs/MODERATION_UA.md               Права, ролі, модераційні справи й обмеження
+  docs/CLEAR_UA.md                    Підтвердження очищення та діагностика запитів
   docs/MIGRATIONS_UA.md               SQLite-версії, backup і відновлення
   docs/POSTGRES_RECOVERY_UA.md        Native PG backup/upgrade/recovery та межі
   docs/LEGACY_LAUNCHER_UA.md           Окремий запуск старих функцій

@@ -1,11 +1,10 @@
-# Аудит проєкту YEBOYBot — 26.10.2026
+# Аудит проєкту YEBOYBot — 27.10.2026
 
 Оглянуто відстежуване дерево, core_v2, tools/launcher, legacy yeboybot,
 точки входу, залежності, тести, CI та документацію. База ітерації —
-feature/core-v2@083d4bc; нова ітерація додає /ban і /unban до спільного
-ModerationService та оновлює «Код структура.txt». Kick/history, pip26.2,
-PG maintenance й legacy entrypoint збережені. Базовий CI083d4bc має всі9jobs
-success; нові результати фіксуються окремо за новим SHA.
+feature/core-v2@4aa63d8; поточна ітерація додає confirmed clear/manual jobs
+та owner-scoped receipt status. Попередні ban/unban і карта коду підтверджені
+повними Windows/Linux/PG CI на4aa63d8. Нові результати clear фіксуються за SHA.
 SQLite schema2/migrations та fail-closed heartbeat збережені без повторної реалізації.
 main@14bd68a містить стару реалізацію; PR #1 залишається draft. GitHub HEAD
 і CI потрібно повторно звіряти перед наступною роботою.
@@ -21,8 +20,9 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Міграції SQLite | Partial | Registry, план, явний 1→2, backup, rollback, idempotence; немає manual Windows доказу |
 | PostgreSQL | Partial | [23] standard public Core snapshot/upgrade1→2/restore в окрему порожню БД; Linux17.11 локально й PG maintenance76 у CI перевірено; Windows native/TLS/custom schemas не підтверджені |
 | Автозапуск | Partial | Opt-in Task Scheduler root/SID, pythonw; реальне створення/logon не перевірено |
-| Slash-команди | Partial | 16 commands: попередні14 плюс ban/unban; live Discord ще не підтверджений |
-| Модерація | Partial | Kick/ban/unban: shared service, fresh permissions/hierarchy, atomic cross-action claim, ambiguity-safe audit; modhistory з pending diagnostics. Ban не видаляє повідомлення; unban за ID колишнього учасника. Clear/reconcile відсутні; старі timeout lifecycle потребують виправлення |
+| Slash-команди | Partial | 18 commands: попередні16 плюс clear/clear-status; live Discord ще не підтверджений |
+| Модерація | Partial | Kick/ban/unban: shared service, fresh permissions/hierarchy, atomic cross-action claim, ambiguity-safe audit; modhistory з pending diagnostics. Ban не видаляє повідомлення; unban за ID колишнього учасника. Clear має окреме підтвердження/receipt; automatic reconcile відсутній; старі timeout lifecycle потребують виправлення |
+| Очищення повідомлень | Partial | До25/recent7days/TextChannel, immutableIDs, ephemeral60s confirm, atomicmanualjobclaim/expiry, ownstatus, no replay unknown; liveDiscord/manualWindows не перевірені |
 | XP | Partial | Текстовий XP/cooldown/guild rankings; голосовий XP/rewards не підключені |
 | Нагадування | Partial | Durable lease/retry/access check; at-least-once, можливі повтори після crash |
 | Automod/welcome/autorole/panels | Disconnected | Поля/таблиці/helpers є; активних сценаріїв Discord немає |
@@ -33,7 +33,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Legacy cogs | Partial | Реальні moderation/user/help/rank завантажені offline в disposable copy; поведінка команд/live API та music не перевірені |
 | run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI45/Linux43+2skip успішні на a6c8e49; ручний Windows/live API очікуються |
 | start_v2.bat | Duplicate | Додаткова стара точка входу збережена |
-| CI | Partial | На базовому fafa177 Linux309/38, PG342/5, maintenance76 і legacy обох ОС success; Windows full cancelled під час pytest без доступного stack/artifact. На f5685f06 focused Windows192/10, Ubuntu189/13, maintenance208, legacy51/49+2skip, CVE24/zero підтверджені. Повний c86c177 push40370321990: усі9jobs success, Windows454/43, Ubuntu449/48, PG492/5. Ручний Windows/live API не підтверджені; звіряти SHA |
+| CI | Partial | База 4aa63d8: push40375663900 і PR40375699446 мають усі9jobs success; повний Windows661/60, Ubuntu656/65, PostgreSQL716/5, focused399/27 і396/30, PGmaintenance432, legacy51 і49/2. Це докази попередньої ітерації; нові clear totals фіксуються окремо за SHA у CORE_V2_STATUS_UA. Ручний Windows/live API не підтверджені |
 | Dependency audit | Partial | Linux Core/dev/pip:24 distributions, після pip26.2 zero known advisories; legacy/OS/Windows resolution не охоплені |
 
 ## Ризики, що потребують окремих завершених ітерацій

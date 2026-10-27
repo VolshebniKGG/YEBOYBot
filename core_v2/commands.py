@@ -10,6 +10,7 @@ from .security import UserError, permission, target_check, respond
 from .security import guild_context
 from .moderation import ModerationService, ModerationError, valid_id
 from .discord_moderation import DiscordGateway, history_embed
+from .clear_commands import preview as clear_preview, status as clear_status
 
 
 def moderation_user_id(value):
@@ -31,6 +32,34 @@ class Core(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.moderation = ModerationService(bot.db, DiscordGateway(bot))
+        self._clear_service = None
+
+    def _clear_domain(self):
+        # Existing commands need no manual-job repository; initialize on demand.
+        if self._clear_service is None:
+            from .clear_service import ClearService
+            from .clear_repository import ClearRepository
+            from .discord_clear import ClearGateway
+            self._clear_service = ClearService(ClearRepository(self.bot.db), ClearGateway(self.bot))
+        return self._clear_service
+
+    @app_commands.command(name="clear", description="Переглянути до 25 повідомлень для підтвердженого очищення")
+    @app_commands.default_permissions(manage_messages=True)
+    @app_commands.guild_only()
+    @app_commands.describe(amount="Переглянути від 1 до 25 останніх повідомлень перед командою",
+                           reason="Причина від 1 до 200 символів")
+    async def clear(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 25],
+                    reason: app_commands.Range[str, 1, 200]):
+        guild_context(interaction)
+        await clear_preview(interaction, self._clear_domain(), amount, reason)
+
+    @app_commands.command(name="clear-status", description="Перевірити власний запит очищення в цьому каналі")
+    @app_commands.guild_only()
+    @app_commands.describe(request_id="32-символьний ID вашого запиту очищення")
+    async def clear_status(self, interaction: discord.Interaction,
+                           request_id: app_commands.Range[str, 32, 32]):
+        guild_context(interaction)
+        await clear_status(interaction, self._clear_domain(), request_id)
 
     @app_commands.command(name="kick", description="Вигнати учасника з перевіркою прав та записом справи")
     @app_commands.default_permissions(kick_members=True)

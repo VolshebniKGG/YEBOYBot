@@ -1,10 +1,75 @@
-# Поточний стан Core V2 — 26.10.2026
+# Поточний стан Core V2 — 27.10.2026
 
 Гілка feature/core-v2; main не змінено, PR #1 — draft. Нижче актуальний стан,
 попередні звіти збережено в розгортуваній історії. Не переносіть старі CI totals
 на нові коміти.
 
-## Поточна ітерація: ban/unban та актуальна карта коду
+## Поточна ітерація: підтверджене очищення повідомлень
+
+База **4aa63d8** має обидва повні CI успішні (докази ban/unban нижче).
+Додано `/clear amount reason` та `/clear-status request_id`: **18 slash-команд**.
+
+- Preview читає одну сторінку до25 повідомлень перед початковим interaction ID.
+  Відбираються лише звичайні/reply повідомлення молодші7діб; закріплені,
+  системні й старі пропускаються з явними лічильниками. Пропущені не замінюються.
+- Підтвердження приватне, прив'язане до автора/guild/channel, діє60секунд для
+  прийняття claim. Кнопки confirm/cancel одноразові; серверний SQL CAS блокує
+  повтор, гонку cancel/confirm і повтор після перезапуску, незалежно від UI.
+- Незмінний version1 payload з ID/причиною зберігається в існуючому v2_jobs.body
+  (≤1000символів), scope/expiry — у typed columns. Причина1–200символів без
+  керівних символів. До5 живих підтверджень на guild/actor; cap має зрозумілу помилку.
+  Нових таблиць/міграцій/dependencies/intents немає; schema2 та шість Core-таблиць
+  збережені. Clear states clear_* ніколи не стають pending-нагадуваннями.
+- Перед preview/claim і API заново перевіряються ролі/власник/actor/bot/channel
+  overwrites: Manage Messages, View Channel, Read Message History. Підтримано
+  лише regular TextChannel, без threads/news/forum. Перевіряються лише схвалені
+  ID, повторна вибірка історії під час execute заборонена. Stale/pinned/old/404
+  під час validate зупиняє весь запит до write. Атомарного pin/permission+delete
+  Discord не дає; зміна після останньої перевірки все ще можлива.
+- Для одного ID reason передається direct pinned HTTP delete_message: SDK2.7.1
+  інакше губить reason у single-ID delete_messages. Для2–25 використано SDKbulk.
+  Є audit prefix clear/actor/channel, encoded header≤512, повна причина в БД.
+- SDK exception/timeout/cancel після claim лишає unknown/running/pending без
+  автоматичного повтору. SDKsuccess+DBfailure/CAS0 явно розрізняються.
+  Підтвердження стосується запиту дляNID, не незалежного підрахунку фактичних
+  нових видалень. /clear-status читає тільки власний receipt у тому самому
+  каналі й не потребує права на нове видалення; після restart кнопки не
+  відновлюються, job не продовжується. Expired підтвердження не приймаються.
+- Clear receipts — окремий manual-job audit; /modhistory лишається історією
+  member moderation cases. Скасування не відкочує вже надіслану API-операцію.
+- Оновлено «Код структура.txt», README, [CLEAR_UA.md](CLEAR_UA.md) та інструкції
+  Core V2. Нові тести включено у focused Windows/Linux/PG jobs; старі перевірки збережено.
+
+Під час незалежного перегляду виправлено expiry race: час оновлюється ПІСЛЯ
+отримання SQL lock/row lock, тож підтвердження, яке чекало блокування, не
+приймається після deadline. Додано6 регресій (claim/cancel/prepare × SQLite/PG)
+із реальними locks та синхронізацією подіями без sleep; усі6 перевірено на обохБД.
+
+Новий набір містить **1074 тести, 353 доданих**: 82 plan, 101 repository,
+43 service, 58 adapter, 59 UI та 10 integration. Локально Linux/Python3.12.14
+після expiry fix: SQLite/default **977 passed, 97 skipped** за100.00s,
+JUnit:1074tests/0failures/0errors. PostgreSQL повний прогін ще виконується.
+Окремо відтворено й виправлено негативний PostgreSQL-тест oversize-body:
+SQLAlchemy/asyncpg повертає DBAPIError зі SQLSTATE22001, а не DataError.
+Тест вимагає саме22001 і перевіряє незмінність початкового рядка після rollback;
+цільовий повтор —1passed. Повний результат нижче фіксується після завершення.
+Нові CI-докази фіксуються за SHA окремо від попередньої ітерації.
+Ruff, pip check та diff check успішні. Посилання документації та UTF-8 карту
+коду перевірено; відсутніх відносних посилань немає.
+CVE-аудит27.10.2026 pip-audit2.10.1/PyPI:24distributions,0findings,0skipped,pip26.2;
+Linux Core/runtime/dev/installer, не legacy/OS/native/Windows/tool resolution.
+Реальне видалення в Discord, ручний Windows10/11 та24/7 не виконувались.
+
+## Попередня ітерація: ban/unban та актуальна карта коду (4aa63d8)
+
+Обидва повні CI **4aa63d8** успішні:
+[push40375663900](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40375663900),127s;
+[PR40375699446](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40375699446),125s.
+У кожному всі9jobs success: Windows661/60, Ubuntu656/65, PostgreSQL716/5,
+focused Windows399/27, Ubuntu396/30, PGmaintenance432, legacy Windows51,
+Ubuntu49/2. Nativeclients17.11. Audit artifact12673599319:24distributions,
+0findings/0skips/pip26.2. Ці докази стосуються саме ban/unban+карти, не clear.
+
 
 База — **083d4bc**, чиста feature/core-v2; PR1 draft, main не змінено.
 Перед роботою підтверджено [успішний CI083d4bc](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40371041490).

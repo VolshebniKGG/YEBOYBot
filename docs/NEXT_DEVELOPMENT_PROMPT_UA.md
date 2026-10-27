@@ -15,7 +15,7 @@ Duplicate/Missing/Untested. Не реалізовуй повторно заве�
 
 Відомий стан, який потрібно повторно перевірити:
 
-- Core V2 має 16 slash-команд: попередні14 та ban/unban.
+- Core V2 має 18 slash-команд: попередні16 та clear/clear-status.
   Kick/ban/unban мають спільний ModerationService, fresh REST authorization,
   role/owner recheck, committed deterministic
   case claim, duplicate blocking і ambiguity-safe outcome. History читає тільки
@@ -83,30 +83,44 @@ PostgreSQL17.11/native716 passed/5 Windows skipped; Ruff/pipcheck/diffcheck pass
 Фактичні CI результати цієї ітерації звір у CORE_V2_STATUS_UA.md за SHA;
 старі497-test totals вище не є підтвердженням нового HEAD.
 
-Найближчий функціональний етап — /clear з підтвердженням небезпечного видалення.
-Kick/ban/unban/modhistory не реалізовуй повторно.
+Clear вже реалізовано: regularTextChannel, одна сторінка до25 повідомлень перед
+interaction, default/reply/recent7days; pinned/system/old пропускаються без
+переобрання. Private60s author/guild/channel confirmation; immutable IDs і reason
+1..200 у version1 payload existing v2_jobs.body≤1000, typed clear_* states,
+понад5liveconfirmations відхиляються. Reminder scheduler не бере clear jobs.
+Serverclaim повторно перевіряє expiry ПІСЛЯ очікування SQL lock, свіжі channel
+permissions/overwrites та схвалені messages перевіряються до API. Discord не
+дає atomic pin/permissions+delete. Receipt status тільки власнику в тому самому
+каналі; /modhistory — member cases, clear-status — manual-job audit. Старіviews
+після restart не відновлюються, unknown не повторюється. APIackNID не є
+незалежним підрахунком нових видалень. Docs: CLEAR_UA.md і «Код структура.txt».
+Фактичні нові totals/CI звір у CORE_V2_STATUS_UA.md; не перенось721-test baseline
+на наступні зміни. Цю реалізацію не дублюй, доки немає підтвердженої регресії.
+Clear додає353 тести; загалом1074. Фінальний SQLite/default977passed/97skipped
+після expiry-fix перевірено локально; PostgreSQL повний результат і новіCI
+звір у поточному статусі за SHA. Oversize-body негативний PG-тест перевіряє
+DBAPIError із точним SQLSTATE22001 та збереження рядка, не загальний Exception.
 
-1. Прочитай shared service, adapter, claim/history у db.py та їхні тести.
-   Визнач bounded /clear UX: max message count, channel/thread scope і випадки
-   старих повідомлень/часткового bulk-delete. Не видаляй повідомлення мовчки.
-2. Перевір actor/bot Manage Messages та доступ View Channel/Read Message History,
-   guild_id/channel_id, причину; не покладайся на cached command defaults.
-   Confirmation має бути ephemeral, обмежений у часі, доступний тільки автору
-   й прив'язаний до guild/channel/запиту; повторний click не виконує дію вдруге.
-3. Committed claim і журнал мають передувати write API. Не обіцяй SQL/Discord
-   спільної транзакції чи exactly-once. Скасування/помилка/частковий результат
-   не повинні видавати невідоме за «все видалено» або «нічого не відбулося».
-   Не додавай сліпий replay pending після перезапуску.
-4. Перевір інтеграційні/негативні сценарії: чужий click, expired confirmation,
-   permission/role/channel changes, guild isolation, API403/404/timeout/cancel,
-   DB failure before/after action, повторний interaction/click, partial delete.
-   Unit-тести не входять у реальний Discord. Повні Windows/Linux/PG checks
-   та CVE audit залишаються в CI; параметричні IDs не містять великих payloads.
-5. Старі warn/timeout/untimeout ще мають cached checks і HTTP-failed lifecycle.
-   Перенесення на shared service — окремий найближчий борг. Нові kick/ban/unban
-   не роблять старі moderation handlers безпечними автоматично.
-6. Заверши один сценарій, включно з українською інструкцією, логічним комітом,
-   актуальною картою «Код структура.txt» та перевіркою CI перед наступним.
+Наступний пріоритет — перенести старі /warn, /timeout, /untimeout на спільні
+свіжі перевірки та безпечний lifecycle. Kick/ban/unban/clear/status не переписуй
+повторно. Тримай ітерацію обмеженою одним завершеним сценарієм.
+
+1. Встанови фактичні permission/hierarchy/owner/admin/timeout правила Discord.
+   Не використовуй cached member/guild role data як остаточну авторизацію.
+2. Для timeout зберігай явний початковий payload із duration/expiry, причиною,
+   actor/target/guild/interaction. Changed duration при duplicate не має
+   повторно або інакше карати людину. Обґрунтуй зберігання метаданих; міграцію
+   додавай лише з compatibility guard, verified backup/rollback і preservation tests.
+3. Claim має commit-итись перед API. SDKerrors/timeouts/cancellation можуть бути
+   неоднозначні; pending/unknown не видавай за failed. DBfailure/CAS0 після API
+   success не є failed API. Не додавай blind replay чи exactly-once обіцянок.
+4. Перевір SQL/guild isolation, permissions/role changes, API403/404/5xx, timeout,
+   cancellation, duplicate/differentpayload, DBbefore/afterfailures, restart.
+   Реальний Discord у unit-тестах не запускай; ручний/API доказ — окремо.
+5. Підтримуй Windows/Linux/PostgreSQL full/focused CI, retained logs/JUnit і CVE
+   audit. Parameter IDs не містять великих payloads; перевірки не прибирай.
+6. Онови українські інструкції, карту коду та статус, зроби логічний коміт у
+   feature/core-v2, перевір CI, збережи draft PR без merge уmain й надай звіт.
 
 Далі: доступні Discord event logs з урахуванням intents/API, /setup і /help,
 welcome/autorole, persistent role panels, automod з винятками/false positives,

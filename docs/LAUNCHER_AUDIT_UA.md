@@ -22,7 +22,7 @@
 | Автозапуск Windows | Partial | [15]: opt-in завдання після входу поточного SID, без пароля/admin, перевірка належності; реальне створення/видалення на Windows 10/11 потребує ручної перевірки |
 | Телеметрія / експорт діагностики | Partial | [4]/[18]: read-only SQLite/config/import checks і JSON без секретів; CPU/RAM/lag ще відсутні |
 | Версійовані міграції | Partial | Явний SQLite1→2 [21] і PostgreSQL1→2 [23], verifiedbackup/rollback; nativePGWindows і ручний Windows не перевірені |
-| Core V2 moderation | Partial | warn/warnings/unwarn, timeout/untimeout; kick/ban/unban/modhistory додано з fresh checks та atomic claim; clear відсутній |
+| Core V2 moderation | Partial | warn/warnings/unwarn, timeout/untimeout; kick/ban/unban/modhistory додано з fresh checks та atomic claim; clear/clear-status додано з manual confirm receipt; liveDiscord не перевірений |
 | XP | Partial | Текстовий XP/cooldown/rank; голосовий XP та rewards відсутні |
 | Нагадування | Partial | Збереження, lease/retry; можлива повторна доставка після crash |
 | Automod/welcome/autorole/role panels | Disconnected | Резерв конфігурації/схеми, активних модулів немає |
