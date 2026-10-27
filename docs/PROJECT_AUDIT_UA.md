@@ -35,7 +35,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Legacy cogs | Partial | Реальні moderation/user/help/rank завантажені offline в disposable copy; поведінка команд/live API та music не перевірені |
 | run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI45/Linux43+2skip успішні на a6c8e49; ручний Windows/live API очікуються |
 | start_v2.bat | Duplicate | Додаткова стара точка входу збережена |
-| CI | Partial | Setup804d009: push40521511034 і PR40521522298 мають усі9jobs success; повний Windows1033/92, Ubuntu990/135, PostgreSQL1082/43, focused770/60 і730/100, maintenance785, legacy51 і49/2. Audit24/zero/0skips. Початкову CMD-test quoting помилку виправлено зі збереженням складного шляху. Деталі у CORE_V2_STATUS_UA; ручний Windows/WinGet install/live API не підтверджені |
+| CI | Partial | Warn ef4b345: push40560042495 і PR40560052692 мають усі9jobs success; повний Windows1229/118, Ubuntu1186/161, PostgreSQL1304/43, focused966/86 і926/126, maintenance1007, legacy51 і49/2. Audit24/zero/0skips. Bootstrap39PS+12handoff збережені; ручний Windows/WinGet install/live API не підтверджені |
 | Dependency audit | Partial | Linux Core/dev/pip:24 distributions, після pip26.2 zero known advisories; legacy/OS/Windows resolution не охоплені |
 
 ## Ризики, що потребують окремих завершених ітерацій

@@ -45,8 +45,35 @@ JUnit222tests/0failures/0errors. Реальні Discord REST responses підм�
 SDK-моделі, SQL-транзакції й конкурентні записи виконувались реально.
 Ruff/pipcheck/diffcheck пройдено. Повторний Linux Core/runtime/dev/installer
 pip-audit2.10.1:24distributions/0findings/0skips,pip26.2; не OS/interpreter/legacy/Windows/native.
-Нові CI результати фіксуються за SHA. Live Discord/ручний Windows/24×7 не виконувались.
+Нові CI результати ef4b345 підтверджено окремо нижче.
+Live Discord/ручний Windows/24×7 не виконувались.
 Код, [MODERATION_UA.md](MODERATION_UA.md), README/Quickstart та «Код структура.txt» узгоджені.
+
+### CI попереджень — ef4b345
+
+[Push40560042495](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40560042495),154s,
+і [PR40560052692](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40560052692),170s,
+мають exactHEADef4b345f677da75bdbf4a638e6995c3e8b292037 та **усі9jobs success**.
+
+| Job | Passed | Skipped |
+|---|---:|---:|
+| Повний Windows | 1229 | 118 PostgreSQL |
+| Повний Ubuntu | 1186 | 161 PostgreSQL/Windows |
+| Повний PostgreSQL | 1304 | 43 Windows |
+| Focused Windows | 966 | 86 PostgreSQL/непідготовлений Core venv |
+| Focused Ubuntu | 926 | 126 PostgreSQL/Windows |
+| PostgreSQL maintenance | 1007 | 0 |
+| Legacy Windows | 51 | 0 |
+| Legacy Ubuntu | 49 | 2 Windows |
+| Dependency audit | success | 0 distributions |
+
+Windows підтвердив196newwarning passed/26PGskip, наявні39PS+12handoff tests,
+перше й повторне install_v2.bat. NativePGclients17.11.
+Artifacts push/PR: Windows12760055687/12761270008, PG12758063194/12760546256,
+Ubuntu12759780222/12759990065, maintenance12760030577/12759516133.
+AdvisoryJSON12757484452:24distributions/0findings/0skips/pip26.2;
+SHA256ZIP збігається з API digest. Scope обмежений Linux Core/dev/installer.
+Реальні Discord-запити/ручний clean-PC Python install/24×7 не виконувались.
 
 ## Попередня ітерація: встановлення на чистому Windows-ПК
 

@@ -54,6 +54,10 @@ PG1082/43. Це історична база, не докази наступно�
 тести (94repository/87service/25commands/16integration), загалом1347.
 Локально Linux full1186passed/161skipped; repository realSQLite/PG94passed,
 фінальні всі нові тести ізPG222passed/0skipped. CI warning-коду звір у STATUS за SHA.
+Кодef4b345 має push40560042495 і PR40560052692 усі9jobs success: Windows1229/118,
+Ubuntu1186/161, PostgreSQL1304/43, focused966/86 і926/126, maintenance1007,
+legacy51 і49/2, audit24/zero/0skips. Наявні39PS+12handoff Windows тести пройшли.
+Нові документаційні або функціональні HEAD перевіряй окремо.
 Ruff/pipcheck/diffcheck та Linux Core CVE24/zero/0skips пройдено. CVE scope не
 охоплює interpreter/OS/legacy/Windows/native. Не перенось результати старих тестів
 новому коду. Ручний clean-PC Python install, Windows/logon, liveDiscord,24/7
