@@ -45,7 +45,15 @@ Ruff/pipcheck/diffcheck пройдено. Freshpip-audit2.10.1/PyPI:31distributi
 не є доказом доступності конкретного YouTube відео чи відтворення в Discord.
 Live Discordvoice, реальніSpotifycredentials, WinGetnativeinstall, ручнийWindows
 та24hsoak ще не перевірені. Порядок перевірки — [RANK_MUSIC_UA.md](RANK_MUSIC_UA.md).
-Новий CI цього коду буде перевірений за фактичним SHA; дані додано в PR/звіт.
+Код407d9d5 збережено в GitHub. Push40603362574/PR40603368622 затрималися
+на повних suites: точний локальний -vv запуск підтвердив2,097,258символів в
+одній nodeID-лінії, журнал5,398,189байт і1541pass/172skip за38.69s.
+Причина — implicitpytestIDs із1–2MiBpayloads у rank_card/media_setup/music_options.
+Додано короткі явні IDs; усі payloads, assertions,1713tests іCI-vv/JUnit збережені.
+Повторний exact-CI local:1541pass/172skip за32.31s,222025байтlog замість5.4MB;
+ще один16KBstreamURL testcase теж отримав короткийID,10negativecases пройшли.
+Після fix новий CI перевіряється за новим SHA; функціональний код407d9d5 не змінено.
+Докази завершення будуть у PR та фінальному звіті.
 
 ---
 

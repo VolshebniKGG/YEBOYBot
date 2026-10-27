@@ -73,7 +73,8 @@ def test_transparent_avatar_preserves_template():
 
 
 @pytest.mark.parametrize("data", [None, b"", b"not a PNG", b"\x89PNG\r\n\x1a\n", bytearray(b"no"),
-                                  b"x" * (module.MAX_IMAGE_BYTES + 1)])
+                                  b"x" * (module.MAX_IMAGE_BYTES + 1)],
+                         ids=["missing", "empty", "invalid-png", "truncated-png", "bytearray", "over-2MiB"])
 def test_invalid_or_oversized_image_has_neutral_placeholder(data):
     result = render(avatar_bytes=data, guild_icon_bytes=data)
     assert result.getpixel((70, 60)) == (57, 65, 90, 255)

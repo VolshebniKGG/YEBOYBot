@@ -88,7 +88,9 @@ def test_safe_streams(source):
 @pytest.mark.parametrize("source", [None, "file:///etc/passwd", "https://127.0.0.1/a",
     "http://x.googlevideo.com/a", "https://googlevideo.com.evil.example/a", "https://youtube.com/a",
     "https://user:pass@x.googlevideo.com/a", "https://x.googlevideo.com:8443/a",
-    "https://x.googlevideo.com/a\r\nAuthorization: bad", "https://x.googlevideo.com/" + "a" * 16_000])
+    "https://x.googlevideo.com/a\r\nAuthorization: bad", "https://x.googlevideo.com/" + "a" * 16_000],
+    ids=["non-string", "file", "loopback", "insecure", "suffix-spoof", "wrong-cdn",
+         "userinfo", "port", "header-injection", "oversized-stream-url"])
 def test_unsafe_streams_rejected(source):
     with pytest.raises(MusicError):
         validate_stream_url(source)

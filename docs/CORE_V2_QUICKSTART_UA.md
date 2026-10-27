@@ -21,7 +21,7 @@
    відкриває головне меню; панель встановлення можна повернути через **[24]**.
 4. Після успішної перевірки виберіть **[12]**, введіть токен приховано та ID тестового сервера.
 5. Запросіть бота на тестовий сервер зі scopes `bot` і `applications.commands`.
-   Права: View Channels, Send Messages, Embed Links, Moderate Members; для `/kick` —
+   Права: View Channels, Send Messages, Embed Links, Attach Files (PNG `/rank`), Moderate Members; для `/kick` —
    Kick Members, для `/ban` і `/unban` — Ban Members. Для `/clear` авторові й
    боту потрібні Manage Messages, View Channel і Read Message History у каналі.
    Роль бота має бути вище ролей учасників, яких він модерує.

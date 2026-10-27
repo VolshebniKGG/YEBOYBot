@@ -11,6 +11,14 @@ MODERATION_UA, MIGRATIONS_UA, WINDOWS_CMD_LAUNCHER_UA, CLEAN_PC_SETUP_UA,
 POSTGRES_RECOVERY_UA та DEPENDENCY_AUDIT_UA. Код має пріоритет перед історичними
 результатами. Не дублюй готові сценарії й не переписуй чужі зміни.
 
+Перед новими функціями перевір цей користувацький сценарій на окремому Discord
+сервері: PNGранг/AttachFiles+EmbedLinks → перенесеннястарихXPчерез[26] →
+текст/голоснарахування → AP→usertrack→AP → voice disconnect/reconnect → stop.
+Cloudprobe першого автотреку повернув DownloadError з категорієюnetwork, тож
+успішний стримінг не заявлено. Не додавай cookies/TLSdisable/обхідправилджерела
+для отримання зеленого smoke. Якщо liveсередовище недоступне — зафіксуй межу,
+продовжуй незалежну стабілізацію /warnings і /unwarn, не повторюй rank/music з нуля.
+
 ## Реалізований стан, який слід повторно звірити
 
 

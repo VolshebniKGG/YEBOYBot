@@ -53,7 +53,8 @@ def test_options_token_uses_ini_without_interpolation_or_repr_exposure(tmp_path)
     assert token not in repr(Settings(token, "sqlite+aiosqlite:///data.db"))
 
 
-@pytest.mark.parametrize("body", ["invalid synthetic-secret", "[Credentials]\nToken=a\nToken=synthetic-secret", "[Credentials]\nToken=" + "x" * 1048576])
+@pytest.mark.parametrize("body", ["invalid synthetic-secret", "[Credentials]\nToken=a\nToken=synthetic-secret", "[Credentials]\nToken=" + "x" * 1048576],
+                         ids=["malformed", "duplicate-token", "over-1MiB"])
 def test_invalid_ini_never_echoes_payload(tmp_path, body):
     root = setup_root(tmp_path)
     (root / "config/options.ini").write_text(body, encoding="utf-8")

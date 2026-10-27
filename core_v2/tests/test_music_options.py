@@ -77,7 +77,8 @@ def test_playlist_comments_dedup_unicode_bom_and_no_rewrite(tmp_path):
 
 
 @pytest.mark.parametrize("content", [b"\xff", b"x" * 2_000_001,
-                                           b"x" * 501, b"\n".join([b"a"] * 10001)])
+                                           b"x" * 501, b"\n".join([b"a"] * 10001)],
+                         ids=["invalid-utf8", "over-2MB", "long-entry", "over-10000-lines"])
 def test_playlist_bounds_and_invalid_utf8_are_safe(tmp_path, content):
     configuration(tmp_path, "[MusicBot]")
     path = tmp_path / "config/_autoplaylist.txt"
