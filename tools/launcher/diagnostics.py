@@ -12,7 +12,7 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGES = ("discord.py", "SQLAlchemy", "aiosqlite", "asyncpg", "python-dotenv")
+PACKAGES = ("discord.py", "SQLAlchemy", "aiosqlite", "asyncpg", "python-dotenv", "Pillow", "PyNaCl", "davey", "yt-dlp", "yt-dlp-ejs")
 
 
 def result(status, code):
@@ -61,7 +61,7 @@ def collect(root=ROOT):
         except importlib.metadata.PackageNotFoundError:
             packages[name] = None
     imports_ok = True
-    for module in ("discord", "sqlalchemy", "aiosqlite", "asyncpg", "dotenv"):
+    for module in ("discord", "sqlalchemy", "aiosqlite", "asyncpg", "dotenv", "PIL", "nacl", "davey", "yt_dlp", "yt_dlp_ejs"):
         try:
             importlib.import_module(module)
         except Exception:
@@ -72,8 +72,16 @@ def collect(root=ROOT):
         from core_v2.config import Settings
         from sqlalchemy.engine import make_url
         settings = Settings.load()
-        checks["configuration"] = result("error" if settings.music else "ok",
-                                          "music_not_integrated" if settings.music else "configuration_valid_locally")
+        checks["configuration"] = result("ok", "configuration_valid_locally")
+        if settings.music:
+            try:
+                from core_v2.media_environment import check_music
+                from core_v2.music_options import load_music_options
+                check_music(settings.ffmpeg, root)
+                load_music_options(root)
+                checks["music"] = result("ok", "music_local_prerequisites_only")
+            except Exception:
+                checks["music"] = result("error", "music_prerequisites_invalid")
         url = make_url(settings.database)
         if url.drivername == "sqlite+aiosqlite" and url.database and url.database != ":memory:" and not url.query:
             backend = "sqlite"

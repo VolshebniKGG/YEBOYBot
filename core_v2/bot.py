@@ -53,11 +53,12 @@ class Bot(commands.AutoShardedBot):
         intents = discord.Intents.none()
         intents.guilds = True
         intents.guild_messages = True
+        intents.voice_states = True
         intents.members = settings.members
         super().__init__(command_prefix=commands.when_mentioned, help_command=None,
                          intents=intents, tree_cls=Tree, shard_count=settings.shard_count,
                          max_messages=100, chunk_guilds_at_startup=False,
-                         member_cache_flags=discord.MemberCacheFlags.none(),
+                         member_cache_flags=discord.MemberCacheFlags(voice=True, joined=False),
                          allowed_mentions=discord.AllowedMentions.none())
         self.settings = settings
         self.db = Database(settings.database)
@@ -82,6 +83,11 @@ class Bot(commands.AutoShardedBot):
         await self.db.initialize()
         from .commands import Core
         await self.add_cog(Core(self))
+        from .voice_xp import VoiceXP
+        await self.add_cog(VoiceXP(self))
+        if self.settings.music:
+            from .music import Music
+            await self.add_cog(Music(self))
         if self.settings.sync == "test":
             guild = discord.Object(id=self.settings.test_guild)
             self.tree.copy_global_to(guild=guild)
@@ -159,6 +165,8 @@ class Bot(commands.AutoShardedBot):
         await self.wait_until_ready()
 
     async def close(self):
+        for name in ("Music", "VoiceXP"):
+            await self.remove_cog(name)
         self.deliver.cancel()
         task = self.deliver.get_task()
         if task:

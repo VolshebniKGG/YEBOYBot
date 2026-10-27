@@ -2,8 +2,25 @@ from dataclasses import dataclass, field
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+import configparser
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def options_token(root=ROOT):
+    """Optional legacy INI token, without interpolation or credential logging."""
+    path = root / "config/options.ini"
+    if not path.exists():
+        return ""
+    try:
+        if path.stat().st_size > 1024 * 1024:
+            raise ValueError("Oversized options")
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read_string(path.read_text(encoding="utf-8-sig"))
+        token = parser.get("Credentials", "Token", fallback="").strip()
+        return "" if token in {"bot_token", "your_token_here"} else token
+    except (OSError, UnicodeError, configparser.Error, ValueError):
+        raise ValueError("Перевірте формат config/options.ini; вміст конфігурації приховано.") from None
 
 
 def flag(name):
@@ -27,7 +44,7 @@ class Settings:
     @classmethod
     def load(cls, require_token=True):
         load_dotenv(ROOT / ".env.v2")
-        token = os.getenv("DISCORD_TOKEN", "").strip()
+        token = os.getenv("DISCORD_TOKEN", "").strip() or options_token(ROOT)
         if require_token and not token:
             raise ValueError("Заповніть DISCORD_TOKEN у .env.v2")
         sync = os.getenv("SYNC_COMMANDS", "none").strip()

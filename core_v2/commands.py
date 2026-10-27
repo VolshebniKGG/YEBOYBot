@@ -1,7 +1,9 @@
 import asyncio
 import datetime
-import math
+import logging
+from io import BytesIO
 import time
+import unicodedata
 
 import discord
 from discord import app_commands
@@ -12,6 +14,30 @@ from .security import guild_context
 from .moderation import ModerationService, ModerationError, valid_id
 from .discord_moderation import DiscordGateway, history_embed, warning_embeds
 from .clear_commands import preview as clear_preview, status as clear_status
+from .rank_card import render_rank_card
+
+
+log = logging.getLogger(__name__)
+RANK_DB_TIMEOUT = 10
+RANK_ASSET_TIMEOUT = 8
+RANK_RENDER_TIMEOUT = 10
+RANK_SLOT_TIMEOUT = 2
+RANK_ASSET_LIMIT = 2 * 1024 * 1024
+RANK_PNG_LIMIT = 512 * 1024
+
+
+async def _rank_asset(asset, size):
+    """Read only SDK-supplied Discord CDN assets; unavailable icons use a fallback."""
+    if asset is None:
+        return None
+    try:
+        async with asyncio.timeout(RANK_ASSET_TIMEOUT):
+            result = await asset.with_size(size).with_static_format("png").read()
+        if isinstance(result, bytes) and len(result) <= RANK_ASSET_LIMIT:
+            return result
+    except (discord.HTTPException, OSError, ValueError, TypeError, TimeoutError):
+        log.info("Rank asset unavailable; using fallback")
+    return None
 
 
 def moderation_user_id(value):
@@ -35,6 +61,8 @@ class Core(commands.Cog):
         self.bot = bot
         self.moderation = ModerationService(bot.db, DiscordGateway(bot))
         self._clear_service = None
+        self._rank_slots = asyncio.Semaphore(2)
+        self._rank_workers = set()
 
     def _clear_domain(self):
         # Existing commands need no manual-job repository; initialize on demand.
@@ -133,7 +161,7 @@ class Core(commands.Cog):
         healthy = await self.bot.db.health()
         await respond(interaction, f"Core v2 · DB: {healthy} · Серверів: {len(self.bot.guilds)}")
 
-    @app_commands.command(name="levels", description="Увімкнути або вимкнути текстовий XP")
+    @app_commands.command(name="levels", description="Увімкнути або вимкнути текстовий і голосовий XP")
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.guild_only()
     async def levels(self, interaction: discord.Interaction, enabled: bool):
@@ -141,29 +169,89 @@ class Core(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         await self.bot.db.configure(guild.id, levels=enabled)
         self.bot.settings_cache.pop(guild.id, None)
-        await respond(interaction, f"Текстовий XP: {'увімкнено' if enabled else 'вимкнено'}.")
+        voice_xp = self.bot.get_cog("VoiceXP") if hasattr(self.bot, "get_cog") else None
+        if voice_xp is not None:
+            voice_xp.reset_guild(guild.id)
+        await respond(interaction, f"Текстовий і голосовий XP: {'увімкнено' if enabled else 'вимкнено'}.")
 
-    @app_commands.command(name="rank", description="Рівень учасника на цьому сервері")
+    async def _render_rank(self, **values):
+        # A timed-out/cancelled waiter must not free the slot while its thread is
+        # still rendering. Keep a strong task reference until actual completion.
+        async with asyncio.timeout(RANK_SLOT_TIMEOUT):
+            await self._rank_slots.acquire()
+        try:
+            worker = asyncio.create_task(asyncio.to_thread(render_rank_card, **values))
+        except BaseException:
+            self._rank_slots.release()
+            raise
+        self._rank_workers.add(worker)
+
+        def completed(task):
+            self._rank_workers.discard(task)
+            self._rank_slots.release()
+            if not task.cancelled():
+                task.exception()  # consume an error if the original waiter left
+
+        worker.add_done_callback(completed)
+        async with asyncio.timeout(RANK_RENDER_TIMEOUT):
+            result = await asyncio.shield(worker)
+        if not isinstance(result, bytes) or len(result) > RANK_PNG_LIMIT:
+            raise ValueError("Invalid rank image output")
+        return result
+
+    @app_commands.command(name="rank", description="Картка текстового та голосового рангу учасника")
     @app_commands.guild_only()
     async def rank(self, interaction: discord.Interaction, member: discord.Member | None = None):
+        guild = guild_context(interaction)
         await interaction.response.defer()
         member = member or interaction.user
-        row = await self.bot.db.rank(interaction.guild_id, member.id)
-        total = row["text_xp"] + row["voice_xp"]
-        embed = discord.Embed(title=f"Ранг: {member.display_name}",
-                              description=f"Рівень {math.isqrt(total // 100) + 1} · {total} XP")
-        await interaction.followup.send(embed=embed)
+        if member.guild.id != guild.id:
+            raise UserError("Учасник має належати цьому серверу.")
+        try:
+            async with asyncio.timeout(RANK_DB_TIMEOUT):
+                row = await self.bot.db.rank_snapshot(guild.id, member.id)
+        except Exception:
+            log.warning("Rank database read failed guild=%s", guild.id)
+            await interaction.followup.send("Не вдалося прочитати XP. Спробуйте пізніше.",
+                ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+            return
+        avatar, icon = await asyncio.gather(_rank_asset(member.display_avatar, 256),
+                                           _rank_asset(guild.icon, 64))
+        try:
+            image = await self._render_rank(display_name=member.display_name,
+                text_xp=row["text_xp"], voice_xp=row["voice_xp"],
+                text_rank=row["text_rank"], voice_rank=row["voice_rank"],
+                avatar_bytes=avatar, guild_icon_bytes=icon)
+        except Exception:
+            log.warning("Rank card rendering failed guild=%s", guild.id)
+            await interaction.followup.send("Не вдалося створити картку рангу. Спробуйте пізніше.",
+                ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+            return
+        text_place = row["text_rank"] or "—"
+        voice_place = row["voice_rank"] or "—"
+        clean_name = "".join(character for character in member.display_name[:128]
+                             if not unicodedata.category(character).startswith("C"))
+        name = discord.utils.escape_mentions(discord.utils.escape_markdown(clean_name))[:100]
+        embed = discord.Embed(title=f"Ранг: {name}", description=(
+            f'Чат: {row["text_xp"]} XP · місце {text_place}\n'
+            f'Голос: {row["voice_xp"]} XP · місце {voice_place}'))
+        embed.set_image(url="attachment://rank.png")
+        await interaction.followup.send(embed=embed,
+            file=discord.File(BytesIO(image), filename="rank.png"),
+            allowed_mentions=discord.AllowedMentions.none())
 
-    @app_commands.command(name="leaderboard", description="Рейтинг цього сервера")
+    @app_commands.command(name="leaderboard", description="Загальний рейтинг текстового та голосового XP")
     @app_commands.guild_only()
     async def leaderboard(self, interaction: discord.Interaction,
                           page: app_commands.Range[int, 1, 1000] = 1):
+        guild_context(interaction)
         await interaction.response.defer()
         rows = await self.bot.db.leaderboard(interaction.guild_id, page)
         lines = [f'{(page-1)*10+i}. <@{r["user_id"]}> — {r["text_xp"]+r["voice_xp"]} XP'
                  for i, r in enumerate(rows, 1)]
         await interaction.followup.send(embed=discord.Embed(
-            title=f"Рейтинг · {page}", description="\n".join(lines) or "Поки немає XP."))
+            title=f"Рейтинг · чат + голос · {page}", description="\n".join(lines) or "Поки немає XP."),
+            allowed_mentions=discord.AllowedMentions.none())
 
     async def checked_target(self, interaction, member, perm):
         guild = permission(interaction, perm)

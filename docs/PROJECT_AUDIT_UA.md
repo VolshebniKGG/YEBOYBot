@@ -1,14 +1,10 @@
-# Аудит проєкту YEBOYBot — 27.10.2026
+# Аудит проєкту YEBOYBot — 28.10.2026
 
-Оглянуто відстежуване дерево, core_v2, tools/launcher, legacy yeboybot,
-точки входу, залежності, тести, CI та документацію. База ітерації —
-feature/core-v2@809db8a; поточна ітерація додає ідемпотентний локальний /warn
-зі свіжими правами й атомарним записом та виправляє bounded /warnings display.
-Windows setup, clear/ban/unban і карта коду підтверджені повним CI на809db8a.
-Нові результати warning-змін фіксуються за SHA, окремо від цих доказів.
-SQLite schema2/migrations та fail-closed heartbeat збережені без повторної реалізації.
-main@14bd68a містить стару реалізацію; PR #1 залишається draft. GitHub HEAD
-і CI потрібно повторно звіряти перед наступною роботою.
+Поточна ітерація на базі3ad0432 додає графічний /rank, голосовий XP,
+підтверджений import legacy XP у SQLite та opt-in /music. Перевірки попереднього
+warning-коду3ad0432 успішні, але не є доказами нових змін. Schema2/migrations,
+heartbeat, ізоляція Core/legacy й main збережені. Точні нові результати —
+[CORE_V2_STATUS_UA.md](CORE_V2_STATUS_UA.md); PR #1 лишається draft.
 
 Статус нижче описує інтеграцію й автоматичні перевірки. Робота на живому Discord,
 ручний Windows/logon і production 24/7 не підтверджені.
@@ -21,11 +17,12 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Міграції SQLite | Partial | Registry, план, явний 1→2, backup, rollback, idempotence; немає manual Windows доказу |
 | PostgreSQL | Partial | [23] standard public Core snapshot/upgrade1→2/restore в окрему порожню БД; Linux17.11 локально й PG maintenance76 у CI перевірено; Windows native/TLS/custom schemas не підтверджені |
 | Автозапуск | Partial | Opt-in Task Scheduler root/SID, pythonw; реальне створення/logon не перевірено |
-| Slash-команди | Partial | 18 commands: попередні16 плюс clear/clear-status; live Discord ще не підтверджений |
+| Slash-команди | Partial | 18 основних + opt-in група music із6 командами; live Discord ще не підтверджений |
 | Модерація | Partial | Kick/ban/unban: shared service, fresh permissions/hierarchy, atomic cross-action claim, ambiguity-safe audit; modhistory з pending diagnostics. Ban не видаляє повідомлення; unban за ID колишнього учасника. Clear має окреме підтвердження/receipt; automatic reconcile відсутній; старі timeout lifecycle потребують виправлення |
 | Попередження | Partial | /warn: fresh authority + atomic local warn/applied, deterministic guild/interaction key, immutable payload/revoked replay; /warnings bounded10 UTF16 outputs. Read/revoke authorization warnings/unwarn ще cached; liveDiscord не перевірений |
 | Очищення повідомлень | Partial | До25/recent7days/TextChannel, immutableIDs, ephemeral60s confirm, atomicmanualjobclaim/expiry, ownstatus, no replay unknown; liveDiscord/manualWindows не перевірені |
-| XP | Partial | Текстовий XP/cooldown/guild rankings; голосовий XP/rewards не підключені |
+| Музика Core | Partial | Per-guild bounded FIFO/autoplay, user priority, cleanup/reconnect/backoff, options subset, FFmpeg/Deno setup; Spotify official metadata→YouTube match. In-memory queue; live streams/24×7 не перевірені |
+| XP | Partial | Текст5XP/60s, голос5XP/спостережену хвилину з ≥2 придатними людьми; окремі SQL ranks/PNG/антифарм/reset; [26] explicit max-merge JSON→SQLite з backup. Rewards, speech detection і live Discord не перевірені/відсутні |
 | Нагадування | Partial | Durable lease/retry/access check; at-least-once, можливі повтори після crash |
 | Automod/welcome/autorole/panels | Disconnected | Поля/таблиці/helpers є; активних сценаріїв Discord немає |
 | Подієві Discord-журнали | Missing | Системні logs і moderation cases не є повним event audit |
@@ -35,7 +32,7 @@ main@14bd68a містить стару реалізацію; PR #1 залиша�
 | Legacy cogs | Partial | Реальні moderation/user/help/rank завантажені offline в disposable copy; поведінка команд/live API та music не перевірені |
 | run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI45/Linux43+2skip успішні на a6c8e49; ручний Windows/live API очікуються |
 | start_v2.bat | Duplicate | Додаткова стара точка входу збережена |
-| CI | Partial | Warn ef4b345: push40560042495 і PR40560052692 мають усі9jobs success; повний Windows1229/118, Ubuntu1186/161, PostgreSQL1304/43, focused966/86 і926/126, maintenance1007, legacy51 і49/2. Audit24/zero/0skips. Bootstrap39PS+12handoff збережені; ручний Windows/WinGet install/live API не підтверджені |
+| CI | Partial | Нові rank/music результати див. CORE_V2_STATUS; історичний warn ef4b345: push40560042495 і PR40560052692 мають усі9jobs success; повний Windows1229/118, Ubuntu1186/161, PostgreSQL1304/43, focused966/86 і926/126, maintenance1007, legacy51 і49/2. Audit24/zero/0skips. Bootstrap39PS+12handoff збережені; ручний Windows/WinGet install/live API не підтверджені |
 | Dependency audit | Partial | Linux Core/dev/pip:24 distributions, після pip26.2 zero known advisories; legacy/OS/Windows resolution не охоплені |
 
 ## Ризики, що потребують окремих завершених ітерацій

@@ -1,0 +1,2 @@
+# The main setup button installs these packages together with Core V2.
+-r requirements.txt

@@ -1,3 +1,23 @@
+# Аудит нових media-залежностей — 28.10.2026
+
+Під час rank/voice/music ітерації додано Pillow13.0.0, PyNaCl1.6.2, davey0.1.7,
+yt-dlp2026.10.26 і yt-dlp-ejs0.8.0. Pillow малює зображення; PyNaCl і davey —
+voice AEAD/DAVE; yt-dlp/EJS отримують підтримувані публічні потоки.
+Пакети встановлюються одним Core bootstrap лише в .venv-v2; FFmpeg та JS runtime
+є окремими native-компонентами й встановлюються за окремою згодою через[25].
+
+Початковий PyNaCl1.5.0 повернув PYSEC-2026-1448 і PYSEC-2026-3002; обидва
+мають виправлення1.6.2. Пакет замінено без вимкнення audit. Використовується
+базовий discord.py2.7.1 із явно pinnedPyNaCl1.6.2, а не його voiceextra, що ще
+має старий upperbound<1.6. Власний тест виконує справжнє SDKAEAD encryption
+і PyNaCl decryption трьох пакетів з різними nonce. Це сумісність цього шляху,
+а не доказ усіх livevoice/DAVE сценаріїв.
+
+Повторний Linux Python3.12.14 pip-audit2.10.1/PyPI: **31дистрибутив,0advisories,
+0пропусків**, pip26.2. pipcheck пройдено окремо. Scope: LinuxCore/runtime/dev/
+installer; не OS/interpreter/FFmpeg/Deno/Node/legacy/Windows resolution.
+Окремий CI виконує аудит заново для нового коміту; старий audit24 не є новим.
+
 # Аудит Python-залежностей — 26.10.2026
 
 `pip-audit 2.10.1` перевірив установлені дистрибутиви окремого Linux-середовища

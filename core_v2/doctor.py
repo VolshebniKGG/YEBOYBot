@@ -35,7 +35,7 @@ def main():
     failures = []
     if sys.version_info < (3, 12):
         failures.append("Потрібен Python 3.12 або новіший; CI перевіряє 3.12.")
-    for package in ("discord.py", "SQLAlchemy", "aiosqlite", "asyncpg", "python-dotenv"):
+    for package in ("discord.py", "SQLAlchemy", "aiosqlite", "asyncpg", "python-dotenv", "Pillow", "PyNaCl", "davey", "yt-dlp", "yt-dlp-ejs"):
         try:
             print(f"{package}: {importlib.metadata.version(package)}")
         except importlib.metadata.PackageNotFoundError:
@@ -48,7 +48,11 @@ def main():
         if database_failure:
             failures.append(database_failure)
         if settings.music:
-            failures.append("ENABLE_MUSIC має бути false: модуль ще не інтегровано.")
+            from .media_environment import check_music
+            from .music_options import load_music_options
+            check_music(settings.ffmpeg)
+            load_music_options(ROOT)
+            print("Music: локальні бібліотеки/FFmpeg/config перевірено, джерела й Discord не перевірялися")
     except (ValueError, OSError):
         failures.append("Перевірте .env.v2: токен, ID сервера, sync, URL БД і true/false.")
     for failure in failures:

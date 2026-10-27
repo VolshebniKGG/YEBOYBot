@@ -13,7 +13,7 @@ from tools.installer_policy import (PIP_VERSION, PIP_VERSION_CHECK, clean_enviro
                                     pip_command, pip_is_current)
 
 ROOT = Path(__file__).resolve().parents[2]
-IMPORT_CHECK = "import discord, sqlalchemy, aiosqlite, asyncpg, dotenv"
+IMPORT_CHECK = "import discord, sqlalchemy, aiosqlite, asyncpg, dotenv, PIL, nacl, davey, yt_dlp, yt_dlp_ejs"
 
 
 class BootstrapError(RuntimeError):

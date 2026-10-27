@@ -62,12 +62,15 @@ def logs():
 def main():
     os.chdir(ROOT)
     from . import process, storage, update, configuration, autostart, migrations, pg_workflow
+    from . import media, rank_import
     actions = {
         "2": ("Перезапустити бота", lambda: print(process.restart()["status"])),
         "3": ("Зупинити бота", lambda: print("Зупинено" if process.stop() else "Не зупинено")),
         "1": ("Запустити Discord-бота", start),
         "4": ("Перевірити конфігурацію та БД", lambda: run("-m", "tools.launcher.diagnostics")),
         "24": ("Повне встановлення / відновлення Core V2", full_setup),
+        "25": ("Музика: options.ini / FFmpeg / увімкнення", media.menu),
+        "26": ("Перенести старий XP у Core V2 (SQLite)", rank_import.menu),
         "5": ("Оновити Python-залежності", repair_dependencies),
         "6": ("Оновити YEBOYBot із GitHub", update.menu),
         "7": ("Створити резервну копію SQLite", backup),
@@ -103,7 +106,8 @@ def main():
                 return REPAIR_EXIT_CODE
             if choice == "6" and result:
                 return 0
-        except (storage.StorageError, update.UpdateError, configuration.ConfigurationError, migrations.MigrationError) as exc:
+        except (storage.StorageError, update.UpdateError, configuration.ConfigurationError, migrations.MigrationError,
+                rank_import.RankImportError) as exc:
             print(str(exc))
         except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
             print(f"Помилка операції: {type(exc).__name__}")

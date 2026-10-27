@@ -22,8 +22,6 @@ def main():
         raise SystemExit(2) from None
     configure_logging(settings)
     try:
-        if settings.music:
-            raise RuntimeError("Музичний модуль ще не підключено до цієї версії Core v2.")
         with InstanceLock("data/v2/bot.lock"):
             asyncio.run(run(settings))
     except KeyboardInterrupt:

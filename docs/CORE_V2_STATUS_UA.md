@@ -1,3 +1,54 @@
+# Поточна ітерація — ранг, голосовий XP і музика, 28.10.2026
+
+База3ad0432, feature/core-v2, PR#1 draft, main без змін. Попередній CI40560868774
+підтверджено success; його результати не приписуються новому коду.
+
+Реалізовано:
+- /rank повертає PNG500×188 з rank_background.png + gg.png masks/font.ttf,
+  великим avatar і малою guildicon, двома XP/ranks/levels/progress. SQL snapshot
+  одним statement, max2renderworkers, boundedCDN/UTF8/PNG/errors. Legacyфайли збережені.
+- Голос5XP за60с спостереженої придатної присутності з≥2людьми; noAFK/mute/deaf,
+  reset onshard/gateway/eligibilityloss, nocatchup. Text5/60s лишився. Levelsflag
+  вимикає обидва; VoiceStates+voicecache безprivilegedMembers/Content. Speechнеаналізується.
+- [26] explicit validated legacyJSON→SQLitev2, maxперcounter/idempotent,
+  preserve timestamps, OS/maintenance/SQLlocks, verifiedbackup/rollback/sourcehash.
+  Підтвердження перед записом; JSON не видаляється. PostgreSQLimportвідсутній.
+- Opt-in /music join/play/queue/skip/stop/autoplay: FIFO50/20guilds/2extractors,
+  ваш _autoplaylistдо10000rows, userpriority/preemptionAP, boundedprocesses,
+  backoff/reconnect, ownednonblockingFFmpegcleanup. Черга лише в пам'яті.
+- [25] налаштовує subsetoptions.ini таENABLE_MUSIC, optionalnativeFFmpeg/Deno
+  лише після окремого consent/officialWinGet. CredentialsToken fallback при
+  порожньому DISCORD_TOKEN; credentialsнепублікуються/непередаютьсявargv.
+- YouTube/SoundCloud +textsearch черезpinnedyt-dlp/EJS+installedDeno/Node≥20;
+  Spotifytrackofficialmetadata→YouTubematch, не originalSpotifyaudio.
+- Voicecrypto depsPillow13/PyNaCl1.6.2/davey0.1.7/yt-dlp2026.10.26/EJS0.8.
+  PyNaCl1.5 мав2advisories; виправлено, перевірено реальний SDKAEADroundtrip.
+  Schema2/шістьтаблиць/міграції не змінено. Немає vendoredбінарників.
+
+Локально Linux/Python3.12.14: **1541passed/172skipped**,1713tests/0failures/0errors,
+29.79s. Це366новихтестів відносно1347на3ad0432; є actualPillow/SQLite/PG,
+thread/cancel/cleanup, callback/permission negatives, replay/importbackup/rollback.
+Повний набір з disposablePostgreSQL17.11 +nativepg_dump/pg_restore:
+**1670passed/43Windows-skipped**,1713tests/0failures/0errors за92.68s.
+Ruff/pipcheck/diffcheck пройдено. Freshpip-audit2.10.1/PyPI:31distributions,
+0advisories/0skips,pip26.2; лише LinuxCore/runtime/dev/installer, не native/OS/legacy.
+
+Початкові невдалі перевірки не приховані: завузький лімітAP2000 замінено10000
+для реальногофайла2548rows; тест GroupCog виправлено доinstanceSDKAPI;
+імітація завершення180s відокремлена від productionanti-restartloop;
+тест cleanupчекаєконтрольований retryinterval, production1s збережено.
+НовеtestAEADналаштовано черезSDKconnection.secret_key readonlyproperty.
+Жоден сценарій/критичний assertion не прибрано для зеленого статусу.
+
+Окрема мережна спроба metadata extraction першого запису вашого автоплейлиста
+в cloud-середовищі не підтвердила успіх (MusicError). Unit/integration tests
+не є доказом доступності конкретного YouTube відео чи відтворення в Discord.
+Live Discordvoice, реальніSpotifycredentials, WinGetnativeinstall, ручнийWindows
+та24hsoak ще не перевірені. Порядок перевірки — [RANK_MUSIC_UA.md](RANK_MUSIC_UA.md).
+Новий CI цього коду буде перевірений за фактичним SHA; дані додано в PR/звіт.
+
+---
+
 # Поточний стан Core V2 — 27.10.2026
 
 Гілка feature/core-v2; main не змінено, PR #1 — draft. Нижче актуальний стан,

@@ -211,6 +211,33 @@ class Database:
                 xp.c.user_id == user_id))).mappings().first()
         return dict(row) if row else {"text_xp": 0, "voice_xp": 0}
 
+    async def rank_snapshot(self, guild_id, user_id):
+        """One statement snapshots both XP counters and deterministic guild ranks.
+
+        Equal counters are ordered by user_id. Reading an unranked member never
+        creates a row: it is ranked as zero XP among this guild's stored members.
+        """
+        if any(type(value) is not int or not 0 < value < 2**63
+               for value in (guild_id, user_id)):
+            raise ValueError("Invalid rank scope")
+        profile = select(*(
+            func.coalesce(select(xp.c[counter]).where(
+                xp.c.guild_id == guild_id, xp.c.user_id == user_id).scalar_subquery(), 0).label(counter)
+            for counter in ("text_xp", "voice_xp"))).cte("rank_profile")
+        other = xp.alias("rank_other")
+        positions = []
+        for kind in ("text", "voice"):
+            counter = f"{kind}_xp"
+            ahead = select(func.count()).select_from(other).where(
+                other.c.guild_id == guild_id,
+                (other.c[counter] > profile.c[counter]) |
+                ((other.c[counter] == profile.c[counter]) & (other.c.user_id < user_id)))
+            positions.append((ahead.correlate(profile).scalar_subquery() + 1).label(f"{kind}_rank"))
+        async with self.engine.connect() as connection:
+            row = (await connection.execute(select(
+                profile.c.text_xp, profile.c.voice_xp, *positions))).mappings().one()
+            return dict(row)
+
     async def leaderboard(self, guild_id, page=1):
         if not 1 <= page <= 1000:
             raise ValueError("Invalid page")

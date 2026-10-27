@@ -1,7 +1,7 @@
 YEBOYBot — карта коду та архітектури
 ===================================
 Гілка розробки: feature/core-v2
-Оновлено: 27.10.2026
+Оновлено: 28.10.2026
 
 Це навігація реальними файлами репозиторію. Дерево скорочене: службові
 __init__.py, решту legacy helpers та список усіх тестів згорнуто для читабельності.
@@ -225,3 +225,23 @@ bootstrap, backup/recovery, permissions, Discord adapters і slash binding.
 Unit-тести не повинні входити в реальний Discord; SQL integration потребує
 окремої disposable БД. CI-успіх не замінює ручний Windows 10/11, живий Discord
 або перевірену експлуатацію 24/7. Старі тестові totals не переносити на новий HEAD.
+
+6. КАРТКА РАНГУ, ГОЛОСОВИЙ XP ТА МУЗИКА CORE
+--------------------------------------------
+core_v2/rank_card.py              PNG500×188, rank_background+gg, український font
+core_v2/commands.py               /rank: SQL snapshot, CDN icons, bounded render threads
+core_v2/voice_xp.py               Спостережені хвилини, >=2 придатні люди, reset/backpressure
+core_v2/db.py                     rank_snapshot одним SQL, окремі guild-scoped ranks
+core_v2/music.py                  Opt-in /music, permissions, VoiceClient, nonblocking FFmpeg cleanup
+core_v2/music_engine.py           FIFO/AP priority, bounded extractor subprocess, backoff/reconnect
+core_v2/music_options.py          Підтримуваний subset options.ini та _autoplaylist до10000 рядків
+core_v2/spotify.py                Official track metadata; YouTube match, не Spotify audio
+core_v2/media_environment.py      FFmpeg, Opus, voice/JS dependencies та runtime discovery
+tools/launcher/media.py           [25] options/config, opt-in FFmpeg/Deno WinGet
+tools/launcher/rank_import.py     [26] validated legacy JSON→SQLite, backup/max-merge/rollback
+docs/RANK_MUSIC_UA.md             Налаштування, команди, гарантії й ручна перевірка
+
+Дані XP legacy не видаляються. Імпорт не додає повторні бали, не зменшує жоден
+лічильник і не переносить збережені рівні: рівень обчислюється з XP.
+18 основних команд + optional music group6. Черги музики лише в пам'яті.
+Тривале реальне відтворення/Discord не підтверджене автоматичними mocks.

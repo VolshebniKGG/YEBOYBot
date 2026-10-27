@@ -6,14 +6,36 @@
 ProBot — функціональний орієнтир, без копіювання чи недоведених переваг.
 
 Спершу звір local/GitHub HEAD, локальні зміни, draft PR #1 та CI за SHA.
-Прочитай AGENTS.md, якщо є, README, CORE_V2_STATUS_UA, PROJECT_AUDIT_UA,
+Прочитай AGENTS.md, якщо є, README, CORE_V2_STATUS_UA, PROJECT_AUDIT_UA, RANK_MUSIC_UA,
 MODERATION_UA, MIGRATIONS_UA, WINDOWS_CMD_LAUNCHER_UA, CLEAN_PC_SETUP_UA,
 POSTGRES_RECOVERY_UA та DEPENDENCY_AUDIT_UA. Код має пріоритет перед історичними
 результатами. Не дублюй готові сценарії й не переписуй чужі зміни.
 
 ## Реалізований стан, який слід повторно звірити
 
-- Core V2 має18 slash-команд. Kick/ban/unban мають shared ModerationService,
+
+Поточна функціональна ітерація (28.10.2026):
+- /rank знову PNG500×188 із DLC/rank_background.png + gg.png masks, великим
+  display_avatar і малою guildicon, окремими XP/ranks/levels, bounded renderthreads.
+- Голос5XP/повну спостережену хвилину з ≥2 придатними людьми; text5/60s;
+  Voice States/voice-onlycache без privilegedMembers/Content; reset приgatewayloss,
+  sharddisconnect, AFK/mute/deaf/одиночному перебуванні. Аудіо не аналізується.
+- [26] explicit legacy JSON→наявнаSQLitev2: повна валідація, locks, verifiedbackup,
+  transaction maxперcounter, idempotence, preserve timestamps; PostgreSQL importнемає.
+- [25] optional Music/FFmpeg/Deno configure. options.ini копіюється виключно;
+  Credentials/Token fallback лише за порожнього DISCORD_TOKEN; не весь legacyINI.
+- Music FIFO50/20guildplayers/2extractors, AP до10000rows вашого _autoplaylist,
+  user interruptsAP заAutoPlaylistAutoSkip=yes, backoff/reconnect, ownedasyncFFmpegcleanup.
+  In-memoryqueueнепереживаєrestart. /music join/play/queue/skip/stop/autoplay.
+- YouTube/SoundCloud/YouTube search: pinnedyt-dlp+ejs, installedDeno/Node≥20;
+  noDRM/cookies/TLSdisable/unknownexecutabledownload. Spotifytrackofficialmetadata
+  clientcredentials→YouTubematch, maydifferentversion, nooriginalSpotifyaudio.
+- PyNaCl1.5.0 мав2advisories; directpinned1.6.2 виправлена, SDKAEADroundtriptested.
+  Не повертай старий voiceextra upperbound шляхомdowngrade криптобібліотеки.
+- РеальнийDiscordvoice, приватніSpotifycredentials і24hsoak не підтверджені.
+  Спершу прочитай RANK_MUSIC_UA; не позначай відсутній liveproof зеленимиmocks.
+
+- Core V2 має18 основних slash-команд; opt-in /music додає6 команд у групі. Kick/ban/unban мають shared ModerationService,
   fresh REST authorization/hierarchy, committed claim до API та ambiguity-safe
   outcomes. Ban зберігає повідомлення; unban перевіряє ban за ID. Modhistory
   приватна, guild-scoped, показує pending/state/user/page. Blind replay відсутній.
@@ -36,7 +58,7 @@ POSTGRES_RECOVERY_UA та DEPENDENCY_AUDIT_UA. Код має пріоритет 
   повторюється; receipt збережений, old views після restart не відновлюються.
 - Text XP/cooldown/ranking та durable reminders є. Reminder delivery at-least-once;
   exactly-once для Discord send не обіцяється. Automod/welcome/autorole/panels/
-  voiceXP/rewards ще не завершені активні модулі.
+  rewards ще не завершені активні модулі. Голосовий XP уже підключений.
 - Schema2, шість Core-таблиць. SQLite[21]/PostgreSQL[23] мають явний1→2 із verified
   backup/rollback/recovery. PostgreSQL restore тільки в окрему порожню БД, standard
   public Core-schema; custom dependencies відхиляються, credentials приховані.
@@ -52,7 +74,7 @@ POSTGRES_RECOVERY_UA та DEPENDENCY_AUDIT_UA. Код має пріоритет 
 База809db8a мала CI40522292914 усі9jobs success: Windows1033/92, Ubuntu990/135,
 PG1082/43. Це історична база, не докази наступного SHA. Warn-ітерація додає222
 тести (94repository/87service/25commands/16integration), загалом1347.
-Локально Linux full1186passed/161skipped; repository realSQLite/PG94passed,
+Історичний warning-кодef4b345: локально Linux full1186passed/161skipped; repository realSQLite/PG94passed,
 фінальні всі нові тести ізPG222passed/0skipped. CI warning-коду звір у STATUS за SHA.
 Кодef4b345 має push40560042495 і PR40560052692 усі9jobs success: Windows1229/118,
 Ubuntu1186/161, PostgreSQL1304/43, focused966/86 і926/126, maintenance1007,
@@ -91,7 +113,7 @@ Ruff/pipcheck/diffcheck та Linux Core CVE24/zero/0skips пройдено. CVE 
 спершу verified recovery і preservation tests, без руйнівних дій над user data.
 
 Далі event logs з урахуванням intents/API, /setup/help, welcome/autorole,
-persistent role panels, automod/exceptions/false positives, voiceXP/rewards та
+persistent role panels, automod/exceptions/false positives, XP rewards та
 scheduled announcements. Content filters без Message Content Intent не позначай
 активними. Legacy JSON без guild_id не імпортуй без dry-run і явного зіставлення.
 

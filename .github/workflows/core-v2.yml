@@ -2,9 +2,9 @@ name: Core v2
 on:
   push:
     branches: [feature/core-v2]
-    paths: ['core_v2/**', 'tools/**', 'YEBOYBot.cmd', 'install_v2.bat', 'run.bat', 'run.py', 'requirements-legacy.txt', 'yeboybot/**', '.github/workflows/core-v2.yml']
+    paths: ['core_v2/**', 'tools/**', 'DLC/**', 'config/example_options.ini', 'config/_autoplaylist.txt', 'YEBOYBot.cmd', 'install_v2.bat', 'run.bat', 'run.py', 'requirements-legacy.txt', 'yeboybot/**', '.github/workflows/core-v2.yml']
   pull_request:
-    paths: ['core_v2/**', 'tools/**', 'YEBOYBot.cmd', 'install_v2.bat', 'run.bat', 'run.py', 'requirements-legacy.txt', 'yeboybot/**', '.github/workflows/core-v2.yml']
+    paths: ['core_v2/**', 'tools/**', 'DLC/**', 'config/example_options.ini', 'config/_autoplaylist.txt', 'YEBOYBot.cmd', 'install_v2.bat', 'run.bat', 'run.py', 'requirements-legacy.txt', 'yeboybot/**', '.github/workflows/core-v2.yml']
   workflow_dispatch:
 permissions:
   contents: read
