@@ -88,6 +88,8 @@ class Bot(commands.AutoShardedBot):
         if self.settings.music:
             from .music import Music
             await self.add_cog(Music(self))
+        from .guide import Guide
+        await self.add_cog(Guide(self))
         if self.settings.sync == "test":
             guild = discord.Object(id=self.settings.test_guild)
             self.tree.copy_global_to(guild=guild)
@@ -165,7 +167,7 @@ class Bot(commands.AutoShardedBot):
         await self.wait_until_ready()
 
     async def close(self):
-        for name in ("Music", "VoiceXP"):
+        for name in ("Guide", "Music", "VoiceXP"):
             await self.remove_cog(name)
         self.deliver.cancel()
         task = self.deliver.get_task()

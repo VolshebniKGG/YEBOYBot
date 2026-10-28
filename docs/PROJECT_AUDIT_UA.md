@@ -1,11 +1,10 @@
 # Аудит проєкту YEBOYBot — 28.10.2026
 
-Поточна ітерація на базі4be915c стабілізує музичний плеєр: safe-коди помилок,
-потокові межі worker, навмисна зупинка проти відкладеного автопідключення,
-валідація до connect і контроль скасованого teardown. Базовий код4be915c має
-успішні push40604109875 і PR40604115901, усі9jobs; це попередні результати,
-нові перевірки фіксуються окремо. Schema2, налаштування, дані XP та main без змін.
-[Інструкція музики](RANK_MUSIC_UA.md) · [Фактичний статус](CORE_V2_STATUS_UA.md).
+Поточна ітерація на базі5ded468 додає `/help` і `/modules`: приватний каталог
+підключених команд, розділи/сторінки й read-only стан модулів за свіжими даними.
+База5ded468 має успішні push40671293610 і PR40671305031, усі9jobs; ці історичні
+результати не є перевіркою нових команд. Main, schema2 і залежності без змін.
+[Інструкція довідки](GUIDE_UA.md) · [Фактичний статус](CORE_V2_STATUS_UA.md).
 
 Статус нижче описує інтеграцію й автоматичні перевірки. Робота на живому Discord,
 ручний Windows/logon і production 24/7 не підтверджені.
@@ -18,7 +17,7 @@
 | Міграції SQLite | Partial | Registry, план, явний 1→2, backup, rollback, idempotence; немає manual Windows доказу |
 | PostgreSQL | Partial | [23] standard public Core snapshot/upgrade1→2/restore в окрему порожню БД; Linux17.11 локально й PG maintenance76 у CI перевірено; Windows native/TLS/custom schemas не підтверджені |
 | Автозапуск | Partial | Opt-in Task Scheduler root/SID, pythonw; реальне створення/logon не перевірено |
-| Slash-команди | Partial | 18 основних + opt-in група music із6 командами; live Discord ще не підтверджений |
+| Slash-команди | Partial | 20 основних + opt-in група music із6 командами; live Discord ще не підтверджений |
 | Модерація | Partial | Kick/ban/unban: shared service, fresh permissions/hierarchy, atomic cross-action claim, ambiguity-safe audit; modhistory з pending diagnostics. Ban не видаляє повідомлення; unban за ID колишнього учасника. Clear має окреме підтвердження/receipt; automatic reconcile відсутній; старі timeout lifecycle потребують виправлення |
 | Попередження | Partial | /warn: fresh authority + atomic local warn/applied, deterministic guild/interaction key, immutable payload/revoked replay; /warnings bounded10 UTF16 outputs. Read/revoke authorization warnings/unwarn ще cached; liveDiscord не перевірений |
 | Очищення повідомлень | Partial | До25/recent7days/TextChannel, immutableIDs, ephemeral60s confirm, atomicmanualjobclaim/expiry, ownstatus, no replay unknown; liveDiscord/manualWindows не перевірені |
@@ -27,7 +26,7 @@
 | Нагадування | Partial | Durable lease/retry/access check; at-least-once, можливі повтори після crash |
 | Automod/welcome/autorole/panels | Disconnected | Поля/таблиці/helpers є; активних сценаріїв Discord немає |
 | Подієві Discord-журнали | Missing | Системні logs і moderation cases не є повним event audit |
-| Onboarding/help/modules | Missing | Windows wizard існує; Discord /setup та module UX не завершені |
+| Onboarding/help/modules | Partial | Приватні /help із runtime-каталогом/сторінками та /modules зі свіжими read-only станами; /setup і запис конфігурації через Discord не реалізовані, live UI не перевірений |
 | Метрики/аналітика | Missing | Немає p95/p99, CPU/RAM/loop lag, resource baseline і soak evidence |
 | Tickets/polls/giveaways/webpanel | Missing | Наявність Flask/Redis у legacy dependencies не реалізує ці сервіси |
 | Legacy cogs | Partial | Реальні moderation/user/help/rank завантажені offline в disposable copy; поведінка команд/live API та music не перевірені |

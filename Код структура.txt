@@ -257,3 +257,17 @@ core_v2/tests/test_music_diagnostics.py: offline child/yt-dlp protocol й меж
 core_v2/tests/test_music_lifecycle.py: REST/connect/stop interleavings, cancellation,
 removedguild, independent parallel guild close, private safe localized queue.
 No schema/dependency/config changes. Реальний Discord/24hsoak не підтверджені.
+
+8. ДОВІДКА ТА СТАН МОДУЛІВ CORE
+-------------------------------
+core_v2/guide.py                  Guide Cog: /help + /modules, author/guild-bound View
+core_v2/help_catalog.py           Runtime CommandEntry catalog, guild override, bounded UA embeds
+core_v2/module_status.py          Fresh read-only guildsettings + ready/cog/task/intent state
+core_v2/tests/test_guide.py       Real callbacks/components, private scope, limits/unload/update smoke
+core_v2/tests/test_help_catalog.py  Actual tree metadata, pagination/Unicode limits/no remote calls
+core_v2/tests/test_module_status.py  SQLite SELECT-only, guild scope, unknown/paused/disabled states
+docs/GUIDE_UA.md                 Discord UX, синхронізація, фактичні стани й межі
+
+Guide завантажується до sync у bot.setup_hook і перевіряється verify_update.
+20 основних команд + optionalmusic group6. HelpView120s, cap100; післяrestart
+панелі не відновлюються. /modules не змінює конфігурацію й не активує заготовки.

@@ -14,13 +14,16 @@ async def verify():
         if not await db.health():
             raise RuntimeError("Database health failed")
         from core_v2.commands import Core
+        from core_v2.guide import Guide
         from core_v2.bot import Bot
         bot = Bot(settings)
         try:
             await bot.add_cog(Core(bot))
+            await bot.add_cog(Guide(bot))
             for command in bot.tree.get_commands():
                 command.to_dict(bot.tree)
         finally:
+            await bot.remove_cog("Guide")
             await bot.db.close()
     finally:
         await db.close()

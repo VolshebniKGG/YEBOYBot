@@ -21,6 +21,18 @@ Cloudprobe першого автотреку повернув DownloadError з �
 
 ## Реалізований стан, який слід повторно звірити
 
+Нова довідка на базі5ded468:
+- /help topic/page: runtimeкаталог, guildoverrides, 10команд/сторінку, cap100,
+  privateauthor/guildbound select+buttons120s, cap100views/staticfallback.
+- /modules: freshSQL≤3s, readonly; strict unknown/disabled/unconnected, current
+  ready/voicecollector/gateway/shard/scheduler/music. Не показує credentials/IDs.
+- Automod/welcome/autorole/panels/rewards/eventlogs ще НЕактивні, навітьзаDBflags.
+- Guide підключений доsetup_hook ДОsync і перевіряєтьсяupdate smoke; schema/deps/
+  intents не змінено. Тепер20основних команд +optional musicgroup6. Потрібнаsync
+  новихcommands у вибранійобласті; privateпанелі неpersist/restartrestore.
+- Прочитай GUIDE_UA.md і перевірCI новогоSHA. ЖивийDiscordUI не доведений mocks.
+
+
 
 Нова стабілізація музики на базі4be915c:
 - error_code allowlist і фіксовані українські підказки у /music queue; raw provider
@@ -54,7 +66,7 @@ Cloudprobe першого автотреку повернув DownloadError з �
 - РеальнийDiscordvoice, приватніSpotifycredentials і24hsoak не підтверджені.
   Спершу прочитай RANK_MUSIC_UA; не позначай відсутній liveproof зеленимиmocks.
 
-- Core V2 має18 основних slash-команд; opt-in /music додає6 команд у групі. Kick/ban/unban мають shared ModerationService,
+- Core V2 має20 основних slash-команд; opt-in /music додає6 команд у групі. Kick/ban/unban мають shared ModerationService,
   fresh REST authorization/hierarchy, committed claim до API та ambiguity-safe
   outcomes. Ban зберігає повідомлення; unban перевіряє ban за ID. Modhistory
   приватна, guild-scoped, показує pending/state/user/page. Blind replay відсутній.

@@ -1,3 +1,49 @@
+# Довідка й стан модулів — 28.10.2026
+
+База `feature/core-v2@5ded468` звірена з локальним Git та PR#1; робоче дерево
+перед змінами чисте. База мала успішні push40671293610 і PR40671305031,
+усі9jobs; це попередні результати, новому коду вони не приписуються.
+Актуальні CI-докази поточного HEAD — у [PR#1](https://github.com/VolshebniKGG/YEBOYBot/pull/1).
+Main лишився без змін, PR залишається draft.
+
+Реалізовано:
+
+- `/help topic page`: приватний каталог фактично підключених локальних команд
+  із guild override, прикладами й поясненням дозволів. До100 команд,10 на сторінку;
+  Ukrainian select/buttons, author/guild scope, timeout120s, cap100views.
+  За досягнення межі працює звичайна довідка зі slash-параметрами розділу/сторінки.
+  Збій send/cancellation/unload не залишає активну панель без обліку.
+- `/modules`: приватний read-only звіт. Fresh guild-scoped SQL≤3s; без записів,
+  API-запитів чи міграцій. Готовність читається після SQL. Перевіряються
+  intents, collector/gateway/shard, scheduler, музичні сесії/закриття.
+  Unknown не підміняється enabled; unfinished automod/welcome/autorole/panels/
+  rewards/eventlogs явно непідключені, навіть коли в БД установлені прапорці.
+- Guide завантажується ДО синхронізації команд і включений до offline update
+  smoke. Тепер20 основних slash-команд плюс optional music group6;
+  metadata Core18 не змінено. Схема, залежності, intents і налаштування незмінні.
+
+Нових тестів **117**:40catalog,53module_status,24guide. Є actual discord.py
+metadata/UI callbacks, SQLite SELECT-only/freshness/guildisolation, limits,
+Unicode/mentions, DB failure/timeout/cancellation, paused runtime, author/guild
+controls, pagination, late defer/send/unload races та реальний update smoke.
+Незалежний read-only review виявив гонку late-view після unload; її виправлено
+і закріплено негативними тестами. Додаткові module-status regressions перевіряють
+paused collector, готовність після DB await і невідомий lifecycle музики.
+
+Локально Linux/Python3.12.14: повний exactverboseCI **1736passed/172skipped**,
+**1908tests/0failures/0errors**,42.04s. Цільовий набір151passed за5.05s.
+Пропущені PostgreSQL/nativeWindows; їх перевіряє CI поточного SHA окремо.
+Ruff/pipcheck/diffcheck пройдено. Freshpip-audit2.10.1/PyPI:31distributions,
+0advisories/0skips,pip26.2; LinuxCore/runtime/dev/installer, не OS/native/legacy.
+
+Команди показують підключений код і доступні локальні спостереження, а не
+доказ усіх Discord API сценаріїв або реального звуку. Живий DiscordUI/manual
+Windows/24hsoak не перевірені. Щоб нові команди з'явилися, налаштуйте sync
+обраної області через[11] і перезапустіть[2]. Панелі після restart не відновлюються.
+[Докладна інструкція](GUIDE_UA.md).
+
+---
+
 # Музика: діагностика та зупинка — 28.10.2026
 
 База `feature/core-v2@4be915c` звірена з GitHub; робоче дерево перед змінами було
