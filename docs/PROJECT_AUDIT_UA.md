@@ -1,11 +1,19 @@
 # Аудит проєкту YEBOYBot — 28.10.2026
 
-Поточна музична ітерація на базі`de38b71` виправляє втрату обліку голосової
+Поточна ітерація на базі `23eb600` додає `/music pause` і `/music resume`.
+Ручна пауза незалежна від AutoPause порожнього каналу, діє лише в наявній
+сесії та показується у приватній черзі. Для нових підкоманд потрібні sync
+обраної області через [11] і restart [2]. База має успішні push40714907665
+і PR40714922993, усі 9 jobs у кожному; ці результати не приписуються новому коду.
+[Пауза й відновлення](RANK_MUSIC_UA.md#ручна-пауза-й-відновлення).
+
+Попередня музична ітерація на базі `de38b71` виправила втрату обліку голосової
 сесії після невдалого від'єднання та обхід backoff через довге отримання треку.
 Непідтверджена сесія блокує нові підключення; `/music stop` дозволяє обмежену
 повторну спробу, `/music queue` і `/modules` показують стан завершення.
 База має успішні push40681982798 і PR40682163302; ці історичні результати не
-є перевіркою нового коду. Main, schema2, залежності й кількість команд без змін.
+є перевіркою наступного коду. На тому етапі main, schema2, залежності й кількість
+команд не змінювалися.
 [Відновлення музики](RANK_MUSIC_UA.md#непідтверджена-зупинка-та-повторна-спроба) ·
 [Фактичний статус](CORE_V2_STATUS_UA.md).
 
@@ -20,11 +28,11 @@
 | Міграції SQLite | Partial | Registry, план, явний 1→2, backup, rollback, idempotence; немає manual Windows доказу |
 | PostgreSQL | Partial | [23] standard public Core snapshot/upgrade1→2/restore в окрему порожню БД; Linux17.11 локально й PG maintenance76 у CI перевірено; Windows native/TLS/custom schemas не підтверджені |
 | Автозапуск | Partial | Opt-in Task Scheduler root/SID, pythonw; реальне створення/logon не перевірено |
-| Slash-команди | Partial | 20 основних + opt-in група music із6 командами; live Discord ще не підтверджений |
+| Slash-команди | Partial | 20 основних + opt-in група music із 8 командами; нові pause/resume потребують sync, live Discord ще не підтверджений |
 | Модерація | Partial | Kick/ban/unban: shared service, fresh permissions/hierarchy, atomic cross-action claim, ambiguity-safe audit; modhistory з pending diagnostics. Ban не видаляє повідомлення; unban за ID колишнього учасника. Clear має окреме підтвердження/receipt; automatic reconcile відсутній; старі timeout lifecycle потребують виправлення |
 | Попередження | Partial | /warn: fresh authority + atomic local warn/applied, deterministic guild/interaction key, immutable payload/revoked replay; /warnings bounded10 UTF16 outputs. Read/revoke authorization warnings/unwarn ще cached; liveDiscord не перевірений |
 | Очищення повідомлень | Partial | До25/recent7days/TextChannel, immutableIDs, ephemeral60s confirm, atomicmanualjobclaim/expiry, ownstatus, no replay unknown; liveDiscord/manualWindows не перевірені |
-| Музика Core | Partial | Per-guild FIFO/autoplay, пріоритет замовлень, безпечна діагностика, обмежені worker I/O, stop/autojoin guards. Непідтверджене закриття зберігає й блокує власну сесію; stop повторює її закриття, queue/modules показують стан. Slow resolver не маскує instant EOF/backoff. Options subset, FFmpeg/Deno setup; Spotify metadata→YouTube match. Черги в пам'яті; live Discord/24×7 не перевірені |
+| Музика Core | Partial | Per-guild FIFO/autoplay, пріоритет замовлень, bounded worker I/O, stop/autojoin guards, quarantine непідтвердженої сесії та backoff. Pause/resume наявної сесії з окремими manual/AutoPause, станом SDK у queue й перевіркою доступу. Options subset, FFmpeg/Deno setup; Spotify metadata→YouTube match. Черга й пауза в пам'яті; live Discord/24×7 не перевірені |
 | XP | Partial | Текст5XP/60s, голос5XP/спостережену хвилину з ≥2 придатними людьми; окремі SQL ranks/PNG/антифарм/reset; [26] explicit max-merge JSON→SQLite з backup. Rewards, speech detection і live Discord не перевірені/відсутні |
 | Нагадування | Partial | Durable lease/retry/access check; at-least-once, можливі повтори після crash |
 | Automod/welcome/autorole/panels | Disconnected | Поля/таблиці/helpers є; активних сценаріїв Discord немає |

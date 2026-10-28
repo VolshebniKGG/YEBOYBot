@@ -246,9 +246,10 @@ async def test_real_core_and_optional_music_have_complete_accurate_catalog():
         assert {item.name for item in base if item.category == "rank"} == {"rank", "levels", "leaderboard"}
         await bot.add_cog(Music(bot, options=MusicOptions(), manager=SimpleNamespace(close=AsyncMock())))
         complete = collect_commands(bot.tree, 123)
-        assert len(complete) == 24
+        assert len(complete) == 26
         assert {item.name for item in complete if item.category == "music"} == {
-            "music play", "music join", "music queue", "music skip", "music stop", "music autoplay"}
+            "music play", "music join", "music queue", "music skip", "music stop", "music autoplay",
+            "music pause", "music resume"}
         assert "боту" not in next(item.permissions for item in complete if item.name == "modhistory")
         for category in available_categories(complete):
             for page in range(1, page_count(complete, category) + 1):

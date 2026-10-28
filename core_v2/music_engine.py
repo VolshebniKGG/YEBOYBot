@@ -354,6 +354,9 @@ class GuildPlayer:
         self._ap_index = 0
         self._failures = 0
         self._cleaning = False
+        self.manual_paused = False
+        self._pause_started = None
+        self._pause_seconds = 0.0
         self._task = asyncio.create_task(self._run(), name=f"music-{guild_id}")
 
     async def enqueue(self, source, requester_id):
@@ -385,11 +388,50 @@ class GuildPlayer:
             self._interrupted = True
         self._changed.set()
 
+    async def set_manual_paused(self, enabled):
+        """Change session intent atomically; an empty-channel pause is separate."""
+        if type(enabled) is not bool:
+            raise MusicError("Виберіть увімкнення або вимкнення ручної паузи.")
+        if self._closed or self._task.done():
+            raise MusicError("Музичний плеєр уже зупинено.")
+        try:
+            if self.backend.is_connected() is not True:
+                raise MusicError("Голосове з'єднання відновлюється. Повторіть пізніше.")
+            self.backend.set_manual_paused(enabled)
+        except MusicError:
+            raise
+        except Exception:
+            raise MusicError("Не вдалося змінити паузу. Перевірте /music queue і повторіть.") from None
+        changed = self.manual_paused != enabled
+        if changed:
+            now = self.manager.clock()
+            if enabled:
+                self._pause_started = now
+            else:
+                self._pause_seconds += max(0.0, now - self._pause_started)
+                self._pause_started = None
+            self.manual_paused = enabled
+            self._changed.set()
+        return changed
+
+    def _paused_seconds(self):
+        running = (max(0.0, self.manager.clock() - self._pause_started)
+                   if self._pause_started is not None else 0.0)
+        return self._pause_seconds + running
+
+    async def _wait_for_resume(self):
+        while self.manual_paused and not self._closed and not self._interrupted:
+            self.state = "paused"
+            self._changed.clear()
+            await self._changed.wait()
+        return not self._closed and not self._interrupted
+
     def snapshot(self):
         return {"current": self.current, "request": self.request,
                 "autoplay": bool(self.request and self.request.requester_id is None),
                 "autoplay_enabled": self.autoplay_enabled, "queue": tuple(self.queue),
-                "state": self.state, "error": self.error, "error_code": self.error_code}
+                "state": self.state, "error": self.error, "error_code": self.error_code,
+                "manual_paused": self.manual_paused}
 
     async def close(self):
         self._closed = True
@@ -482,6 +524,8 @@ class GuildPlayer:
                     continue
                 self._interrupted = False
                 self._changed.clear()
+                if not await self._wait_for_resume():
+                    continue
                 self.request = self._next()
                 if self.request is None:
                     self.state = "idle"
@@ -492,7 +536,16 @@ class GuildPlayer:
                 self.error_code = None
                 failed = False
                 try:
-                    track = await self._until_changed(self._resolve(self.request.source))
+                    while True:
+                        track = await self._until_changed(self._resolve(self.request.source))
+                        if track is None or self._interrupted or not self.manual_paused:
+                            break
+                        if not await self._wait_for_resume():
+                            track = None
+                            break
+                        # A signed URL may expire while paused. Resolve the same
+                        # held request afresh; do not consume another queue item.
+                        self.state = "resolving"
                     if track is None or self._interrupted:
                         continue
                     # Injected resolvers cannot bypass the FFmpeg URL policy either.
@@ -512,10 +565,13 @@ class GuildPlayer:
                     # Source lookup and waiting for an extractor slot are not
                     # playback. They must not hide an immediate successful EOF.
                     started = self.manager.clock()
+                    paused_before = self._paused_seconds()
                     self.backend.play(track, finish)
                     result = await self._until_changed(finished)
+                    elapsed = (self.manager.clock() - started
+                               - (self._paused_seconds() - paused_before))
                     failed = result is not None or (not self._interrupted and
-                                                    self.manager.clock() - started < 1)
+                                                    elapsed < 1)
                     if failed:
                         self.error_code = "playback_error"
                         self.error = failure_message(self.error_code)

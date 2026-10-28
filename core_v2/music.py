@@ -124,6 +124,9 @@ class FFmpegVoiceBackend:
         self.volume = volume
         self._source = None
         self._paused = False
+        self._manual_paused = False
+        self._auto_paused = False
+        self._closing = False
         self._cleanup_task = None
 
     def _source_cleaned(self, source):
@@ -176,6 +179,8 @@ class FFmpegVoiceBackend:
         return self.voice.is_connected()
 
     def play(self, track, after):
+        if self._closing:
+            raise MusicError("Попередній аудіопотік ще завершується.")
         if not self.is_connected():
             raise MusicError("З'єднання з голосовим каналом втрачено.")
         if self._source is not None or self._cleanup_task is not None:
@@ -224,13 +229,42 @@ class FFmpegVoiceBackend:
             self._schedule_cleanup(source)
 
     def set_paused(self, paused):
-        self._paused = paused
-        if paused and self.voice.is_playing():
-            self.voice.pause()
-        elif not paused and self.voice.is_paused():
-            self.voice.resume()
+        self._set_pause_flags(manual=self._manual_paused, automatic=paused)
+
+    def set_manual_paused(self, paused):
+        if self._closing:
+            raise MusicError("Музичний плеєр уже завершує роботу.")
+        self._set_pause_flags(manual=paused, automatic=self._auto_paused)
+
+    def _set_pause_flags(self, *, manual, automatic):
+        if type(manual) is not bool or type(automatic) is not bool:
+            raise MusicError("Не вдалося визначити стан паузи.")
+        target = manual or automatic
+        try:
+            playing, paused = self.voice.is_playing(), self.voice.is_paused()
+            if type(playing) is not bool or type(paused) is not bool:
+                raise ValueError
+            if target and playing:
+                self.voice.pause()
+            elif not target and paused:
+                self.voice.resume()
+        except Exception:
+            raise MusicError("Не вдалося змінити паузу. Перевірте /music queue і повторіть.") from None
+        self._manual_paused, self._auto_paused = manual, automatic
+        self._paused = target
+
+    def pause_state(self):
+        def observed(probe):
+            try:
+                value = probe()
+                return value if type(value) is bool else None
+            except Exception:
+                return None
+        return {"manual": self._manual_paused, "automatic": self._auto_paused,
+                "paused": observed(self.voice.is_paused), "playing": observed(self.voice.is_playing)}
 
     async def close(self):
+        self._closing = True
         cleaned = False
         try:
             self.stop()
@@ -305,6 +339,55 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
     async def _reply(self, interaction, message):
         await interaction.followup.send(message, ephemeral=True,
                                         allowed_mentions=discord.AllowedMentions.none())
+
+    def _control_session(self, guild):
+        if (self._closing or self.bot.get_guild(guild.id) is not guild
+                or getattr(guild, "unavailable", None) is not False):
+            raise UserError("Сервер або музичний модуль зараз недоступний.")
+        session = self.sessions.get(guild.id)
+        if session is None:
+            raise UserError("Музичний плеєр не підключений. Використайте /music play.")
+        if (guild.id in self._teardowns or session.closing or session.close_failed
+                or session.player is None or getattr(session.player, "_closed", False)):
+            raise UserError(CLOSE_PENDING)
+        worker = getattr(session.player, "_task", None)
+        if worker is not None and worker.done() is True:
+            raise UserError("Музичний плеєр не працює. Перевірте журнал і повторіть підключення після /music stop.")
+        try:
+            connected = session.backend.is_connected() is True
+        except Exception:
+            connected = False
+        if not connected:
+            raise UserError("Голосове з'єднання відновлюється. Повторіть пізніше.")
+        return session
+
+    async def _manual_pause(self, interaction, enabled):
+        guild, _, _, _ = await self._context(interaction, manager=True)
+        session = self._control_session(guild)
+        try:
+            changed = await session.player.set_manual_paused(enabled)
+        except Exception:
+            raise UserError("Не вдалося підтвердити зміну паузи. Перевірте /music queue і повторіть.") from None
+        if enabled:
+            message = "Ручну паузу ввімкнено." if changed else "Ручна пауза вже ввімкнена."
+        else:
+            message = "Ручну паузу вимкнено." if changed else "Ручна пауза вже вимкнена."
+        if not enabled and session.backend.pause_state()["automatic"]:
+            message += " Автоматична пауза порожнього каналу залишається активною."
+        message += " Стан відтворення: /music queue."
+        await self._reply(interaction, message)
+
+    @app_commands.command(name="pause", description="Ручна пауза музики цієї сесії; Керувати сервером")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.guild_only()
+    async def pause(self, interaction: discord.Interaction):
+        await self._manual_pause(interaction, True)
+
+    @app_commands.command(name="resume", description="Вимкнути ручну паузу музики; Керувати сервером")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.guild_only()
+    async def resume(self, interaction: discord.Interaction):
+        await self._manual_pause(interaction, False)
 
     async def _context(self, interaction, *, manager=False, allow_closing=False, cleanup=False):
         guild = guild_context(interaction)
@@ -541,10 +624,27 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         kind = "автоплейлист" if snapshot["autoplay"] else "замовлення"
         states = {"idle": "Очікування замовлень", "resolving": "Отримання треку",
                   "playing": "Відтворення", "reconnecting": "Відновлення з'єднання",
+                  "paused": "Очікує вимкнення ручної паузи",
                   "cleanup": "Завершення попереднього аудіопотоку", "backoff": "Пауза перед наступною спробою",
                   "closed": "Зупинено", "disconnected": "З'єднання втрачено"}
         state = states.get(snapshot.get("state"), "Невідомо")
+        manual = snapshot.get("manual_paused") is True
+        pause = session.backend.pause_state()
+        automatic = pause["automatic"] is True
+        actual = pause["paused"]
+        if snapshot.get("state") == "playing":
+            if actual is True:
+                state = "Призупинено"
+            elif manual or automatic:
+                state = "Очікує застосування паузи"
+            elif actual is not False or pause["playing"] is not True:
+                state = "Відтворення не підтверджено"
         lines = [f"Зараз: {title} ({kind}).", f"Стан: {state}."]
+        if manual or automatic:
+            reasons = ", ".join(reason for active, reason in ((manual, "ручна"), (automatic, "порожній канал")) if active)
+            lines.append(f"Причина паузи: {reasons}.")
+        if actual is None:
+            lines.append("Стан паузи SDK: невідомо.")
         for index, request in enumerate(snapshot["queue"][:10], 1):
             lines.append(f"{index}. Замовлення користувача `{request.requester_id}`")
         if snapshot.get("error"):
