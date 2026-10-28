@@ -85,7 +85,7 @@ Core V2 реєструє **20 основних slash-команд**; за `ENABL
 | /status | Перевірка БД та кількість серверів |
 | /levels enabled | Увімкнути/вимкнути текстовий і голосовий XP; Manage Server |
 | /rank member | PNG-картка: текстовий/голосовий XP, рівні, місця та прогрес |
-| /leaderboard page | 10 учасників на сторінку |
+| /leaderboard page xp_type | Загальний рейтинг, чат або голос; 10 профілів на сторінку |
 | /kick member reason | Вигнати учасника; Kick Members, актуальна ієрархія та audit case |
 | /ban user_id reason | Заблокувати за ID без видалення повідомлень; Ban Members |
 | /unban user_id reason | Зняти блокування за ID; Ban Members, поточного членства не потрібно |

@@ -1,3 +1,50 @@
+# Ранг: окремі рейтинги й точність великих сум XP — 28.10.2026
+
+База `feature/core-v2@4c160da` збережена в GitHub як окрема ітерація pause/resume.
+Її локальні результати наведені нижче в історичному розділі й не є перевіркою
+нового leaderboard-коду. CI кожного SHA звіряється окремо в
+[draft PR#1](https://github.com/VolshebniKGG/YEBOYBot/pull/1). Main не змінено.
+
+Поточна ітерація узгоджує текстовий і голосовий рейтинги з PNG `/rank`:
+
+- `/leaderboard page xp_type` приймає необов'язковий вибір **Загальний**
+  (`total`), **Чат** (`text`) або **Голос** (`voice`). Без параметра лишається
+  попередня сума чату й голосу, сторінка за замовчуванням — 1.
+- По 10 профілів поточного guild, сторінки 1–1000. Порядок окремих осей
+  відповідає `rank_snapshot`; за однакового XP менший user_id вище.
+- Сума сортується як carry/remainder без переповнення signed bigint чи
+  округлення SQLite до float. Кожний лічильник лишається допустимим int64;
+  загальна сума обчислюється точно Python integer і може перевищувати int64.
+- Публічна відповідь містить лише перевірені ID й цілі XP, без сповіщення
+  згадок. Порожня сторінка відрізняється від збою читання. БД має 10-секундний
+  timeout; generic error теж публічний після public defer, без рядків даних,
+  raw SQL, шляхів чи credentials.
+- Guild перевіряється до й після SQL. Команда тільки читає дані; XP, рівні,
+  налаштування та оригінальні `rank_background.png`/`gg.png` не змінюються.
+  Рейтинги використовують збережені профілі XP цього guild, включно з
+  історичними профілями учасників, які вийшли; це не скан поточного складу Discord.
+
+Основних команд залишається 20, музичних підкоманд — 8. Нових залежностей,
+schema чи intents немає. Зміна metadata `/leaderboard` потребує sync обраної
+області через **[11]**, потім **[2] Перезапустити**; `none` не публікує параметр.
+Додано **127 тестів**: 53 команди й 74 repository (по 37 SQLite/PostgreSQL).
+Є реальні SQL-перевірки максимальних/сусідніх сум, порогів int64, ties,
+126 профілів із відтворюваним Python reference, сторінок, rank_snapshot,
+guild isolation та відсутності записів. PostgreSQL 17.11 у власному тимчасовому
+контейнері: **74 passed**, 0 skipped за 5,80 с; контейнер і тимчасові credentials
+прибрано після перевірки. Незалежний review: 117 passed/37 PG-skipped за 16,59 с.
+
+Локально Linux/Python 3.12.14, повний exact verbose CI: **2027 passed,
+209 skipped**, загалом **2236**, 0 failures/0 errors за 85,05 с. Ruff, pip check
+і diff check пройдено. Залежності не змінювалися; свіжий Linux Core/runtime/dev/
+installer аудит цієї сесії: 31 distributions/0 advisories/0 skips, без OS/native/
+legacy та окремого Windows resolution. Нові CI докази додаються до PR за точним SHA.
+Live Discord,
+ручний Windows і порівняльні вимірювання з ProBot не підтверджені.
+[Інструкція рейтингу](RANK_MUSIC_UA.md#окремі-рейтинги-чату-й-голосу).
+
+---
+
 # Музика: ручна пауза й відновлення — 28.10.2026
 
 База `feature/core-v2@23eb600` звірена з локальним Git і draft PR#1.
@@ -44,6 +91,12 @@
 пройдено. Fresh pip-audit 2.10.1/PyPI: **31 distributions/0 advisories/0 skips**,
 Linux Core/runtime/dev/installer resolution; не OS/native/legacy/Windows.
 CI нового коду перевіряється окремо за SHA у PR; старі результати не запозичуються.
+Після збереження pause/resume як `4c160da` [push40772258249](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40772258249)
+і [PR40772268177](https://github.com/VolshebniKGG/YEBOYBot/actions/runs/40772268177)
+завершилися success, усі 9 jobs у кожному. Обидва full suites зібрали 2109:
+Windows1979/130, Linux1937/172, PostgreSQL2066/43; maintenance1007 passed.
+Обидва audit JSON перевірено: 31 distributions/0 vulnerabilities.
+Це докази `4c160da`, не наступного rank-коміту.
 Live Discord, ручний Windows/WinGet, native recovery й тривалий 24-годинний
 сценарій не підтверджені автоматичними тестами.
 [Інструкція паузи](RANK_MUSIC_UA.md#ручна-пауза-й-відновлення).

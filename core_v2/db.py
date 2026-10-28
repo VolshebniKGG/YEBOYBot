@@ -6,7 +6,7 @@ import time
 import uuid
 from pathlib import Path
 from sqlalchemy import (MetaData, Table, Column, BigInteger, Integer, String, Boolean,
-                        Float, select, update, event, func, text, inspect)
+                        Float, select, update, event, func, text, inspect, case)
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -238,12 +238,32 @@ class Database:
                 profile.c.text_xp, profile.c.voice_xp, *positions))).mappings().one()
             return dict(row)
 
-    async def leaderboard(self, guild_id, page=1):
-        if not 1 <= page <= 1000:
+    async def leaderboard(self, guild_id, page=1, *, kind="total"):
+        """Read one guild page, ordered exactly like the selected rank axis.
+
+        Each XP counter fits a non-negative signed 64-bit integer, while their
+        total can require 64 unsigned bits. Sort that total as a carry and an
+        int64 remainder: SQLite must not promote an overflowing sum to a float,
+        and PostgreSQL must not evaluate an overflowing bigint addition.
+        """
+        if type(guild_id) is not int or not 0 < guild_id < 2**63:
+            raise ValueError("Invalid leaderboard scope")
+        if type(page) is not int or not 1 <= page <= 1000:
             raise ValueError("Invalid page")
+        if type(kind) is not str or kind not in {"total", "text", "voice"}:
+            raise ValueError("Invalid XP kind")
+        if kind == "total":
+            remaining = (2**63 - 1) - xp.c.voice_xp
+            overflow = xp.c.text_xp > remaining
+            carry = case((overflow, 1), else_=0)
+            remainder = case((overflow, xp.c.text_xp - remaining - 1),
+                             else_=xp.c.text_xp + xp.c.voice_xp)
+            ordering = (carry.desc(), remainder.desc(), xp.c.user_id.asc())
+        else:
+            ordering = (xp.c[f"{kind}_xp"].desc(), xp.c.user_id.asc())
         async with self.engine.connect() as conn:
             rows = await conn.execute(select(xp).where(xp.c.guild_id == guild_id)
-                .order_by((xp.c.text_xp + xp.c.voice_xp).desc(), xp.c.user_id).limit(10).offset((page-1)*10))
+                .order_by(*ordering).limit(10).offset((page-1)*10))
             return [dict(r) for r in rows.mappings()]
 
     async def create_case(self, guild_id, user_id, actor_id, action, reason, status="pending"):

@@ -1,6 +1,13 @@
 # Аудит проєкту YEBOYBot — 28.10.2026
 
-Поточна ітерація на базі `23eb600` додає `/music pause` і `/music resume`.
+Поточна ітерація на базі `4c160da` додає окремі `/leaderboard xp_type`
+рейтинги чату й голосу та точне сортування великих сум XP. Без параметра
+лишається загальний рейтинг; окремі осі узгоджені з місцями PNG `/rank`.
+Дані XP, assets, schema й кількість команд не змінюються. Пауза вже збережена
+окремим комітом; її результати не приписуються новому коду рейтингу.
+[Окремі рейтинги](RANK_MUSIC_UA.md#окремі-рейтинги-чату-й-голосу).
+
+Попередня ітерація на базі `23eb600` додала `/music pause` і `/music resume`.
 Ручна пауза незалежна від AutoPause порожнього каналу, діє лише в наявній
 сесії та показується у приватній черзі. Для нових підкоманд потрібні sync
 обраної області через [11] і restart [2]. База має успішні push40714907665
@@ -28,12 +35,12 @@
 | Міграції SQLite | Partial | Registry, план, явний 1→2, backup, rollback, idempotence; немає manual Windows доказу |
 | PostgreSQL | Partial | [23] standard public Core snapshot/upgrade1→2/restore в окрему порожню БД; Linux17.11 локально й PG maintenance76 у CI перевірено; Windows native/TLS/custom schemas не підтверджені |
 | Автозапуск | Partial | Opt-in Task Scheduler root/SID, pythonw; реальне створення/logon не перевірено |
-| Slash-команди | Partial | 20 основних + opt-in група music із 8 командами; нові pause/resume потребують sync, live Discord ще не підтверджений |
+| Slash-команди | Partial | 20 основних + opt-in група music із 8 командами; optional leaderboard xp_type та pause/resume потребують sync; live Discord ще не підтверджений |
 | Модерація | Partial | Kick/ban/unban: shared service, fresh permissions/hierarchy, atomic cross-action claim, ambiguity-safe audit; modhistory з pending diagnostics. Ban не видаляє повідомлення; unban за ID колишнього учасника. Clear має окреме підтвердження/receipt; automatic reconcile відсутній; старі timeout lifecycle потребують виправлення |
 | Попередження | Partial | /warn: fresh authority + atomic local warn/applied, deterministic guild/interaction key, immutable payload/revoked replay; /warnings bounded10 UTF16 outputs. Read/revoke authorization warnings/unwarn ще cached; liveDiscord не перевірений |
 | Очищення повідомлень | Partial | До25/recent7days/TextChannel, immutableIDs, ephemeral60s confirm, atomicmanualjobclaim/expiry, ownstatus, no replay unknown; liveDiscord/manualWindows не перевірені |
 | Музика Core | Partial | Per-guild FIFO/autoplay, пріоритет замовлень, bounded worker I/O, stop/autojoin guards, quarantine непідтвердженої сесії та backoff. Pause/resume наявної сесії з окремими manual/AutoPause, станом SDK у queue й перевіркою доступу. Options subset, FFmpeg/Deno setup; Spotify metadata→YouTube match. Черга й пауза в пам'яті; live Discord/24×7 не перевірені |
-| XP | Partial | Текст5XP/60s, голос5XP/спостережену хвилину з ≥2 придатними людьми; окремі SQL ranks/PNG/антифарм/reset; [26] explicit max-merge JSON→SQLite з backup. Rewards, speech detection і live Discord не перевірені/відсутні |
+| XP | Partial | Текст5XP/60s, голос5XP/спостережену хвилину з ≥2 придатними людьми; PNG з власних assets, окремі text/voice ranks і leaderboard xp_type, exact total sort без bigint/float overflow, стабільний tie за user_id. [26] explicit JSON→SQLite max-merge з backup. Rewards, speech detection і live Discord не перевірені/відсутні |
 | Нагадування | Partial | Durable lease/retry/access check; at-least-once, можливі повтори після crash |
 | Automod/welcome/autorole/panels | Disconnected | Поля/таблиці/helpers є; активних сценаріїв Discord немає |
 | Подієві Discord-журнали | Missing | Системні logs і moderation cases не є повним event audit |

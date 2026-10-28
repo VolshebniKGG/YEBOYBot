@@ -309,3 +309,20 @@ docs/RANK_MUSIC_UA.md             Правила manual/AutoPause та sync [11]
 паузу; resume не обходить активну AutoPause. Намір діє лише в пам'яті сесії
 до resume або її завершення. Нових залежностей, schema чи intents немає.
 Нові підкоманди потребують синхронізації в обраній області; none не публікує їх.
+
+11. УЗГОДЖЕНІ РЕЙТИНГИ ЧАТУ Й ГОЛОСУ
+------------------------------------
+core_v2/db.py                     leaderboard(kind=total/text/voice), guild-scoped
+                                 сторінки; exact total carry/remainder без overflow
+                                 і tie за user_id, як у rank_snapshot
+core_v2/commands.py               /leaderboard page xp_type: optional choices,
+                                 public bounded output, DB timeout, safe errors
+core_v2/tests/test_leaderboard_repository.py  SQLite/PG, великі XP, tie/page/guild scope
+core_v2/tests/test_leaderboard_commands.py    Metadata/defaults, негативні API/DB стани
+core_v2/tests/test_rank_commands.py           Сумісність старого leaderboard виклику
+docs/RANK_MUSIC_UA.md             Вибір Загальний/Чат/Голос і sync нового параметра
+
+Без xp_type зберігається загальна сума XP. Чат і Голос узгоджені з двома
+місцями PNG /rank; власні assets й лічильники не змінюються. Total може бути
+більшим за signed int64, але відображається й сортується точно. Команд20+music8,
+міграція/нові залежності не потрібні; metadata sync [11] → restart [2].

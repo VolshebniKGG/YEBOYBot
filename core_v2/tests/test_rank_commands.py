@@ -30,7 +30,7 @@ def asset(data):
 
 @pytest.fixture
 def invocation():
-    guild = SimpleNamespace(id=10, icon=asset(png("blue")))
+    guild = SimpleNamespace(id=10, icon=asset(png("blue")), unavailable=False)
     actor = MagicMock(spec=discord.Member)
     actor.id = 20
     actor.guild = guild
@@ -46,7 +46,7 @@ def invocation():
     database = SimpleNamespace(rank_snapshot=AsyncMock(return_value={"text_xp": 1339,
         "voice_xp": 86380, "text_rank": 1, "voice_rank": 2}),
         leaderboard=AsyncMock(return_value=[]))
-    cog = Core(SimpleNamespace(db=database))
+    cog = Core(SimpleNamespace(db=database, get_guild=lambda guild_id: guild if guild_id == guild.id else None))
     return cog, interaction, other
 
 

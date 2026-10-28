@@ -24,6 +24,7 @@ RANK_RENDER_TIMEOUT = 10
 RANK_SLOT_TIMEOUT = 2
 RANK_ASSET_LIMIT = 2 * 1024 * 1024
 RANK_PNG_LIMIT = 512 * 1024
+LEADERBOARD_DB_TIMEOUT = 10
 
 
 async def _rank_asset(asset, size):
@@ -240,18 +241,68 @@ class Core(commands.Cog):
             file=discord.File(BytesIO(image), filename="rank.png"),
             allowed_mentions=discord.AllowedMentions.none())
 
-    @app_commands.command(name="leaderboard", description="Загальний рейтинг текстового та голосового XP")
+    @app_commands.command(name="leaderboard", description="Рейтинг загального, текстового або голосового XP")
     @app_commands.guild_only()
+    @app_commands.choices(xp_type=[app_commands.Choice(name="Загальний", value="total"),
+                                  app_commands.Choice(name="Чат", value="text"),
+                                  app_commands.Choice(name="Голос", value="voice")])
+    @app_commands.describe(page="Сторінка рейтингу від 1 до 1000",
+                           xp_type="Окремий рейтинг чату, голосу або сума XP")
     async def leaderboard(self, interaction: discord.Interaction,
-                          page: app_commands.Range[int, 1, 1000] = 1):
-        guild_context(interaction)
+                          page: app_commands.Range[int, 1, 1000] = 1,
+                          xp_type: app_commands.Choice[str] | None = None):
+        guild = guild_context(interaction)
+        guild_id = guild.id
+        if (type(guild_id) is not int or not 0 < guild_id < 2**63 or
+                type(page) is not int or not 1 <= page <= 1000 or
+                (xp_type is not None and not isinstance(xp_type, app_commands.Choice))):
+            raise UserError("Вкажіть сторінку від 1 до 1000 і доступний тип XP.")
+        kind = "total" if xp_type is None else xp_type.value
+        if type(kind) is not str or kind not in {"total", "text", "voice"}:
+            raise UserError("Виберіть загальний, текстовий або голосовий XP.")
+
+        def current_guild():
+            get_guild = getattr(self.bot, "get_guild", None)
+            return (interaction.guild is guild and type(interaction.guild_id) is int and
+                    interaction.guild_id == guild_id and guild.id == guild_id and
+                    not guild.unavailable and callable(get_guild) and get_guild(guild_id) is guild)
+
+        if not current_guild():
+            raise UserError("Сервер більше не доступний. Повторіть команду після підключення.")
+        # The first followup inherits the public defer visibility in Discord.
+        # Error replies therefore contain fixed safe text and are public too.
         await interaction.response.defer()
-        rows = await self.bot.db.leaderboard(interaction.guild_id, page)
-        lines = [f'{(page-1)*10+i}. <@{r["user_id"]}> — {r["text_xp"]+r["voice_xp"]} XP'
-                 for i, r in enumerate(rows, 1)]
-        await interaction.followup.send(embed=discord.Embed(
-            title=f"Рейтинг · чат + голос · {page}", description="\n".join(lines) or "Поки немає XP."),
-            allowed_mentions=discord.AllowedMentions.none())
+        try:
+            async with asyncio.timeout(LEADERBOARD_DB_TIMEOUT):
+                if kind == "total":
+                    rows = await self.bot.db.leaderboard(guild_id, page)
+                else:
+                    rows = await self.bot.db.leaderboard(guild_id, page, kind=kind)
+            lines = []
+            # Only validated integers enter the public embed. Never render
+            # arbitrary SQL fields, display names or an unbounded result set.
+            for index, row in enumerate(rows[:10], 1):
+                user_id, text_xp, voice_xp = row["user_id"], row["text_xp"], row["voice_xp"]
+                if (type(user_id) is not int or not 0 < user_id < 2**63 or
+                        any(type(value) is not int or not 0 <= value < 2**63
+                            for value in (text_xp, voice_xp))):
+                    raise ValueError("Invalid stored XP profile")
+                value = text_xp + voice_xp if kind == "total" else row[f"{kind}_xp"]
+                lines.append(f"{(page - 1) * 10 + index}. <@{user_id}> — {value} XP")
+        except Exception as error:
+            log.warning("Leaderboard read failed guild=%s error=%s", guild_id, type(error).__name__)
+            await interaction.followup.send("Не вдалося прочитати рейтинг. Спробуйте пізніше.",
+                allowed_mentions=discord.AllowedMentions.none())
+            return
+        if not current_guild():
+            await interaction.followup.send("Сервер більше не доступний. Повторіть команду після підключення.",
+                allowed_mentions=discord.AllowedMentions.none())
+            return
+        label = {"total": "Загальний (чат + голос)", "text": "Чат", "voice": "Голос"}[kind]
+        embed = discord.Embed(title=f"Рейтинг · {label} · {page}",
+                              description="\n".join(lines) or "Поки немає XP.")
+        embed.set_footer(text="По 10 учасників · при однаковому XP менший Discord ID вище")
+        await interaction.followup.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
     async def checked_target(self, interaction, member, perm):
         guild = permission(interaction, perm)

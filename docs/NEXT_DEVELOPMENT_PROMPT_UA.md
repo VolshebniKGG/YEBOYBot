@@ -52,6 +52,17 @@ CLEAN_PC_SETUP_UA, POSTGRES_RECOVERY_UA та DEPENDENCY_AUDIT_UA.
   Text5XP/60s; voice5XP за спостережену хвилину з ≥2 придатними людьми, без
   аналізу аудіо й catchup після втрати gateway. [26] — явний JSON→SQLite max-merge
   із перевіреним backup; старі файли зберігаються, PostgreSQL import відсутній.
+- /leaderboard має optional xp_type: Загальний(total), Чат(text), Голос(voice),
+  default total й сумісний page1–1000 по10 профілів. Text/voice порядок відповідає
+  rank_snapshot; tie — менший user_id вище. Total сортується carry/remainder,
+  без SQLite float чи PostgreSQL bigint overflow; відображення — точний Python int.
+  БД read≤10s, canonical guild до/після SQL; public defer означає й публічну
+  fixed safe error без рядків/SQL/credentials, а не private followup. Публічний звіт
+  лише з перевірених ID/XP й AllowedMentions.none. Немає XP writes/schema changes.
+  Порядок враховує збережені guild XP-профілі, зокрема колишніх учасників;
+  це не повний scan поточного Discord membership і не привід видаляти історію.
+  Для нового optional параметра потрібна sync [11]→restart[2]. Не переробляй
+  assets картки або формули XP без окремої обґрунтованої задачі.
 - /help і /modules приватні, read-only; довідка використовує фактичний каталог,
   стан налаштувань читається fresh SQL. Automod/welcome/autorole/role panels/
   rewards/event logs ще не завершені активні модулі. /setup не реалізований.
@@ -71,13 +82,17 @@ CLEAN_PC_SETUP_UA, POSTGRES_RECOVERY_UA та DEPENDENCY_AUDIT_UA.
 База паузи — 23eb600: push40714907665 і PR40714922993 завершилися success,
 усі9 jobs у кожному. Історичні full suites1967: Windows1837/130,
 Linux1795/172, PostgreSQL1924/43; maintenance1007. Linux CVE31/0/0 skips.
-Ці результати не є доказами наступного SHA. Нові totals і CI після pause/resume
-звір за актуальним HEAD у STATUS і PR#1; не запозичуй успіх старих тестів.
+Ці результати не є доказами наступного SHA. Pause checkpoint4c160da має
+локальні1937passed/172skipped, total2109; його CI перевіряється окремо.
+Ітерація рейтингу базується на4c160da: нові totals/CI rank-коду звір за
+актуальним HEAD у STATUS і PR#1, не запозичуй успіх старих тестів.
 
 ## Найближчий завершуваний результат
 
-Пріоритет користувача — музичний функціонал. Не реалізовуй pause/resume повторно.
-Після звірки їхніх перевірок додай **одну функцію керування гучністю сесії**.
+Пріоритет користувача — ранг і музика з власними assets та українським UX.
+Не реалізовуй pause/resume або окремі рейтинги повторно. Спершу звір CI,
+узгодженість text/voice rank і exact total, включно з граничними лічильниками.
+Після завершення рейтингу додай **одну функцію керування гучністю сесії**.
 
 1. Визнач зрозумілу slash-команду, обґрунтований діапазон і policy доступу.
    Потрібні поточний голосовий канал, актуальна власна сесія, guild isolation
