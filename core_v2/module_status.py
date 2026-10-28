@@ -106,6 +106,16 @@ def _music(bot, guild_id, cog, available, ready):
         return "Доступно; стан голосового підключення невідомий."
     if session is None:
         return "Доступно, але плеєр не підключений до голосового каналу цього сервера. Почніть із `/help` → Музика."
+    failed = _boolean(_read(lambda: getattr(session, "close_failed", False)))
+    stopping = _boolean(_read(lambda: getattr(session, "closing", False)))
+    if failed is True:
+        return ("Від'єднання або очищення аудіо не підтверджено. Нове підключення заблоковано. "
+                "Модератор із дозволом «Керувати сервером» може повторити `/music stop`; "
+                "якщо збій повторюється, зверніться до власника бота.")
+    if stopping is True:
+        return "Завершує роботу. Нове підключення заблоковано до підтвердженого від'єднання й очищення аудіо."
+    if failed is _UNKNOWN or stopping is _UNKNOWN:
+        return "Невідомо: завершення музичної сесії не підтверджено."
     connected = _boolean(_read(lambda: session.backend.is_connected()))
     if connected is True:
         return "Голосове з'єднання підтверджено. Черга та стан: `/music queue`. Саме звучання цей звіт не перевіряє."

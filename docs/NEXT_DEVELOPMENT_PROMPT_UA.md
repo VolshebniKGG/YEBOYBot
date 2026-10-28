@@ -17,9 +17,29 @@ POSTGRES_RECOVERY_UA та DEPENDENCY_AUDIT_UA. Код має пріоритет 
 Cloudprobe першого автотреку повернув DownloadError з категорієюnetwork, тож
 успішний стримінг не заявлено. Не додавай cookies/TLSdisable/обхідправилджерела
 для отримання зеленого smoke. Якщо liveсередовище недоступне — зафіксуй межу,
-продовжуй незалежну стабілізацію /warnings і /unwarn, не повторюй rank/music з нуля.
+продовжуй незалежну стабілізацію музики, не повторюй rank/music з нуля.
 
 ## Реалізований стан, який слід повторно звірити
+
+Поточна музична ітерація на базі`de38b71`:
+- Session.closing/close_failed зберігають облік власного backend за
+  непідтвердженого player/audio/voice cleanup. Новий connect та замовлення
+  блокуються; `/music stop` повторює закриття тієї самої сесії без безмежного retry.
+- `/music queue` і `/modules` не повідомляють успішне завершення за помилки.
+  Власний VoiceClient обліковується під час створення, до await handshake;
+  пізні з'єднання теж не втрачаються. Скасування команди
+  не кидає teardown; різні guilds завершуються незалежно.
+- Успіх закриття підтверджує лише локальний стан SDK: bounded call без
+  expired deadline, strict False від is_connected та успішний audio cleanup.
+  Не видавай це за незалежний remote voice-state ack чи доказ усіх native cleanup.
+- Source cleanup exception не є успіхом. Незавершений native cleanup може
+  потребувати штатного перезапуску; не обіцяй автоматичне лікування будь-якого зависання.
+- Час для instant EOF починається перед backend.play після resolver, тому
+  довгий пошук не обходить backoff. Callback cleanup входить до цього часу:
+  це не вимір фактично почутого аудіо й не доказ його тривалості.
+- Нових dependencies/schema/intents/configkeys/команд немає. Перевір
+  фактичні результати тестів і CI цієї ітерації за новим SHA у STATUS і PR#1.
+  Успішні push40681982798/PR40682163302 належать базі, не новим змінам.
 
 Нова довідка на базі5ded468:
 - /help topic/page: runtimeкаталог, guildoverrides, 10команд/сторінку, cap100,
@@ -118,32 +138,45 @@ Ruff/pipcheck/diffcheck та Linux Core CVE24/zero/0skips пройдено. CVE 
 
 ## Найближчий завершуваний результат
 
-Перенеси **доступ до `/warnings` і `/unwarn`** на актуальну авторизацію та
-перевірений сервісний lifecycle, без повторної реалізації /warn.
+Пріоритет користувача зараз — **музичний функціонал**. Спершу звір перевірки
+завершення сесій і backoff; не називай виправлення перевіреним лише за старим CI.
+Потім реалізуй одну завершену музичну можливість: pause/resume, керування
+гучністю або видалення замовлення з черги. Обери за актуальним кодом і тестами,
+не додавай усе одночасно.
 
-1. Для читання й відкликання перевір свіжі guild/actor permissions, guild isolation
-   та поточну роль модератора. Обґрунтуй policy вимог для бота/цілі: читання
-   історичного локального запису не повинно удавати Discord mutation API.
-2. Збережи compatibility старих UUID і нових deterministic IDs. Повторне відкликання
-   не реактивує warning; same-request/different-payload не переписує audit.
-   Забезпеч атомарний scope/status CAS та коректну діагностику unknown COMMIT.
-3. Обґрунтуй аудит revocation і дані автора, не ховай метадані в reason.
-   Міграцію додавай лише за необхідності з compatibility/backup/rollback/preservation.
-4. Перевір SQLite/PG concurrency, role/owner changes, чужий guild, старі rows,
-   duplicate/revoked/no-op, DB before/aftercommit failures та private bounded UX.
-   Додай реальний SQL/SDK cross-layer і негативні тести, не лише mocks success.
-5. Збережи всі Windows/Linux/PG/full/focused/installer/native recovery/CVE jobs
-   та log/JUnit/JSON artifacts. Не прибирай assertions заради зеленого CI.
-6. Онови українські інструкції/матрицю/карту коду, зроби коміт у feature/core-v2,
-   перевір CI, онови draft PR без merge уmain й надай фактичний український звіт.
+1. Для pause/resume відокрем навмисну паузу від AutoPause порожнього каналу:
+   прихід учасника не повинен скасувати ручну паузу. Показуй правдивий стан.
+2. Для volume обмеж значення, перевір фактичний PCM transformer і визнач,
+   чи настройка діє тільки до завершення сесії. Не називай її збереженою без БД/конфігурації.
+3. Для видалення замовлення перевір автора або «Керувати сервером», актуальну
+   сесію, guild і голосовий канал. Зміна черги не повинна видалити інший трек
+   через конкурентний skip чи початок відтворення.
+4. Closing/close_failed сесії повинні блокувати нові дії відтворення.
+   Збережи FIFO, пріоритет користувача над AP, caps/backoff, ізоляцію guilds
+   і приховування credentials/підписаних URL. Не запускай справжній Discord
+   чи системні інсталятори в unit-тестах.
+5. Додай негативні й конкурентні сценарії та реальні SDK-boundary перевірки,
+   синхронізуй metadata/docs/help. Не обіцяй 24/7 або перевагу над ProBot
+   без тривалого сценарію, обладнання, методики та порівняльних результатів.
+6. Збережи Windows/Linux/PG/full/focused/installer/native recovery/CVE jobs
+   та log/JUnit/JSON artifacts. Онови документацію/матрицю/карту коду,
+   створи коміт у feature/core-v2, перевір CI й онови draft PR без merge у main.
 
-Потім окремо timeout/untimeout: durable immutable duration/absolute expiry,
+Після музичної ітерації повернися до доступу `/warnings` і `/unwarn`: fresh
+guild/actor permissions, guild isolation, аудит revoker без метаданих у reason,
+atomic scope/status CAS, compatibility UUID/deterministic IDs, replay без
+реактивації та unknown COMMIT без хибного failed. Обґрунтуй policy для історичних
+локальних записів; нову міграцію додавай лише за потреби з verified recovery.
+Перевір SQLite/PG concurrency, role/owner changes, cross-guild, старі рядки,
+duplicate/revoked/no-op та DB failures до/після commit.
+
+Далі окремо timeout/untimeout: durable immutable duration/absolute expiry,
 причина, guild/interaction/actor/target, claim до PATCH, pending/unknown при
 неоднозначній відповіді, API-success/DB-unknown окремо. Простого додавання action
 у claim_case недостатньо; повтор не має подовжувати санкцію. Для schema change
 спершу verified recovery і preservation tests, без руйнівних дій над user data.
 
-Далі event logs з урахуванням intents/API, /setup/help, welcome/autorole,
+Далі event logs з урахуванням intents/API, /setup, welcome/autorole,
 persistent role panels, automod/exceptions/false positives, XP rewards та
 scheduled announcements. Content filters без Message Content Intent не позначай
 активними. Legacy JSON без guild_id не імпортуй без dry-run і явного зіставлення.

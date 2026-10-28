@@ -35,7 +35,15 @@ def invocation():
     voice.is_playing.return_value = False
     voice.is_paused.return_value = False
     voice.disconnect = AsyncMock()
-    channel.connect = AsyncMock(return_value=voice)
+    async def disconnect(**kwargs):
+        voice.is_connected.return_value = False
+
+    async def connect(**kwargs):
+        voice.is_connected.return_value = True
+        return voice
+
+    voice.disconnect.side_effect = disconnect
+    channel.connect = AsyncMock(side_effect=connect)
     player = SimpleNamespace(enqueue=AsyncMock(return_value=1), skip=AsyncMock(return_value=True),
         set_autoplay=AsyncMock(), snapshot=MagicMock(return_value={
             "current": None, "request": None, "queue": (), "state": "idle", "autoplay": False,
@@ -76,7 +84,11 @@ async def test_play_connects_one_owned_voiceclient_and_enqueues_requester(invoca
     fixture.interaction.response.defer.assert_awaited_once_with(ephemeral=True)
     assert [call.args[0] for call in fixture.guild.fetch_member.await_args_list] == [20, 99]
     fixture.channel.connect.assert_awaited_once_with(timeout=20, reconnect=True, self_deaf=True,
-                                                     cls=module._OwnedVoiceClient)
+                                                     cls=fixture.channel.connect.await_args.kwargs["cls"])
+    factory = fixture.channel.connect.await_args.kwargs["cls"]
+    assert factory.func is module._OwnedVoiceClient
+    assert set(factory.keywords) == {"on_created"}
+    assert callable(factory.keywords["on_created"])
     fixture.player.enqueue.assert_awaited_once_with("https://www.youtube.com/watch?v=abcdefghijk", 20)
     assert fixture.manager.attach.call_args.args[0] == 10
     assert "додано" in output(fixture)
@@ -379,6 +391,10 @@ async def backend(monkeypatch):
     voice.is_playing.return_value = False
     voice.is_paused.return_value = False
     voice.disconnect = AsyncMock()
+    async def disconnect(**kwargs):
+        voice.is_connected.return_value = False
+
+    voice.disconnect.side_effect = disconnect
     raw, wrapped = MagicMock(), MagicMock()
     factory = MagicMock(return_value=raw)
     transformer = MagicMock(return_value=wrapped)
@@ -532,7 +548,7 @@ async def test_audio_thread_callback_is_delivered_on_event_loop_once(backend):
 async def test_disconnect_error_is_sanitized_and_cleanup_still_happens(backend, caplog):
     backend.backend.play(track(), MagicMock())
     backend.voice.disconnect.side_effect = RuntimeError("private URL secret")
-    await backend.backend.close()
+    assert await backend.backend.close() is False
     backend.wrapped.cleanup.assert_called_once()
     assert "RuntimeError" in caplog.text and "private" not in caplog.text
 

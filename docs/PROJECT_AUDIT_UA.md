@@ -1,10 +1,13 @@
 # Аудит проєкту YEBOYBot — 28.10.2026
 
-Поточна ітерація на базі5ded468 додає `/help` і `/modules`: приватний каталог
-підключених команд, розділи/сторінки й read-only стан модулів за свіжими даними.
-База5ded468 має успішні push40671293610 і PR40671305031, усі9jobs; ці історичні
-результати не є перевіркою нових команд. Main, schema2 і залежності без змін.
-[Інструкція довідки](GUIDE_UA.md) · [Фактичний статус](CORE_V2_STATUS_UA.md).
+Поточна музична ітерація на базі`de38b71` виправляє втрату обліку голосової
+сесії після невдалого від'єднання та обхід backoff через довге отримання треку.
+Непідтверджена сесія блокує нові підключення; `/music stop` дозволяє обмежену
+повторну спробу, `/music queue` і `/modules` показують стан завершення.
+База має успішні push40681982798 і PR40682163302; ці історичні результати не
+є перевіркою нового коду. Main, schema2, залежності й кількість команд без змін.
+[Відновлення музики](RANK_MUSIC_UA.md#непідтверджена-зупинка-та-повторна-спроба) ·
+[Фактичний статус](CORE_V2_STATUS_UA.md).
 
 Статус нижче описує інтеграцію й автоматичні перевірки. Робота на живому Discord,
 ручний Windows/logon і production 24/7 не підтверджені.
@@ -21,7 +24,7 @@
 | Модерація | Partial | Kick/ban/unban: shared service, fresh permissions/hierarchy, atomic cross-action claim, ambiguity-safe audit; modhistory з pending diagnostics. Ban не видаляє повідомлення; unban за ID колишнього учасника. Clear має окреме підтвердження/receipt; automatic reconcile відсутній; старі timeout lifecycle потребують виправлення |
 | Попередження | Partial | /warn: fresh authority + atomic local warn/applied, deterministic guild/interaction key, immutable payload/revoked replay; /warnings bounded10 UTF16 outputs. Read/revoke authorization warnings/unwarn ще cached; liveDiscord не перевірений |
 | Очищення повідомлень | Partial | До25/recent7days/TextChannel, immutableIDs, ephemeral60s confirm, atomicmanualjobclaim/expiry, ownstatus, no replay unknown; liveDiscord/manualWindows не перевірені |
-| Музика Core | Partial | Per-guild bounded FIFO/autoplay, user priority, safe diagnostics, bounded worker I/O, stop/autojoin guards, cancellation-owned cleanup/reconnect/backoff, options subset, FFmpeg/Deno setup; Spotify official metadata→YouTube match. In-memory queue; live streams/24×7 не перевірені |
+| Музика Core | Partial | Per-guild FIFO/autoplay, пріоритет замовлень, безпечна діагностика, обмежені worker I/O, stop/autojoin guards. Непідтверджене закриття зберігає й блокує власну сесію; stop повторює її закриття, queue/modules показують стан. Slow resolver не маскує instant EOF/backoff. Options subset, FFmpeg/Deno setup; Spotify metadata→YouTube match. Черги в пам'яті; live Discord/24×7 не перевірені |
 | XP | Partial | Текст5XP/60s, голос5XP/спостережену хвилину з ≥2 придатними людьми; окремі SQL ranks/PNG/антифарм/reset; [26] explicit max-merge JSON→SQLite з backup. Rewards, speech detection і live Discord не перевірені/відсутні |
 | Нагадування | Partial | Durable lease/retry/access check; at-least-once, можливі повтори після crash |
 | Automod/welcome/autorole/panels | Disconnected | Поля/таблиці/helpers є; активних сценаріїв Discord немає |

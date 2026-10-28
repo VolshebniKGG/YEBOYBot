@@ -141,6 +141,7 @@ async def test_cancelled_remove_keeps_owned_teardown_tracked_until_disconnect(in
     async def disconnect(**kwargs):
         entered.set()
         await release.wait()
+        f.voice.is_connected.return_value = False
 
     f.voice.disconnect.side_effect = disconnect
     removal = asyncio.create_task(f.cog._remove(10))
@@ -174,6 +175,7 @@ async def test_sdk_connect_cancellation_disconnects_and_cleans_only_owned_protoc
     owned = object.__new__(_OwnedVoiceClient)
     owned.disconnect = AsyncMock()
     owned.cleanup = MagicMock()
+    owned.is_connected = MagicMock(return_value=False)
     task = asyncio.create_task(owned.connect(timeout=20, reconnect=True))
     await entered.wait()
     task.cancel()
@@ -251,9 +253,10 @@ async def test_slow_disconnect_on_one_guild_does_not_block_another_guild(invocat
     async def close():
         entered.set()
         await release.wait()
+        return True
 
     first, second = MagicMock(), MagicMock()
-    first.close, second.close = AsyncMock(side_effect=close), AsyncMock()
+    first.close, second.close = AsyncMock(side_effect=close), AsyncMock(return_value=True)
     f.cog.sessions[10] = Session(first, f.player)
     f.cog.sessions[11] = Session(second, f.player)
     pending = asyncio.create_task(f.cog._remove(10))

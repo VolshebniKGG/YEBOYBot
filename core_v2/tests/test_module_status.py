@@ -293,6 +293,55 @@ async def test_music_closing_or_pending_teardown_never_claims_audio_is_playing(s
     assert "Завершує роботу" in field(result, "Музика")
 
 
+@pytest.mark.parametrize("connected", [True, False, None], ids=["connected", "disconnected", "unknown"])
+async def test_failed_music_teardown_is_quarantined_even_if_voice_looks_connected(sample, connected):
+    music = music_cog()
+    backend = SimpleNamespace(is_connected=MagicMock(return_value=connected))
+    music.sessions[101] = SimpleNamespace(backend=backend, closing=True, close_failed=True)
+    sample.cogs["Music"] = music
+    result = await collect_module_status(sample.bot, sample.guild)
+    text = field(result, "Музика")
+    assert "очищення аудіо не підтверджено" in text
+    assert "Нове підключення заблоковано" in text and "/music stop" in text
+    assert "з'єднання підтверджено" not in text
+    backend.is_connected.assert_not_called()
+
+
+async def test_stopping_music_session_without_task_never_claims_connected(sample):
+    music = music_cog()
+    backend = SimpleNamespace(is_connected=MagicMock(return_value=True))
+    music.sessions[101] = SimpleNamespace(backend=backend, closing=True, close_failed=False)
+    sample.cogs["Music"] = music
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "Завершує роботу" in field(result, "Музика")
+    backend.is_connected.assert_not_called()
+
+
+@pytest.mark.parametrize("attribute", ["closing", "close_failed"])
+@pytest.mark.parametrize("value", [None, "false", 0], ids=["missing", "string", "integer"])
+async def test_invalid_session_teardown_state_is_unknown(sample, attribute, value):
+    music = music_cog()
+    backend = SimpleNamespace(is_connected=MagicMock(return_value=True))
+    session = SimpleNamespace(backend=backend, closing=False, close_failed=False)
+    setattr(session, attribute, value)
+    music.sessions[101] = session
+    sample.cogs["Music"] = music
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "Невідомо" in field(result, "Музика")
+    backend.is_connected.assert_not_called()
+
+
+async def test_other_guild_failed_music_teardown_does_not_block_this_guild(sample):
+    music = music_cog()
+    music.sessions[202] = SimpleNamespace(backend=SimpleNamespace(is_connected=MagicMock()),
+                                        closing=True, close_failed=True)
+    sample.cogs["Music"] = music
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "не підключений" in field(result, "Музика")
+    assert "заблоковано" not in field(result, "Музика")
+    music.sessions[202].backend.is_connected.assert_not_called()
+
+
 async def test_music_session_from_another_guild_does_not_appear_connected(sample):
     music = music_cog()
     music.sessions[202] = SimpleNamespace(backend=SimpleNamespace(is_connected=MagicMock(return_value=True)))

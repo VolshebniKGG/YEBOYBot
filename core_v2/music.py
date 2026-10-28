@@ -4,6 +4,7 @@ No gateway connection or FFmpeg process is created when this module is imported.
 """
 import asyncio
 from dataclasses import dataclass
+from functools import partial
 import logging
 import subprocess
 import threading
@@ -22,22 +23,38 @@ from .security import UserError, guild_context
 from .spotify import SpotifyMetadata
 
 log = logging.getLogger(__name__)
+AUDIO_CLEANUP_TIMEOUT = 10
+VOICE_DISCONNECT_TIMEOUT = 10
+PLAYER_CLOSE_TIMEOUT = 10
+CLOSE_PENDING = ("Не підтверджено завершення музичного плеєра. Нові треки й підключення "
+                 "заблоковано. Повторіть /music stop; якщо стан не зміниться, "
+                 "перезапустіть бот через YEBOYBot.cmd і перевірте журнал.")
 
 
 class _OwnedVoiceClient(discord.VoiceClient):
     """The SDK handles timeout cleanup; own cancellation cleanup as well."""
 
+    def __init__(self, client, channel, *, on_created=None):
+        super().__init__(client, channel)
+        self._managed_by_music = on_created is not None
+        if on_created is not None:
+            on_created(self)
+
     async def connect(self, **kwargs):
         try:
             return await super().connect(**kwargs)
         except asyncio.CancelledError:
+            if getattr(self, "_managed_by_music", False):
+                # _ensure captured ownership at construction. Its
+                # shielded teardown owns cleanup after this cancellation.
+                raise
             try:
-                async with asyncio.timeout(10):
+                async with asyncio.timeout(VOICE_DISCONNECT_TIMEOUT) as deadline:
                     await self.disconnect(force=True)
+                if not deadline.expired() and self.is_connected() is False:
+                    self.cleanup()
             except Exception as error:
                 log.warning("Cancelled music connect cleanup failed type=%s", type(error).__name__)
-            finally:
-                self.cleanup()
             raise
 
 
@@ -64,6 +81,7 @@ class _OwnedAudioSource(discord.AudioSource):
         self.source, self.loop, self._on_cleaned = source, loop, cleaned
         self._lock = threading.Lock()
         self._cleanup_claimed = False
+        self.cleanup_failed = False
         self.cleaned = asyncio.Event()
         self.finished = False
         self.after = None
@@ -91,6 +109,7 @@ class _OwnedAudioSource(discord.AudioSource):
         try:
             self.source.cleanup()
         except Exception as error:
+            self.cleanup_failed = True
             log.warning("FFmpeg cleanup failed type=%s", type(error).__name__)
         finally:
             self.dispatch(self._on_cleaned, self)
@@ -120,12 +139,13 @@ class FFmpegVoiceBackend:
     def _finalize(self, source):
         if not source.finished or not source.cleaned.is_set():
             return
-        if self._source is source:
+        if self._source is source and not source.cleanup_failed:
             self._source = None
         if not source.delivered:
             source.delivered = True
             if source.after is not None:
-                source.after(source.error)
+                source.after(MusicError("Не підтверджено завершення аудіопотоку.", code="playback_error")
+                             if source.cleanup_failed else source.error)
 
     def _schedule_cleanup(self, source):
         if self._cleanup_task is not None and not self._cleanup_task.done():
@@ -211,19 +231,32 @@ class FFmpegVoiceBackend:
             self.voice.resume()
 
     async def close(self):
-        self.stop()
-        await self.wait_stopped()
+        cleaned = False
         try:
-            async with asyncio.timeout(10):
+            self.stop()
+            async with asyncio.timeout(AUDIO_CLEANUP_TIMEOUT) as deadline:
+                cleaned = await self.wait_stopped(timeout=AUDIO_CLEANUP_TIMEOUT) is True
+            cleaned = cleaned and not deadline.expired()
+        except Exception as error:
+            log.warning("Music source close failed type=%s", type(error).__name__)
+        disconnected = False
+        try:
+            async with asyncio.timeout(VOICE_DISCONNECT_TIMEOUT) as deadline:
                 await self.voice.disconnect(force=True)
+            disconnected = not deadline.expired() and self.voice.is_connected() is False
         except Exception as error:
             log.warning("Voice disconnect failed type=%s", type(error).__name__)
+        return cleaned and disconnected
 
 
 @dataclass
 class Session:
     backend: FFmpegVoiceBackend
     player: object
+    closing: bool = False
+    close_failed: bool = False
+    detach_failed: bool = False
+    channel_id: int | None = None
 
 
 class Music(commands.GroupCog, group_name="music", group_description="Музика та автоматична черга сервера"):
@@ -257,15 +290,23 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         task = self.autojoin.get_task()
         if task:
             await asyncio.gather(task, return_exceptions=True)
-        await asyncio.gather(*(self._remove(guild_id) for guild_id in tuple(self.sessions)),
-                             return_exceptions=True)
-        await self.manager.close()
+        guild_ids = tuple(self.sessions)
+        results = await asyncio.gather(*(self._remove(guild_id) for guild_id in guild_ids),
+                                       return_exceptions=True)
+        for guild_id, result in zip(guild_ids, results):
+            if result is not True:
+                log.warning("Music shutdown unconfirmed guild=%s", guild_id)
+        try:
+            async with asyncio.timeout(PLAYER_CLOSE_TIMEOUT):
+                await self.manager.close()
+        except Exception as error:
+            log.warning("Music manager close failed type=%s", type(error).__name__)
 
     async def _reply(self, interaction, message):
         await interaction.followup.send(message, ephemeral=True,
                                         allowed_mentions=discord.AllowedMentions.none())
 
-    async def _context(self, interaction, *, manager=False):
+    async def _context(self, interaction, *, manager=False, allow_closing=False, cleanup=False):
         guild = guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
         if self.bot.user is None:
@@ -287,11 +328,20 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
                 or channel.guild.id != guild.id
                 or (guild.afk_channel and channel.id == guild.afk_channel.id)):
             raise UserError("Спочатку приєднайтеся до звичайного голосового каналу цього сервера.")
-        self._permissions(channel, actor, bot_member)
+        if cleanup:
+            # Removing an owned connection remains possible after the bot loses
+            # Connect/Speak. The actor's permissions and scope still apply.
+            self._permissions(channel, actor, actor)
+        else:
+            self._permissions(channel, actor, bot_member)
         session = self.sessions.get(guild.id)
-        if guild.id in self._teardowns:
+        if (guild.id in self._teardowns or (session and session.closing)) and not allow_closing:
             raise UserError("Музичний плеєр ще завершує роботу. Зачекайте й повторіть.")
-        if session and session.backend.voice.channel.id != channel.id:
+        owned_channel = getattr(session.backend.voice, "channel", None) if session else None
+        channel_id = session.channel_id if session and owned_channel is None else getattr(owned_channel, "id", None)
+        if session and owned_channel is not None and getattr(getattr(owned_channel, "guild", None), "id", None) != guild.id:
+            raise UserError("Приєднайтеся до того самого голосового каналу, де грає бот.")
+        if session and channel_id != channel.id:
             raise UserError("Приєднайтеся до того самого голосового каналу, де грає бот.")
         return guild, channel, actor, bot_member
 
@@ -303,6 +353,7 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
                 raise UserError("Вам і боту потрібні «Переглядати канал», «Підключатися» та «Говорити».")
 
     async def _ensure(self, guild, channel, *, automatic=False):
+        cleanup_task = None
         try:
             async with asyncio.timeout(30):
                 async with self._connections:
@@ -316,6 +367,8 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
                         self._stopped_guilds.discard(guild.id)
                     session = self.sessions.get(guild.id)
                     if session:
+                        if session.closing or session.close_failed:
+                            raise UserError(CLOSE_PENDING)
                         if session.backend.voice.channel.id != channel.id:
                             raise UserError("Бот уже працює в іншому голосовому каналі цього сервера.")
                         if not session.backend.is_connected():
@@ -325,64 +378,122 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
                         raise UserError("Сервер уже має інше голосове з'єднання бота.")
                     if len(self.sessions) >= self.options.max_players:
                         raise UserError("Досягнуто ліміт одночасних музичних серверів.")
-                    voice = await channel.connect(timeout=20, reconnect=True,
-                                                  cls=_OwnedVoiceClient,
-                                                  self_deaf=self.options.self_deafen)
-                    backend = FFmpegVoiceBackend(voice, self.executable,
-                                                 self.options.default_volume)
+                    owned_session = None
+
+                    def own_voice(voice):
+                        nonlocal owned_session
+                        backend = FFmpegVoiceBackend(voice, self.executable,
+                                                     self.options.default_volume)
+                        owned_session = Session(backend, None, channel_id=channel.id)
+
+                    try:
+                        voice = await channel.connect(
+                            timeout=20, reconnect=True,
+                            cls=partial(_OwnedVoiceClient, on_created=own_voice),
+                            self_deaf=self.options.self_deafen)
+                    except BaseException:
+                        if owned_session is not None:
+                            self.sessions[guild.id] = owned_session
+                            cleanup_task = self._schedule_remove(guild.id, owned_session)
+                        raise
+                    # Injected test adapters may return a client without invoking
+                    # the constructor; the SDK always invokes our factory first.
+                    if owned_session is None:
+                        own_voice(voice)
+                    session = owned_session
+                    backend = session.backend
+                    self.sessions[guild.id] = session
                     if (self._closing or guild.id in self._stopped_guilds
                             or self.bot.get_guild(guild.id) is not guild):
-                        await backend.close()
+                        cleanup_task = self._schedule_remove(guild.id, session)
                         raise UserError("Музику зупинено; попереднє підключення скасовано.")
                     try:
                         player = self.manager.attach(guild.id, backend)
                     except BaseException:
-                        await backend.close()
+                        cleanup_task = self._schedule_remove(guild.id, session)
                         raise
-                    session = Session(backend, player)
-                    self.sessions[guild.id] = session
+                    session.player = player
                     self._pause(guild.id)
                     return session
         except TimeoutError:
             raise UserError("Не вдалося вчасно підключитися до голосового каналу.") from None
         except discord.HTTPException:
             raise UserError("Discord не дозволив підключення. Перевірте дозволи каналу.") from None
+        finally:
+            if cleanup_task is not None:
+                # Release the connection lock before waiting. Cancellation of the
+                # command cannot cancel the separately owned teardown operation.
+                await asyncio.shield(cleanup_task)
 
     def _pause(self, guild_id):
         session = self.sessions.get(guild_id)
-        if session and session.backend.voice.channel is not None:
+        if session and not session.closing and session.backend.voice.channel is not None:
             humans = any(not member.bot for member in session.backend.voice.channel.members)
             session.backend.set_paused(self.options.auto_pause and not humans)
 
+    def _schedule_remove(self, guild_id, session):
+        """Called under _connections; retain ownership until both stages confirm."""
+        task = self._teardowns.get(guild_id)
+        if task is not None:
+            return task
+        session.closing = True
+        session.close_failed = False
+
+        async def teardown():
+            detached = session.player is None
+            closed = False
+            try:
+                if session.player is not None:
+                    try:
+                        async with asyncio.timeout(PLAYER_CLOSE_TIMEOUT) as deadline:
+                            if session.detach_failed:
+                                # MusicManager removes its map entry before awaiting
+                                # player.close(). Retry the exact retained worker too.
+                                await session.player.close()
+                            await self.manager.detach(guild_id)
+                        detached = not deadline.expired()
+                        session.detach_failed = not detached
+                    except Exception as error:
+                        session.detach_failed = True
+                        log.warning("Music player close failed guild=%s type=%s",
+                                    guild_id, type(error).__name__)
+                try:
+                    async with asyncio.timeout(AUDIO_CLEANUP_TIMEOUT + VOICE_DISCONNECT_TIMEOUT + 1) as deadline:
+                        closed = await session.backend.close() is True
+                    closed = closed and not deadline.expired()
+                except Exception as error:
+                    log.warning("Music backend close failed guild=%s type=%s",
+                                guild_id, type(error).__name__)
+                confirmed = detached and closed
+                session.close_failed = not confirmed
+                if confirmed and self.sessions.get(guild_id) is session:
+                    self.sessions.pop(guild_id, None)
+                return confirmed
+            finally:
+                # Failed attempts release their task, not their owned session.
+                # A manual stop can retry; automatic connect remains blocked.
+                if self.sessions.get(guild_id) is session:
+                    session.close_failed = True
+                if self._teardowns.get(guild_id) is asyncio.current_task():
+                    self._teardowns.pop(guild_id, None)
+
+        task = asyncio.create_task(teardown(), name=f"music-disconnect-{guild_id}")
+        self._teardowns[guild_id] = task
+
+        def finished(done):
+            if not done.cancelled() and (error := done.exception()) is not None:
+                log.warning("Music teardown failed guild=%s type=%s", guild_id, type(error).__name__)
+
+        task.add_done_callback(finished)
+        return task
+
     async def _remove(self, guild_id):
-        task = None
         async with self._connections:
             session = self.sessions.get(guild_id)
-            if session:
-                task = self._teardowns.get(guild_id)
-                if task is None:
-                    async def teardown():
-                        try:
-                            try:
-                                await self.manager.detach(guild_id)
-                            finally:
-                                await session.backend.close()
-                        finally:
-                            if self.sessions.get(guild_id) is session:
-                                self.sessions.pop(guild_id, None)
-                            self._teardowns.pop(guild_id, None)
-
-                    task = asyncio.create_task(teardown(), name=f"music-disconnect-{guild_id}")
-                    self._teardowns[guild_id] = task
-                    def finished(done):
-                        if not done.cancelled() and (error := done.exception()) is not None:
-                            log.warning("Music teardown failed guild=%s type=%s", guild_id, type(error).__name__)
-
-                    task.add_done_callback(finished)
-        if task is not None:
-            # A cancelled command must not abandon an owned voice connection.
-            # Independent guild teardowns may finish concurrently.
-            await asyncio.shield(task)
+            task = self._schedule_remove(guild_id, session) if session else None
+        if task is None:
+            return True
+        return await asyncio.shield(task)
 
     @app_commands.command(name="play", description="Додати YouTube/SoundCloud трек або пошуковий запит")
     @app_commands.guild_only()
@@ -414,10 +525,15 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
     @app_commands.command(name="queue", description="Поточний трек і до 10 наступних замовлень")
     @app_commands.guild_only()
     async def queue(self, interaction: discord.Interaction):
-        guild, _, _, _ = await self._context(interaction)
+        guild, _, _, _ = await self._context(interaction, allow_closing=True)
         session = self.sessions.get(guild.id)
         if not session:
             await self._reply(interaction, "Музичний плеєр не підключений. Використайте /music play.")
+            return
+        if session.closing or session.close_failed:
+            await self._reply(interaction, CLOSE_PENDING if session.close_failed else
+                              "Музичний плеєр завершує роботу. Нові треки заблоковано; "
+                              "повторіть /music queue або /music stop після завершення.")
             return
         snapshot = session.player.snapshot()
         current = snapshot["current"]
@@ -456,10 +572,12 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.guild_only()
     async def stop(self, interaction: discord.Interaction):
-        guild, _, _, _ = await self._context(interaction, manager=True)
+        guild, _, _, _ = await self._context(interaction, manager=True, allow_closing=True, cleanup=True)
         self._stopped_guilds.add(guild.id)
-        await self._remove(guild.id)
-        await self._reply(interaction, "Музику зупинено, чергу очищено. Автопідключення вимкнено до нового запиту або перезапуску.")
+        confirmed = await self._remove(guild.id)
+        await self._reply(interaction,
+                          "Музику зупинено, чергу очищено. Автопідключення вимкнено до нового запиту або перезапуску."
+                          if confirmed is True else CLOSE_PENDING)
 
     @app_commands.command(name="autoplay", description="Увімкнути чи вимкнути автоплейлист цієї сесії")
     @app_commands.default_permissions(manage_guild=True)
@@ -474,7 +592,7 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
     async def on_voice_state_update(self, member, before, after):
         if self.bot.user and member.id == self.bot.user.id and after.channel is None:
             session = self.sessions.get(member.guild.id)
-            if session and not session.backend.is_connected():
+            if session and not session.closing and not session.backend.is_connected():
                 await self._remove(member.guild.id)
         self._pause(member.guild.id)
 

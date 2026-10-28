@@ -491,7 +491,6 @@ class GuildPlayer:
                 self.error = None
                 self.error_code = None
                 failed = False
-                started = self.manager.clock()
                 try:
                     track = await self._until_changed(self._resolve(self.request.source))
                     if track is None or self._interrupted:
@@ -510,6 +509,9 @@ class GuildPlayer:
                         if not loop.is_closed():
                             loop.call_soon_threadsafe(deliver)
 
+                    # Source lookup and waiting for an extractor slot are not
+                    # playback. They must not hide an immediate successful EOF.
+                    started = self.manager.clock()
                     self.backend.play(track, finish)
                     result = await self._until_changed(finished)
                     failed = result is not None or (not self._interrupted and
