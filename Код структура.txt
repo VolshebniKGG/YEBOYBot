@@ -245,3 +245,15 @@ docs/RANK_MUSIC_UA.md             Налаштування, команди, га
 лічильник і не переносить збережені рівні: рівень обчислюється з XP.
 18 основних команд + optional music group6. Черги музики лише в пам'яті.
 Тривале реальне відтворення/Discord не підтверджене автоматичними mocks.
+
+7. ДІАГНОСТИКА МУЗИКИ ТА ЖИТТЄВИЙ ЦИКЛ
+--------------------------------------
+core_v2/music_engine.py: failure_message/normalize_failure_code, allowlisted worker
+JSON, streamed stdin16KiB/stdout64KB, bounded ownedchild kill/reap/drain.
+core_v2/music_options.py: MusicError.code; raw message не виводиться у snapshot.
+core_v2/music.py: український /music queue, stop guards до/після automaticconnect,
+валідація перед voice, _OwnedVoiceClient cancellation cleanup, _teardowns registry.
+core_v2/tests/test_music_diagnostics.py: offline child/yt-dlp protocol й межі I/O.
+core_v2/tests/test_music_lifecycle.py: REST/connect/stop interleavings, cancellation,
+removedguild, independent parallel guild close, private safe localized queue.
+No schema/dependency/config changes. Реальний Discord/24hsoak не підтверджені.

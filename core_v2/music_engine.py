@@ -5,6 +5,7 @@ thread. No cookies, OAuth bypass, media downloads or shell commands are used.
 """
 import asyncio
 from collections import deque
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 import json
 import logging
@@ -20,10 +21,142 @@ if __package__:
     from .music_options import MusicError, MusicOptions
 else:
     class MusicError(ValueError):
-        pass
+        def __init__(self, message, *, code="source_unavailable"):
+            super().__init__(message)
+            self.code = code
 
 log = logging.getLogger(__name__)
 CLEANUP_RETRY_INTERVAL = 1
+MAX_WORKER_INPUT = 16_384
+MAX_WORKER_OUTPUT = 64_000
+
+FAILURE_MESSAGES = {
+    "network": "Мережа не дала отримати трек. Перевірте інтернет, DNS і налаштований proxy; спробуйте пізніше.",
+    "tls": "Не підтверджено сертифікат джерела. Перевірте системний час і довірені сертифікати; не вимикайте TLS-перевірку.",
+    "rate_limited": "Джерело тимчасово обмежило запити. Зачекайте або виберіть інший трек; автоматичні спроби мають паузу.",
+    "source_unavailable": "Не вдалося отримати відкритий аудіопотік. Перевірте доступність треку або виберіть інший.",
+    "login_required": "Джерело вимагає входу або додаткового доступу. Виберіть відкритий трек; бот не входить в облікові записи джерела.",
+    "format_unavailable": "Джерело не надало підтримуваний аудіоформат. Зупиніть бот, оновіть бібліотеки через [5] або виберіть інший трек.",
+    "runtime_missing": "Для YouTube не підтверджено JS runtime. Перевірте Deno або Node.js ≥20; Windows: [25] → [4], бібліотеки: [5].",
+    "extractor_timeout": "Джерело не відповіло вчасно. Перевірте мережу або спробуйте інший трек.",
+    "playback_error": "Відтворення перервано. Перевірте голосове з’єднання та FFmpeg через [25]; наступна спроба матиме паузу.",
+}
+
+
+def normalize_failure_code(value):
+    """Never expose untrusted exception text or worker-provided codes."""
+    return value if type(value) is str and value in FAILURE_MESSAGES else "source_unavailable"
+
+
+def failure_message(code):
+    return FAILURE_MESSAGES[normalize_failure_code(code)]
+
+
+def classify_failure(message):
+    """Best-effort category, without retaining or returning provider text."""
+    if not isinstance(message, str):
+        return "source_unavailable"
+    text = message[:8192].lower()
+    categories = (
+        ("tls", ("certificate verify failed", "certificate_verify_failed", "ssl certificate", "tls handshake")),
+        ("rate_limited", ("http error 429", "too many requests", "rate limit")),
+        ("login_required", ("sign in", "login required", "log in to", "authentication required", "private video")),
+        ("format_unavailable", ("requested format is not available", "no video formats", "no audio formats")),
+        ("runtime_missing", ("no supported javascript runtime", "javascript runtime not found", "deno was not found")),
+        ("extractor_timeout", ("timed out", "timeout error")),
+        ("network", ("connection refused", "connection reset", "connection aborted", "network is unreachable",
+                     "name or service not known", "name resolution", "getaddrinfo failed", "unable to connect",
+                     "proxy error", "proxyerror", "remote end closed connection", "failed to establish a new connection")),
+    )
+    for code, patterns in categories:
+        if any(pattern in text for pattern in patterns):
+            return code
+    return "source_unavailable"
+
+
+class _ExtractorLogger:
+    def __init__(self):
+        self.warning_code = self.error_code = "source_unavailable"
+
+    def debug(self, _message):
+        pass
+
+    def warning(self, message):
+        code = classify_failure(message)
+        if code != "source_unavailable":
+            self.warning_code = code
+
+    def error(self, message):
+        code = classify_failure(message)
+        if code != "source_unavailable":
+            self.error_code = code
+
+    def failure(self, error):
+        if isinstance(error, (ImportError, ModuleNotFoundError)):
+            return "runtime_missing"
+        if isinstance(error, TimeoutError):
+            return "extractor_timeout"
+        argument = error.args[0] if error.args else None
+        code = classify_failure(argument)
+        if code != "source_unavailable":
+            return code
+        return self.error_code if self.error_code != "source_unavailable" else self.warning_code
+
+
+class _DiscardOutput:
+    """Provider print calls must never contaminate the one-shot JSON protocol."""
+    def write(self, value):
+        return len(value)
+
+    def flush(self):
+        pass
+
+
+async def _worker_output(process, data):
+    """Stream with a hard result cap rather than collecting unbounded stdout."""
+    if len(data) > MAX_WORKER_INPUT:
+        raise ValueError("Extractor request too large")
+    try:
+        process.stdin.write(data)
+        await process.stdin.drain()
+    except (BrokenPipeError, ConnectionResetError):
+        pass
+    finally:
+        process.stdin.close()
+    output = bytearray()
+    while chunk := await process.stdout.read(8192):
+        output.extend(chunk)
+        if len(output) > MAX_WORKER_OUTPUT:
+            raise ValueError("Extractor response too large")
+    await process.wait()
+    return bytes(output)
+
+
+async def _reap_worker(process):
+    """Kill only our owned child, then drain buffered output before wait()."""
+    if process.returncode is None:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+    # A paused stdout transport can keep Process.wait pending after kill.
+    # Drain/discard in bounded chunks, never communicate()/retain the remainder.
+    try:
+        async with asyncio.timeout(5):
+            while await process.stdout.read(8192):
+                pass
+            await process.wait()
+    except (TimeoutError, OSError):
+        # Closing this child's own transport releases pipes inherited by an
+        # extractor runtime. It must not affect another process or transport.
+        transport = getattr(process, "_transport", None)
+        if transport is not None:
+            transport.close()
+        try:
+            async with asyncio.timeout(1):
+                await process.wait()
+        except (TimeoutError, OSError):
+            log.warning("Extractor child cleanup did not confirm exit")
 
 
 @dataclass(frozen=True)
@@ -125,19 +258,24 @@ class YTDLPResolver:
         from .media_environment import javascript_runtime
         try:
             runtime = javascript_runtime()
-        except ValueError as error:
-            raise MusicError(str(error)) from None
+        except ValueError:
+            raise MusicError(failure_message("runtime_missing"), code="runtime_missing") from None
         process = None
         try:
             async with asyncio.timeout(self.timeout):
                 process = await asyncio.create_subprocess_exec(
                     sys.executable, "-I", str(Path(__file__).resolve()), "--resolve",
                     stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.DEVNULL)
-                output, _ = await process.communicate(json.dumps({"query": query, "js_runtimes": runtime}).encode())
-                if process.returncode or len(output) > 64_000:
-                    raise ValueError
+                    stderr=asyncio.subprocess.DEVNULL, limit=16_384)
+                output = await _worker_output(process, json.dumps({"query": query, "js_runtimes": runtime}).encode())
                 payload = json.loads(output)
+                if not isinstance(payload, dict):
+                    raise ValueError
+                if set(payload) == {"error"}:
+                    code = normalize_failure_code(payload["error"])
+                    raise MusicError(failure_message(code), code=code)
+                if process.returncode:
+                    raise ValueError
                 stream_url = validate_stream_url(payload["stream_url"])
                 title = payload["title"]
                 duration = payload["duration"]
@@ -147,17 +285,21 @@ class YTDLPResolver:
                 return Track(title, stream_url, source, float(duration))
         except asyncio.CancelledError:
             raise
+        except MusicError as error:
+            code = normalize_failure_code(error.code)
+            raise MusicError(failure_message(code), code=code) from None
         except TimeoutError:
-            raise MusicError("Джерело не відповіло вчасно. Спробуйте інший трек.") from None
+            raise MusicError(failure_message("extractor_timeout"), code="extractor_timeout") from None
         except (OSError, ValueError, TypeError, KeyError):
-            raise MusicError("Не вдалося отримати відкритий аудіопотік. Спробуйте інший трек.") from None
+            raise MusicError(failure_message("source_unavailable")) from None
         finally:
-            if process is not None and process.returncode is None:
+            if process is not None:
+                cleanup = asyncio.create_task(_reap_worker(process))
                 try:
-                    process.kill()
-                except ProcessLookupError:
-                    pass
-                await process.wait()
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError:
+                    await cleanup
+                    raise
 
 
 class MusicManager:
@@ -205,6 +347,7 @@ class GuildPlayer:
         self.request = None
         self.state = "idle"
         self.error = None
+        self.error_code = None
         self._changed = asyncio.Event()
         self._interrupted = False
         self._closed = False
@@ -246,7 +389,7 @@ class GuildPlayer:
         return {"current": self.current, "request": self.request,
                 "autoplay": bool(self.request and self.request.requester_id is None),
                 "autoplay_enabled": self.autoplay_enabled, "queue": tuple(self.queue),
-                "state": self.state, "error": self.error}
+                "state": self.state, "error": self.error, "error_code": self.error_code}
 
     async def close(self):
         self._closed = True
@@ -346,6 +489,7 @@ class GuildPlayer:
                     continue
                 self.state = "resolving"
                 self.error = None
+                self.error_code = None
                 failed = False
                 started = self.manager.clock()
                 try:
@@ -371,14 +515,18 @@ class GuildPlayer:
                     failed = result is not None or (not self._interrupted and
                                                     self.manager.clock() - started < 1)
                     if failed:
-                        self.error = "Відтворення перервано джерелом; наступна спроба з паузою."
+                        self.error_code = "playback_error"
+                        self.error = failure_message(self.error_code)
                 except asyncio.CancelledError:
                     raise
-                except Exception:
+                except Exception as error:
                     # Do not expose URLs, tokens, subprocess stderr or raw API errors.
-                    self.error = "Не вдалося відтворити трек. Спробуйте інший."
+                    self.error_code = (normalize_failure_code(error.code) if isinstance(error, MusicError)
+                                       else "extractor_timeout" if isinstance(error, TimeoutError)
+                                       else "playback_error")
+                    self.error = failure_message(self.error_code)
                     failed = True
-                    log.warning("Music track failed guild=%s", self.guild_id)
+                    log.warning("Music track failed guild=%s code=%s", self.guild_id, self.error_code)
                 finally:
                     await self._stop()
                     self.current = self.request = None
@@ -397,7 +545,12 @@ class GuildPlayer:
 def _extractor_worker():
     """Private one-shot process: bounded input/output and no raw diagnostics."""
     try:
-        payload = json.loads(sys.stdin.buffer.read(16384))
+        raw = sys.stdin.buffer.read(MAX_WORKER_INPUT + 1)
+        if len(raw) > MAX_WORKER_INPUT:
+            raise ValueError
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError
         query = payload["query"]
         # Revalidate parent-provided input, rather than trust a command-line caller.
         if query.startswith("ytsearch1:"):
@@ -406,23 +559,30 @@ def _extractor_worker():
             query = validate_source(query)
         if spotify_track_id(query):
             raise ValueError
-        import yt_dlp
-        with yt_dlp.YoutubeDL({
+    except Exception:
+        raise SystemExit(1) from None
+    logger = _ExtractorLogger()
+    try:
+        with redirect_stdout(_DiscardOutput()), redirect_stderr(_DiscardOutput()):
+            import yt_dlp
+            with yt_dlp.YoutubeDL({
                 "format": "bestaudio/best", "noplaylist": True, "playlistend": 1,
-                "quiet": True, "no_warnings": True, "noprogress": True,
+                "quiet": True, "no_warnings": True, "noprogress": True, "logger": logger,
                 "socket_timeout": 10, "retries": 1, "extractor_retries": 1,
                 "cachedir": False, "skip_download": True, "usenetrc": False,
                 "nocheckcertificate": False, "js_runtimes": payload.get("js_runtimes", {})}) as extractor:
-            info = extractor.extract_info(query, download=False)
-        if "entries" in info:
-            info = next(entry for entry in info["entries"] if entry)
-        stream = validate_stream_url(info["url"])
-        duration = info.get("duration")
-        if info.get("is_live") or type(duration) not in (int, float) or not 0 < duration <= 14_400:
-            raise ValueError
-        print(json.dumps({"title": str(info.get("title") or "Трек")[:500],
-                          "stream_url": stream, "duration": duration}))
-    except Exception:
+                info = extractor.extract_info(query, download=False)
+                if "entries" in info:
+                    info = next(entry for entry in info["entries"] if entry)
+                stream = validate_stream_url(info["url"])
+                duration = info.get("duration")
+                if info.get("is_live") or type(duration) not in (int, float) or not 0 < duration <= 14_400:
+                    raise ValueError
+                result = json.dumps({"title": str(info.get("title") or "Трек")[:500],
+                                     "stream_url": stream, "duration": duration})
+        print(result)
+    except Exception as error:
+        print(json.dumps({"error": normalize_failure_code(logger.failure(error))}))
         raise SystemExit(1) from None
 
 

@@ -354,6 +354,24 @@ class Process:
         self.payload, self.block, self.code = payload, block, code
         self.killed = self.waited = False
         self.input = None
+        self.stdout = asyncio.StreamReader()
+        process = self
+
+        class Input:
+            def write(self, data):
+                process.input = data
+                if not process.block:
+                    process.stdout.feed_data(json.dumps(process.payload).encode())
+                    process.stdout.feed_eof()
+                    process.returncode = process.code
+
+            async def drain(self):
+                pass
+
+            def close(self):
+                pass
+
+        self.stdin = Input()
 
     async def communicate(self, data):
         self.input = data
@@ -365,6 +383,7 @@ class Process:
     def kill(self):
         self.killed = True
         self.returncode = -9
+        self.stdout.feed_eof()
 
     async def wait(self):
         self.waited = True

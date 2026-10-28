@@ -45,7 +45,7 @@ def invocation():
                               self_deafen=True, autojoin_channels=())
     bot = SimpleNamespace(user=SimpleNamespace(id=99), settings=SimpleNamespace(ffmpeg="ffmpeg"),
                           wait_until_ready=AsyncMock(), get_channel=MagicMock(),
-                          is_ready=MagicMock(return_value=False))
+                          is_ready=MagicMock(return_value=False), get_guild=MagicMock(return_value=guild))
     cog = Music(bot, options=options, manager=manager)
     interaction = SimpleNamespace(guild=guild, user=actor, response=SimpleNamespace(defer=AsyncMock()),
                                   followup=SimpleNamespace(send=AsyncMock()))
@@ -75,7 +75,8 @@ async def test_play_connects_one_owned_voiceclient_and_enqueues_requester(invoca
     await invoke(fixture, "play", "https://www.youtube.com/watch?v=abcdefghijk")
     fixture.interaction.response.defer.assert_awaited_once_with(ephemeral=True)
     assert [call.args[0] for call in fixture.guild.fetch_member.await_args_list] == [20, 99]
-    fixture.channel.connect.assert_awaited_once_with(timeout=20, reconnect=True, self_deaf=True)
+    fixture.channel.connect.assert_awaited_once_with(timeout=20, reconnect=True, self_deaf=True,
+                                                     cls=module._OwnedVoiceClient)
     fixture.player.enqueue.assert_awaited_once_with("https://www.youtube.com/watch?v=abcdefghijk", 20)
     assert fixture.manager.attach.call_args.args[0] == 10
     assert "додано" in output(fixture)

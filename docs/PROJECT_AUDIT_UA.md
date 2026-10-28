@@ -1,10 +1,11 @@
 # Аудит проєкту YEBOYBot — 28.10.2026
 
-Поточна ітерація на базі3ad0432 додає графічний /rank, голосовий XP,
-підтверджений import legacy XP у SQLite та opt-in /music. Перевірки попереднього
-warning-коду3ad0432 успішні, але не є доказами нових змін. Schema2/migrations,
-heartbeat, ізоляція Core/legacy й main збережені. Точні нові результати —
-[CORE_V2_STATUS_UA.md](CORE_V2_STATUS_UA.md); PR #1 лишається draft.
+Поточна ітерація на базі4be915c стабілізує музичний плеєр: safe-коди помилок,
+потокові межі worker, навмисна зупинка проти відкладеного автопідключення,
+валідація до connect і контроль скасованого teardown. Базовий код4be915c має
+успішні push40604109875 і PR40604115901, усі9jobs; це попередні результати,
+нові перевірки фіксуються окремо. Schema2, налаштування, дані XP та main без змін.
+[Інструкція музики](RANK_MUSIC_UA.md) · [Фактичний статус](CORE_V2_STATUS_UA.md).
 
 Статус нижче описує інтеграцію й автоматичні перевірки. Робота на живому Discord,
 ручний Windows/logon і production 24/7 не підтверджені.
@@ -21,7 +22,7 @@ heartbeat, ізоляція Core/legacy й main збережені. Точні �
 | Модерація | Partial | Kick/ban/unban: shared service, fresh permissions/hierarchy, atomic cross-action claim, ambiguity-safe audit; modhistory з pending diagnostics. Ban не видаляє повідомлення; unban за ID колишнього учасника. Clear має окреме підтвердження/receipt; automatic reconcile відсутній; старі timeout lifecycle потребують виправлення |
 | Попередження | Partial | /warn: fresh authority + atomic local warn/applied, deterministic guild/interaction key, immutable payload/revoked replay; /warnings bounded10 UTF16 outputs. Read/revoke authorization warnings/unwarn ще cached; liveDiscord не перевірений |
 | Очищення повідомлень | Partial | До25/recent7days/TextChannel, immutableIDs, ephemeral60s confirm, atomicmanualjobclaim/expiry, ownstatus, no replay unknown; liveDiscord/manualWindows не перевірені |
-| Музика Core | Partial | Per-guild bounded FIFO/autoplay, user priority, cleanup/reconnect/backoff, options subset, FFmpeg/Deno setup; Spotify official metadata→YouTube match. In-memory queue; live streams/24×7 не перевірені |
+| Музика Core | Partial | Per-guild bounded FIFO/autoplay, user priority, safe diagnostics, bounded worker I/O, stop/autojoin guards, cancellation-owned cleanup/reconnect/backoff, options subset, FFmpeg/Deno setup; Spotify official metadata→YouTube match. In-memory queue; live streams/24×7 не перевірені |
 | XP | Partial | Текст5XP/60s, голос5XP/спостережену хвилину з ≥2 придатними людьми; окремі SQL ranks/PNG/антифарм/reset; [26] explicit max-merge JSON→SQLite з backup. Rewards, speech detection і live Discord не перевірені/відсутні |
 | Нагадування | Partial | Durable lease/retry/access check; at-least-once, можливі повтори після crash |
 | Automod/welcome/autorole/panels | Disconnected | Поля/таблиці/helpers є; активних сценаріїв Discord немає |
@@ -33,7 +34,7 @@ heartbeat, ізоляція Core/legacy й main збережені. Точні �
 | run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI45/Linux43+2skip успішні на a6c8e49; ручний Windows/live API очікуються |
 | start_v2.bat | Duplicate | Додаткова стара точка входу збережена |
 | CI | Partial | Нові rank/music результати див. CORE_V2_STATUS; історичний warn ef4b345: push40560042495 і PR40560052692 мають усі9jobs success; повний Windows1229/118, Ubuntu1186/161, PostgreSQL1304/43, focused966/86 і926/126, maintenance1007, legacy51 і49/2. Audit24/zero/0skips. Bootstrap39PS+12handoff збережені; ручний Windows/WinGet install/live API не підтверджені |
-| Dependency audit | Partial | Linux Core/dev/pip:24 distributions, після pip26.2 zero known advisories; legacy/OS/Windows resolution не охоплені |
+| Dependency audit | Partial | Linux Core/dev/pip:31 distributions, PyNaCl1.6.2/pip26.2 zero known advisories; legacy/OS/Windows resolution не охоплені |
 
 ## Ризики, що потребують окремих завершених ітерацій
 

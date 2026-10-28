@@ -1,3 +1,48 @@
+# Музика: діагностика та зупинка — 28.10.2026
+
+База `feature/core-v2@4be915c` звірена з GitHub; робоче дерево перед змінами було
+чистим. PR#1 лишається draft, main не змінено. Попередні push40604109875 і
+PR40604115901 успішні, але їхні результати не приписуються новому коду.
+Актуальні CI-докази нового HEAD наведені у [PR#1](https://github.com/VolshebniKGG/YEBOYBot/pull/1).
+
+Реалізовано завершену стабілізацію музичного плеєра:
+
+- `/music queue` показує український стан і фіксовану підказку за дозволеним
+  кодом помилки: мережа, TLS, rate limit, вхід, формат, JS runtime, таймаут,
+  відтворення або загальна недоступність. Raw provider output/URLs/credentials
+  не потрапляють у відповідь чи журнал. Класифікація ознак не доводить root cause.
+- Worker читається потоково: stdin16KiB/stdout64KB. Oversize, timeout і
+  cancellation завершують власний Pythonchild та дренують його pipes без
+  необмеженого накопичення stdout. Інші процеси Python не завершуються.
+- Навмисна зупинка повторно перевіряється до й після automaticconnect, включно
+  з очікуванням REST/handshake. Пізнє власне з'єднання закривається без attach.
+  Неправильний query відхиляється до connect; сервер звіряється з кешем до/після.
+- Shutdown guard не дає відновити autojoin після unload. Власний SDKVoiceClient
+  прибирає з'єднання при cancellation handshake. Незавершений teardown лишається
+  під контролем після cancellation команди; повторний connect чекає його кінця.
+  Від'єднання різних guilds не тримають спільний lock протягом native cleanup.
+
+Підтверджені помилки відтворено через контрольовані REST/connect/close interleavings.
+Додано **78 тестів:54 diagnostics +24 lifecycle**, загалом **1791**.
+Цільовий набір command/lifecycle/diagnostics/engine: **212passed**,2.07s.
+Незалежний review command/lifecycle: **90passed**,2.18s; файли reviewer не змінював.
+Повний local Linux/Python3.12.14 у точному verboseCI режимі: **1619passed/172skipped**,
+1791tests/0failures/0errors за37.14s. Пропущені PostgreSQL і nativeWindows;
+Windows/PG перевіряються окремими CI jobs цього HEAD. Ruff/pipcheck/diffcheck
+пройдено. Fresh pip-audit2.10.1/PyPI: **31distributions/0advisories/0skips**,pip26.2;
+scope LinuxCore/runtime/dev/installer, не native/OS/legacy/Windowsresolution.
+Залежності, schema2, конфігурація й кількість команд не змінені.
+
+Окрема справжня cloudспроба metadata extraction першого автотреку повернула
+код `network` із фіксованою українською підказкою; успіх отримання аудіо не
+підтверджений. Реальні Discordvoice/Spotifycredentials/24hsoak не перевірялися.
+Окреме завершення Deno-нащадків і підтверджений disconnect після native timeout
+лишилися відомими межами; їх не видаємо за завершені цією ітерацією.
+Для застосування: оновлення коду → **[2]** перезапуск, без нової sync чи міграції.
+[Інструкція музики](RANK_MUSIC_UA.md).
+
+---
+
 # Поточна ітерація — ранг, голосовий XP і музика, 28.10.2026
 
 База3ad0432, feature/core-v2, PR#1 draft, main без змін. Попередній CI40560868774

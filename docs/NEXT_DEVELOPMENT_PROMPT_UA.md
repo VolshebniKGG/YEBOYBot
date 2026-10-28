@@ -22,7 +22,18 @@ Cloudprobe першого автотреку повернув DownloadError з �
 ## Реалізований стан, який слід повторно звірити
 
 
-Поточна функціональна ітерація (28.10.2026):
+Нова стабілізація музики на базі4be915c:
+- error_code allowlist і фіксовані українські підказки у /music queue; raw provider
+  output/URLs/credentials не показувати. Класифікація ознак не доводить rootcause.
+- Worker stdin16KiB/stdout64KB streaming; kill/reap/drain тільки власного Pythonchild.
+  Знищення Deno-нащадків на всіх ОС не підтверджене; не заявляй цю гарантію.
+- Stop перевіряється до/після automaticconnect, неправильний query до connect,
+  canonicalguild до/після handshake. Shutdown guard і ownedSDKcancellationcleanup.
+- Скасована команда не кидає teardown: strong task/shield/registry до completion,
+  повторний connect блокується; різні guilds закриваються паралельно.
+- Нових команд/dependencies/schema/configkeys немає. Перевір актуальний CI за SHA.
+
+Попередня функціональна ітерація (28.10.2026):
 - /rank знову PNG500×188 із DLC/rank_background.png + gg.png masks, великим
   display_avatar і малою guildicon, окремими XP/ranks/levels, bounded renderthreads.
 - Голос5XP/повну спостережену хвилину з ≥2 придатними людьми; text5/60s;

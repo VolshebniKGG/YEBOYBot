@@ -7,6 +7,12 @@ from pathlib import Path
 class MusicError(ValueError):
     """An operator-safe music error; never include credentials or extractor output."""
 
+    def __init__(self, message, *, code="source_unavailable"):
+        super().__init__(message)
+        # The engine normalizes this again before persistence or display. Keep
+        # this class independent of the standalone extractor entrypoint.
+        self.code = code
+
 
 @dataclass(frozen=True)
 class MusicOptions:
