@@ -556,8 +556,8 @@ async def test_disconnect_error_is_sanitized_and_cleanup_still_happens(backend, 
 def test_music_group_metadata_and_management_defaults(invocation):
     group = invocation.cog.__cog_app_commands_group__
     assert group.name == "music"
-    assert {command.name for command in group.commands} == {"play", "join", "queue", "skip", "stop", "autoplay", "pause", "resume"}
+    assert {command.name for command in group.commands} == {"play", "join", "queue", "skip", "stop", "autoplay", "pause", "resume", "volume"}
     for command in group.commands:
         assert command.guild_only is True
-        if command.name in {"join", "stop", "autoplay", "pause", "resume"}:
+        if command.name in {"join", "stop", "autoplay", "pause", "resume", "volume"}:
             assert command.default_permissions.manage_guild is True

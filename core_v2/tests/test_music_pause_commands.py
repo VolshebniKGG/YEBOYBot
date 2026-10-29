@@ -407,7 +407,7 @@ def test_pause_resume_group_metadata_are_guild_management_commands():
         assert command.default_permissions.manage_guild is True
 
 
-async def test_real_music_tree_exposes_eight_leaf_commands_and_safe_private_help(controls):
+async def test_real_music_tree_exposes_nine_leaf_commands_and_safe_private_help(controls):
     client = discord.Client(intents=discord.Intents.none())
     tree = discord.app_commands.CommandTree(client)
     tree.add_command(controls.cog.__cog_app_commands_group__)
@@ -416,7 +416,7 @@ async def test_real_music_tree_exposes_eight_leaf_commands_and_safe_private_help
     entries = collect_commands(tree)
     music = {item.name: item for item in entries if item.category == "music"}
     assert set(music) == {"music " + name for name in
-                          ("join", "play", "queue", "skip", "stop", "autoplay", "pause", "resume")}
+                          ("join", "play", "queue", "skip", "stop", "autoplay", "pause", "resume", "volume")}
     for name in ("pause", "resume"):
         assert "керувати сервером" in music["music " + name].permissions.lower()
     embed = render_help(entries, "music")
