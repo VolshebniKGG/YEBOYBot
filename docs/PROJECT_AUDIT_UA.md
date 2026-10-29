@@ -1,6 +1,21 @@
-# Аудит проєкту YEBOYBot — 28.10.2026
+# Аудит проєкту YEBOYBot — 29.10.2026
 
-Поточна ітерація на базі `4c160da` додає окремі `/leaderboard xp_type`
+Поточна ітерація на базі `0698223` додає `/music volume percent`: ціле 0–100,
+без числа — стан наявної сесії. Для читання й зміни потрібні «Керувати сервером»,
+свіжа перевірка учасника й поточний голосовий канал бота. Гучність діє для
+власного поточного PCM і наступних треків цієї сесії. 0 вимикає звук без
+додавання паузи; під час відтворення час і черга продовжуються. Наявні паузи
+залишаються незалежними. Нова сесія або перезапуск бере INI.
+Команда не підключає voice, не змінює БД чи INI; закриття, завершена задача
+й reconnect блокують керування. Часткова помилка SDK не підтверджує успіх;
+за розбіжності поточного й майбутнього значень UI показує обидва.
+[Гучність і межі спостереження](RANK_MUSIC_UA.md#гучність-музичної-сесії--29102026).
+
+База `0698223` має успішні push40773505381 і PR40773512437, усі 9 jobs у
+кожному. Це історичні докази рейтингу, не перевірка нового коду гучності.
+Актуальний CI за SHA — у [draft PR#1](https://github.com/VolshebniKGG/YEBOYBot/pull/1).
+
+Попередня ітерація на базі `4c160da` додала окремі `/leaderboard xp_type`
 рейтинги чату й голосу та точне сортування великих сум XP. Без параметра
 лишається загальний рейтинг; окремі осі узгоджені з місцями PNG `/rank`.
 Дані XP, assets, schema й кількість команд не змінюються. Пауза вже збережена
@@ -35,11 +50,11 @@
 | Міграції SQLite | Partial | Registry, план, явний 1→2, backup, rollback, idempotence; немає manual Windows доказу |
 | PostgreSQL | Partial | [23] standard public Core snapshot/upgrade1→2/restore в окрему порожню БД; Linux17.11 локально й PG maintenance76 у CI перевірено; Windows native/TLS/custom schemas не підтверджені |
 | Автозапуск | Partial | Opt-in Task Scheduler root/SID, pythonw; реальне створення/logon не перевірено |
-| Slash-команди | Partial | 20 основних + opt-in група music із 8 командами; optional leaderboard xp_type та pause/resume потребують sync; live Discord ще не підтверджений |
+| Slash-команди | Partial | 20 основних + opt-in група music із 9 підкомандами (21 коренева команда з групою); нові volume, pause/resume та leaderboard xp_type потребують sync обраної області [11] → restart [2]; none не публікує їх, global для тестового сервера не потрібна; live Discord ще не підтверджений |
 | Модерація | Partial | Kick/ban/unban: shared service, fresh permissions/hierarchy, atomic cross-action claim, ambiguity-safe audit; modhistory з pending diagnostics. Ban не видаляє повідомлення; unban за ID колишнього учасника. Clear має окреме підтвердження/receipt; automatic reconcile відсутній; старі timeout lifecycle потребують виправлення |
 | Попередження | Partial | /warn: fresh authority + atomic local warn/applied, deterministic guild/interaction key, immutable payload/revoked replay; /warnings bounded10 UTF16 outputs. Read/revoke authorization warnings/unwarn ще cached; liveDiscord не перевірений |
 | Очищення повідомлень | Partial | До25/recent7days/TextChannel, immutableIDs, ephemeral60s confirm, atomicmanualjobclaim/expiry, ownstatus, no replay unknown; liveDiscord/manualWindows не перевірені |
-| Музика Core | Partial | Per-guild FIFO/autoplay, пріоритет замовлень, bounded worker I/O, stop/autojoin guards, quarantine непідтвердженої сесії та backoff. Pause/resume наявної сесії з окремими manual/AutoPause, станом SDK у queue й перевіркою доступу. Options subset, FFmpeg/Deno setup; Spotify metadata→YouTube match. Черга й пауза в пам'яті; live Discord/24×7 не перевірені |
+| Музика Core | Partial | Per-guild FIFO/autoplay, пріоритет замовлень, bounded worker I/O, stop/autojoin guards, quarantine непідтвердженої сесії та backoff. Pause/resume з окремими manual/AutoPause; volume 0–100 для наявної сесії, поточного власного PCM і наступних треків. 0 вимикає звук без додавання паузи; наявні паузи залишаються, під час відтворення час/черга продовжуються. Queue розрізняє спостережений PCM, майбутнє налаштування та unknown, показує обидва значення за розбіжності. Options subset, FFmpeg/Deno setup; Spotify metadata→YouTube match. Черга/пауза/гучність у пам'яті, нова сесія бере INI 0.01–1.0; live Discord/native/24×7 не перевірені |
 | XP | Partial | Текст5XP/60s, голос5XP/спостережену хвилину з ≥2 придатними людьми; PNG з власних assets, окремі text/voice ranks і leaderboard xp_type, exact total sort без bigint/float overflow, стабільний tie за user_id. [26] explicit JSON→SQLite max-merge з backup. Rewards, speech detection і live Discord не перевірені/відсутні |
 | Нагадування | Partial | Durable lease/retry/access check; at-least-once, можливі повтори після crash |
 | Automod/welcome/autorole/panels | Disconnected | Поля/таблиці/helpers є; активних сценаріїв Discord немає |
@@ -50,7 +65,7 @@
 | Legacy cogs | Partial | Реальні moderation/user/help/rank завантажені offline в disposable copy; поведінка команд/live API та music не перевірені |
 | run.bat/run.py | Partial | Ізольований .venv-legacy, guard, locks, pinned imports, append/redaction; Windows CI45/Linux43+2skip успішні на a6c8e49; ручний Windows/live API очікуються |
 | start_v2.bat | Duplicate | Додаткова стара точка входу збережена |
-| CI | Partial | Нові rank/music результати див. CORE_V2_STATUS; історичний warn ef4b345: push40560042495 і PR40560052692 мають усі9jobs success; повний Windows1229/118, Ubuntu1186/161, PostgreSQL1304/43, focused966/86 і926/126, maintenance1007, legacy51 і49/2. Audit24/zero/0skips. Bootstrap39PS+12handoff збережені; ручний Windows/WinGet install/live API не підтверджені |
+| CI | Partial | Поточні докази гучності — у CORE_V2_STATUS та PR#1 за точним SHA. Історична база 0698223: push40773505381 і PR40773512437 мають усі 9 jobs success; full suites 2236, Windows 2069/167, Linux 2027/209, PostgreSQL 2193/43, CVE 31/0/0. Ці результати не приписуються новому коду; ручний Windows/WinGet install/live API не підтверджені |
 | Dependency audit | Partial | Linux Core/dev/pip:31 distributions, PyNaCl1.6.2/pip26.2 zero known advisories; legacy/OS/Windows resolution не охоплені |
 
 ## Ризики, що потребують окремих завершених ітерацій

@@ -414,6 +414,22 @@ class GuildPlayer:
             self._changed.set()
         return changed
 
+    async def set_volume(self, percent):
+        """Update only this backend's current and future PCM gain atomically."""
+        if type(percent) is not int or not 0 <= percent <= 100:
+            raise MusicError("Гучність має бути цілим числом від 0 до 100.")
+        if self._closed or self._task.done():
+            raise MusicError("Музичний плеєр уже зупинено.")
+        try:
+            if self.backend.is_connected() is not True:
+                raise MusicError("Голосове з'єднання відновлюється. Повторіть пізніше.")
+            changed = self.backend.set_volume(percent / 100)
+            if type(changed) is not bool:
+                raise ValueError
+            return changed
+        except Exception:
+            raise MusicError("Не вдалося підтвердити зміну гучності. Перевірте /music queue і повторіть.") from None
+
     def _paused_seconds(self):
         running = (max(0.0, self.manager.clock() - self._pause_started)
                    if self._pause_started is not None else 0.0)

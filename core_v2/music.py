@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from functools import partial
 import logging
+import math
 import subprocess
 import threading
 from urllib.parse import urlsplit
@@ -119,6 +120,8 @@ class FFmpegVoiceBackend:
     """Own one source and at most one asynchronous cleanup operation."""
 
     def __init__(self, voice, executable, volume):
+        if not self._valid_volume(volume):
+            raise MusicError("Гучність має бути скінченним числом від 0 до 1.")
         self.voice = voice
         self.executable = executable
         self.volume = volume
@@ -263,6 +266,90 @@ class FFmpegVoiceBackend:
         return {"manual": self._manual_paused, "automatic": self._auto_paused,
                 "paused": observed(self.voice.is_paused), "playing": observed(self.voice.is_playing)}
 
+    @staticmethod
+    def _valid_volume(value):
+        return type(value) in {int, float} and 0 <= value <= 1 and math.isfinite(value)
+
+    def _volume_source(self, source):
+        """Called under the owned source's brief cleanup-claim lock."""
+        if (self._source is not source or source._cleanup_claimed or source.finished
+                or source.cleanup_failed or source.cleaned.is_set()
+                or self._cleanup_task is not None
+                or self.voice.source is not source
+                or not isinstance(source.source, discord.PCMVolumeTransformer)):
+            raise ValueError
+        playing, paused = self.voice.is_playing(), self.voice.is_paused()
+        if type(playing) is not bool or type(paused) is not bool or playing == paused:
+            raise ValueError
+        return source.source
+
+    def _idle_volume(self):
+        return (self._source is None and self._cleanup_task is None
+                and self.voice.is_playing() is False and self.voice.is_paused() is False)
+
+    def set_volume(self, volume):
+        """Change current PCM gain and future intent without yielding or restarting audio.
+
+        The SDK reads its numeric gain with a single Python attribute access on
+        the audio thread. Its setter only replaces that value; the owned lock
+        prevents a concurrent cleanup claim, without locking the audio read.
+        A partial SDK failure is left observable and never commits future gain.
+        """
+        if not self._valid_volume(volume):
+            raise MusicError("Гучність має бути скінченним числом від 0 до 1.")
+        try:
+            if self._closing or self.is_connected() is not True:
+                raise ValueError
+            source = self._source
+            if source is None:
+                if not self._idle_volume():
+                    raise ValueError
+                changed = self.volume != volume
+            else:
+                if not isinstance(source, _OwnedAudioSource):
+                    raise ValueError
+                with source._lock:
+                    transformer = self._volume_source(source)
+                    previous = transformer.volume
+                    if not self._valid_volume(previous):
+                        raise ValueError
+                    if self._volume_source(source) is not transformer:
+                        raise ValueError
+                    transformer.volume = volume
+                    observed = transformer.volume
+                    if not self._valid_volume(observed) or observed != volume:
+                        raise ValueError
+                    if self._volume_source(source) is not transformer:
+                        raise ValueError
+                    changed = previous != volume or self.volume != volume
+                    self.volume = volume
+                    return changed
+            self.volume = volume
+            return changed
+        except Exception:
+            raise MusicError("Не вдалося підтвердити зміну гучності. Перевірте /music queue і повторіть.") from None
+
+    def volume_state(self):
+        """Report observed PCM gain, or future intent only while no source exists."""
+        state = {"configured": self.volume if self._valid_volume(self.volume) else None,
+                 "actual": None, "source": "unknown"}
+        try:
+            if self._closing or self.is_connected() is not True:
+                return state
+            source = self._source
+            if source is None:
+                if self._idle_volume() and state["configured"] is not None:
+                    state["source"] = "configured"
+            elif isinstance(source, _OwnedAudioSource):
+                with source._lock:
+                    transformer = self._volume_source(source)
+                    actual = transformer.volume
+                    if self._valid_volume(actual) and self._volume_source(source) is transformer:
+                        state.update(actual=actual, source="active")
+        except Exception:
+            pass
+        return state
+
     async def close(self):
         self._closing = True
         cleaned = False
@@ -388,6 +475,45 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
     @app_commands.guild_only()
     async def resume(self, interaction: discord.Interaction):
         await self._manual_pause(interaction, False)
+
+    @staticmethod
+    def _volume_text(backend):
+        state = backend.volume_state()
+        if state["source"] == "active":
+            value = state["actual"]
+            message = f"Поточна гучність: {value * 100:g}%."
+            if state["configured"] != value:
+                future = state["configured"]
+                message += (f" Для наступних треків: {future * 100:g}% (налаштовано)."
+                            if future is not None else " Для наступних треків: невідомо.")
+        elif state["source"] == "configured":
+            value = state["configured"]
+            message = f"Для наступних треків: {value * 100:g}% (налаштовано)."
+        else:
+            future = state["configured"]
+            return ("Поточна гучність: невідомо."
+                    + (f" Для наступних треків: {future * 100:g}% (налаштовано)."
+                       if future is not None else " Для наступних треків: невідомо."))
+        if value == 0:
+            message += " 0% вимикає звук і не змінює паузу."
+        return message
+
+    @app_commands.command(name="volume", description="Гучність сесії 0–100%; без числа — поточний стан; Керувати сервером")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.guild_only()
+    async def volume(self, interaction: discord.Interaction,
+                     percent: app_commands.Range[int, 0, 100] | None = None):
+        guild, _, _, _ = await self._context(interaction, manager=True)
+        session = self._control_session(guild)
+        prefix = ""
+        if percent is not None:
+            try:
+                changed = await session.player.set_volume(percent)
+            except Exception:
+                raise UserError("Не вдалося підтвердити зміну гучності. Перевірте /music queue і повторіть.") from None
+            prefix = ("Налаштування гучності оновлено. " if changed else
+                      "Налаштування гучності вже застосовано. ")
+        await self._reply(interaction, prefix + self._volume_text(session.backend))
 
     async def _context(self, interaction, *, manager=False, allow_closing=False, cleanup=False):
         guild = guild_context(interaction)
@@ -640,6 +766,7 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
             elif actual is not False or pause["playing"] is not True:
                 state = "Відтворення не підтверджено"
         lines = [f"Зараз: {title} ({kind}).", f"Стан: {state}."]
+        lines.append(self._volume_text(session.backend))
         if manual or automatic:
             reasons = ", ".join(reason for active, reason in ((manual, "ручна"), (automatic, "порожній канал")) if active)
             lines.append(f"Причина паузи: {reasons}.")
@@ -651,7 +778,10 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
             code = normalize_failure_code(snapshot.get("error_code"))
             lines.append(f"Останній збій: {failure_message(code)}")
         lines.append(f"У черзі: {len(snapshot['queue'])}. Автоплейлист: {'увімкнено' if snapshot['autoplay_enabled'] else 'вимкнено'}.")
-        await self._reply(interaction, "\n".join(lines))
+        message = "\n".join(lines)
+        if len(message.encode("utf-16-le")) > 4000:
+            message = message.encode("utf-16-le")[:3998].decode("utf-16-le", errors="ignore") + "…"
+        await self._reply(interaction, message)
 
     @app_commands.command(name="skip", description="Пропустити власний трек або автоплейлист")
     @app_commands.guild_only()
