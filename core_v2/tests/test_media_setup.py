@@ -205,7 +205,9 @@ async def test_music_enabled_setup_registers_group_without_connecting_or_startin
         assert group is not None and len(group.commands) == 8
         assert {command.name for command in group.commands} == {
             "play", "join", "queue", "skip", "stop", "autoplay", "pause", "resume"}
-        assert len(bot.tree.get_commands()) == 21
+        assert len(bot.tree.get_commands()) == 23
+        assert bot.get_cog("Community") is not None
+        assert bot.get_cog("AutoMod") is not None
         assert {"help", "modules"} <= {command.name for command in bot.tree.get_commands()}
         for command in bot.tree.get_commands():
             command.to_dict(bot.tree)

@@ -18,6 +18,7 @@ CATEGORY_LABELS = {
     "moderation": "Модерація",
     "reminders": "Нагадування",
     "music": "Музика",
+    "community": "Спільнота",
     "other": "Інші команди",
 }
 _INTRO = {
@@ -33,9 +34,13 @@ _INTRO = {
     "music": "Приєднайтеся до голосового каналу, де перебуває бот. Для підключення та "
              "відтворення вам і боту потрібні права бачити канал, підключатися та говорити. "
              "Кожен сервер має власну чергу. Непідтверджену зупинку можна повторити через `/music stop`.",
+    "community": "Привітання, безпечні авторолі, журнал подій і базовий антиспам. "
+                 "Модулі вмикає адміністратор окремо для кожного сервера.",
     "other": "Команди інших підключених модулів.",
 }
 _CATEGORIES = {
+    "automod": "community", "community welcome": "community",
+    "community autorole": "community", "community logs": "community",
     "help": "general", "modules": "general", "status": "general",
     "rank": "rank", "levels": "rank", "leaderboard": "rank",
     "kick": "moderation", "ban": "moderation", "unban": "moderation",

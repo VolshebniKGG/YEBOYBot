@@ -214,8 +214,35 @@ async def collect_module_status(bot, guild):
         reminders = "Планувальник працює. Доставка залежить від доступу до каналу; довідка: `/help` → Нагадування."
     embed.add_field(name="Нагадування", value=reminders, inline=False)
     embed.add_field(name="Музика", value=_music(bot, guild_id, music, available, ready), inline=False)
+    missing = ["панелі ролей", "нагороди XP"]
+    community = _read(lambda: bot.get_cog("Community"))
+    automod = _read(lambda: bot.get_cog("AutoMod"))
+    if community is None:
+        missing.extend(["привітання", "авторолі", "журнали подій"])
+    else:
+        member_intent = _boolean(_read(lambda: bot.intents.members))
+        community_status = "Невідомо: стан модуля не підтверджено."
+        if community is not _UNKNOWN:
+            community_status = _feature_ready(available, ready) or (
+                "Модуль підключено. Налаштування: `/community welcome`, `/community autorole`, `/community logs`. "
+                + ("Події учасників дозволені intent." if member_intent is True else
+                   "Для привітань, авторолей і входів/виходів потрібен Members Intent."))
+        embed.add_field(name="Спільнота", value=community_status, inline=False)
+    if automod is None:
+        missing.insert(0, "Автомодерація")
+    else:
+        automod_status = "Невідомо: стан модуля або налаштування не підтверджено."
+        if automod is not _UNKNOWN and settings_read:
+            enabled = _boolean(row.get("automod", _UNKNOWN))
+            if enabled is False:
+                automod_status = "Вимкнено. Налаштування: `/automod enabled:true`."
+            elif enabled is True:
+                automod_status = _feature_ready(available, ready) or (
+                    "Увімкнено базовий антиспам. Видалення залежить від прав бота в каналі; "
+                    "фільтри слів і посилань ще не реалізовані.")
+        embed.add_field(name="Автомодерація", value=automod_status, inline=False)
     embed.add_field(name="Ще не підключено", value=(
-        "Автомодерація, привітання, авторолі, панелі ролей, нагороди XP та журнали подій ще не підключені. "
+        ", ".join(missing) + " ще не підключені. Тікети й вебпанель також у плані. "
         "Увімкнення intent або поля налаштувань саме собою їх не активує."), inline=False)
     embed.add_field(name="Налаштування сервера", value=(
         "Прочитано поточні налаштування саме цього сервера." if settings_read else

@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 
-from core_v2.db import Database, meta, jobs, cases
+from core_v2.db import Database, meta, jobs, cases, xp
 
 
 @pytest.fixture
@@ -52,6 +52,22 @@ async def test_text_voice_counters_and_read_are_independent(db):
     assert before == await db.rank(1, 2)
     with pytest.raises(ValueError):
         await db.award(1, 2, "invalid")
+
+
+@pytest.mark.parametrize("kind", ["text", "voice"])
+@pytest.mark.parametrize("headroom", [0, 1, 4, 5, 6])
+async def test_xp_award_saturates_imported_bigint_without_losing_precision(db, kind, headroom):
+    maximum = 2**63 - 1
+    counter = f"{kind}_xp"
+    async with db.engine.begin() as conn:
+        await conn.execute(xp.insert().values(guild_id=1, user_id=2,
+                                             **{counter: maximum - headroom}))
+    expected = min(maximum, maximum - headroom + 5)
+    assert await db.award(1, 2, kind, now=1000) == expected
+    stored = (await db.rank(1, 2))[counter]
+    assert type(stored) is int
+    assert stored == expected
+    assert await db.award(1, 2, kind, now=1059) is None
 
 
 async def test_leaderboard_scope(db):
@@ -101,6 +117,29 @@ async def test_old_worker_cannot_finish_new_attempt(db):
     assert len(await db.reminders(1, 2)) == 1
     await db.finish_job(1, job, 2, True)
     assert not await db.reminders(1, 2)
+
+
+async def test_crashed_reminder_workers_exhaust_retry_budget(db):
+    job = await db.schedule(1, 2, 3, "hello", 1)
+    other = await db.schedule(2, 2, 3, "other guild", 1)
+    async with db.engine.begin() as conn:
+        await conn.execute(jobs.update().where(jobs.c.id == other).values(attempts=5))
+    for attempt in range(1, 6):
+        batch = await db.claim_jobs([1], 10 + (attempt - 1) * 120)
+        assert len(batch) == 1
+        assert batch[0]["attempts"] == attempt
+    # The final worker still owns its lease and can finish normally.
+    assert not await db.claim_jobs([1], 609)
+    assert len(await db.reminders(1, 2)) == 1
+    assert not await db.claim_jobs([1], 610)
+    assert not await db.reminders(1, 2)
+    async with db.engine.connect() as conn:
+        states = dict((await conn.execute(select(jobs.c.id, jobs.c.state))).all())
+    assert states == {job: "failed", other: "pending"}
+    # A late completion cannot resurrect a terminal job.
+    await db.finish_job(1, job, 5, True)
+    async with db.engine.connect() as conn:
+        assert await conn.scalar(select(jobs.c.state).where(jobs.c.id == job)) == "failed"
 
 
 async def test_reminder_cancel_scope_and_active_lease(db):

@@ -459,3 +459,23 @@ async def test_real_sqlite_settings_are_fresh_guild_scoped_and_read_only(sample,
     finally:
         event.remove(db.engine.sync_engine, "before_cursor_execute", capture)
         await db.close()
+
+
+async def test_connected_community_and_automod_are_reported_without_claiming_delivery(sample):
+    sample.cogs.update(Community=object(), AutoMod=object())
+    sample.bot.intents.members = True
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "Модуль підключено" in field(result, "Спільнота")
+    assert "Увімкнено базовий антиспам" in field(result, "Автомодерація")
+    missing = field(result, "Ще не підключено")
+    assert "привітання" not in missing and "Автомодерація" not in missing
+    assert "панелі ролей" in missing
+    sample.bot.db.get_settings.return_value["automod"] = False
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "Вимкнено" in field(result, "Автомодерація")
+
+
+async def test_connected_community_needs_members_intent(sample):
+    sample.cogs["Community"] = object()
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "потрібен Members Intent" in field(result, "Спільнота")

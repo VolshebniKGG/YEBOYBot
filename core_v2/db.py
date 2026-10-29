@@ -199,8 +199,12 @@ class Database:
         now = time.time() if now is None else now
         counter, last = f"{kind}_xp", f"last_{kind}"
         stmt = self.insert(xp).values(guild_id=guild_id, user_id=user_id, **{counter: 5, last: now})
+        # Imported counters may already be at bigint's upper bound. Never let
+        # PostgreSQL overflow or SQLite silently promote the counter to float.
+        awarded = case((xp.c[counter] > (2**63 - 1) - 5, 2**63 - 1),
+                       else_=xp.c[counter] + 5)
         stmt = stmt.on_conflict_do_update(index_elements=[xp.c.guild_id, xp.c.user_id],
-            set_={counter: xp.c[counter] + 5, last: now}, where=xp.c[last] <= now - 60
+            set_={counter: awarded, last: now}, where=xp.c[last] <= now - 60
             ).returning(xp.c[counter])
         async with self.engine.begin() as conn:
             return (await conn.execute(stmt)).scalar_one_or_none()
@@ -281,7 +285,7 @@ class Database:
             raise ValueError("Invalid moderation scope")
         if not isinstance(case_id, str) or not re.fullmatch(r"[0-9a-f]{32}", case_id):
             raise ValueError("Invalid moderation case ID")
-        if (not isinstance(action, str) or action not in {"kick", "ban", "unban"}
+        if (not isinstance(action, str) or action not in {"kick", "ban", "unban", "timeout", "untimeout"}
                 or not isinstance(reason, str) or not reason.strip()
                 or len(reason.strip()) > 500 or "\0" in reason):
             raise ValueError("Invalid moderation request")
@@ -394,6 +398,12 @@ class Database:
         async with self.engine.begin() as conn:
             if self.sqlite:
                 await conn.execute(text("BEGIN IMMEDIATE"))
+            # A crashed worker cannot call finish_job. Expired final attempts
+            # must still terminate instead of being reclaimed indefinitely.
+            await conn.execute(update(jobs).where(
+                jobs.c.guild_id.in_(guild_ids), jobs.c.state == "pending",
+                jobs.c.attempts >= 5, jobs.c.lease <= now
+            ).values(state="failed", lease=0))
             query = select(jobs.c.id).where(jobs.c.guild_id.in_(guild_ids), jobs.c.state == "pending",
                 jobs.c.due <= now, jobs.c.lease <= now).order_by(jobs.c.due).limit(20)
             if not self.sqlite:

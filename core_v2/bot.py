@@ -58,7 +58,7 @@ class Bot(commands.AutoShardedBot):
         super().__init__(command_prefix=commands.when_mentioned, help_command=None,
                          intents=intents, tree_cls=Tree, shard_count=settings.shard_count,
                          max_messages=100, chunk_guilds_at_startup=False,
-                         member_cache_flags=discord.MemberCacheFlags(voice=True, joined=False),
+                         member_cache_flags=discord.MemberCacheFlags(voice=True, joined=settings.members),
                          allowed_mentions=discord.AllowedMentions.none())
         self.settings = settings
         self.db = Database(settings.database)
@@ -83,6 +83,10 @@ class Bot(commands.AutoShardedBot):
         await self.db.initialize()
         from .commands import Core
         await self.add_cog(Core(self))
+        from .community import Community
+        await self.add_cog(Community(self))
+        from .automod import AutoMod
+        await self.add_cog(AutoMod(self))
         from .voice_xp import VoiceXP
         await self.add_cog(VoiceXP(self))
         if self.settings.music:
@@ -104,6 +108,14 @@ class Bot(commands.AutoShardedBot):
     async def on_message(self, message):
         if not message.guild or message.author.bot or message.webhook_id:
             return
+        automod = self.get_cog("AutoMod")
+        if automod is not None:
+            try:
+                if await automod.inspect_message(message):
+                    return
+            except Exception:
+                log.exception("AutoMod inspection failed")
+                return
         key = (message.guild.id, message.author.id)
         now = time.monotonic()
         if now - self.xp_times.get(key, 0) < 60:
@@ -167,7 +179,7 @@ class Bot(commands.AutoShardedBot):
         await self.wait_until_ready()
 
     async def close(self):
-        for name in ("Guide", "Music", "VoiceXP"):
+        for name in ("Guide", "Music", "VoiceXP", "Community", "AutoMod"):
             await self.remove_cog(name)
         self.deliver.cancel()
         task = self.deliver.get_task()
