@@ -1,0 +1,10 @@
+discord.py==2.7.1
+Pillow==13.0.0
+PyNaCl==1.6.2
+davey==0.1.7
+yt-dlp==2026.10.26
+yt-dlp-ejs==0.8.0
+SQLAlchemy==2.0.55
+aiosqlite==0.22.1
+asyncpg==0.32.0
+python-dotenv==1.2.4

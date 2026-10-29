@@ -1,0 +1,244 @@
+name: Core v2
+on:
+  push:
+    branches: [feature/core-v2]
+    paths: ['core_v2/**', 'tools/**', 'DLC/**', 'config/example_options.ini', 'config/_autoplaylist.txt', 'YEBOYBot.cmd', 'install_v2.bat', 'run.bat', 'run.py', 'requirements-legacy.txt', 'yeboybot/**', '.github/workflows/core-v2.yml']
+  pull_request:
+    paths: ['core_v2/**', 'tools/**', 'DLC/**', 'config/example_options.ini', 'config/_autoplaylist.txt', 'YEBOYBot.cmd', 'install_v2.bat', 'run.bat', 'run.py', 'requirements-legacy.txt', 'yeboybot/**', '.github/workflows/core-v2.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sqlite:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: core_v2/requirements*.txt
+      - run: python -m pip install -r core_v2/requirements-dev.txt
+      - name: Windows first and repeat installation
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          call install_v2.bat
+          if errorlevel 1 exit /b 1
+          call install_v2.bat
+          if errorlevel 1 exit /b 1
+      - run: python -m pip check
+      - run: python -m ruff check --config core_v2/ruff.toml core_v2 tools
+      - name: Tests with retained output
+        shell: bash
+        run: |
+          mkdir -p test-results
+          set -o pipefail
+          python -u -X utf8 -m pytest core_v2/tests -vv --durations=10 -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/pytest.xml 2>&1 | tee test-results/pytest.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sqlite-${{ matrix.os }}
+          path: test-results/
+          retention-days: 7
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: yeboy
+          POSTGRES_PASSWORD: test_only
+          POSTGRES_DB: yeboy_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://yeboy:test_only@localhost:5432/yeboy_test
+      TEST_POSTGRES_MAINTENANCE_URL: postgresql+asyncpg://yeboy:test_only@localhost:5432/yeboy_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r core_v2/requirements-dev.txt
+      - name: Native PostgreSQL 17 clients from test service
+        shell: bash
+        env:
+          YEBOY_TEST_PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          python -m tools.ci_pg_clients "$RUNNER_TEMP/pg-clients"
+          echo "$RUNNER_TEMP/pg-clients" >> "$GITHUB_PATH"
+          echo "YEBOY_TEST_PG_CONTAINER=$YEBOY_TEST_PG_CONTAINER" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/pg-clients/pg_dump" --version
+          "$RUNNER_TEMP/pg-clients/pg_restore" --version
+      - name: PostgreSQL tests with retained output
+        shell: bash
+        run: |
+          mkdir -p test-results
+          set -o pipefail
+          python -u -X utf8 -m pytest core_v2/tests -vv --durations=10 -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/pytest.xml 2>&1 | tee test-results/pytest.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postgres
+          path: test-results/
+          retention-days: 7
+
+  legacy-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: First isolated legacy installation (no Discord login)
+        run: python -I tools/legacy_launcher.py --install
+      - name: Repeat installation without changing Core V2
+        run: python -I tools/legacy_launcher.py --install
+      - name: Import and isolation diagnostics
+        run: python -I tools/legacy_launcher.py --check
+      - name: Real legacy cogs in disposable source copy (offline)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            .venv-legacy/Scripts/python.exe -I tools/check_legacy_cogs.py
+          else
+            .venv-legacy/bin/python -I tools/check_legacy_cogs.py
+          fi
+      - name: Legacy regression tests in isolated environment
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            LEGACY_PY=.venv-legacy/Scripts/python.exe
+          else
+            LEGACY_PY=.venv-legacy/bin/python
+          fi
+          "$LEGACY_PY" -I -m pip --require-virtualenv install pytest==9.1.1 pytest-asyncio==1.4.0
+          mkdir -p test-results
+          set -o pipefail
+          "$LEGACY_PY" -u -X utf8 -m pytest core_v2/tests/test_legacy_launcher.py core_v2/tests/test_legacy_bot.py -vv -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/legacy.xml 2>&1 | tee test-results/legacy.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: legacy-${{ matrix.os }}
+          path: test-results/
+          retention-days: 7
+
+  postgres-maintenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: yeboy
+          POSTGRES_PASSWORD: test_only
+          POSTGRES_DB: yeboy_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://yeboy:test_only@localhost:5432/yeboy_test
+      TEST_POSTGRES_MAINTENANCE_URL: postgresql+asyncpg://yeboy:test_only@localhost:5432/yeboy_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r core_v2/requirements-dev.txt
+      - name: Native PostgreSQL 17 clients from test service
+        shell: bash
+        env:
+          YEBOY_TEST_PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          python -m tools.ci_pg_clients "$RUNNER_TEMP/pg-clients"
+          echo "$RUNNER_TEMP/pg-clients" >> "$GITHUB_PATH"
+          echo "YEBOY_TEST_PG_CONTAINER=$YEBOY_TEST_PG_CONTAINER" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/pg-clients/pg_dump" --version
+          "$RUNNER_TEMP/pg-clients/pg_restore" --version
+      - name: PostgreSQL migration and recovery integration
+        shell: bash
+        run: |
+          mkdir -p test-results
+          set -o pipefail
+          python -u -X utf8 -m pytest core_v2/tests/test_pg_native.py core_v2/tests/test_postgres_migrations.py core_v2/tests/test_pg_workflow.py core_v2/tests/test_moderation_repository.py core_v2/tests/test_kick_service.py core_v2/tests/test_discord_moderation.py core_v2/tests/test_moderation_commands.py core_v2/tests/test_ban_service.py core_v2/tests/test_ban_gateway.py core_v2/tests/test_ban_commands.py core_v2/tests/test_ban_integration.py core_v2/tests/test_clear_plan.py core_v2/tests/test_clear_repository.py core_v2/tests/test_clear_service.py core_v2/tests/test_clear_gateway.py core_v2/tests/test_clear_commands.py core_v2/tests/test_clear_integration.py core_v2/tests/test_warn_repository.py core_v2/tests/test_warn_service.py core_v2/tests/test_warn_commands.py core_v2/tests/test_warn_integration.py -vv --durations=10 -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/pytest.xml 2>&1 | tee test-results/pytest.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postgres-maintenance
+          path: test-results/
+          retention-days: 7
+
+  moderation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r core_v2/requirements-dev.txt
+      - run: python -m ruff check --config core_v2/ruff.toml core_v2 tools
+      - name: Moderation and isolated-installer regressions
+        shell: bash
+        run: |
+          mkdir -p test-results
+          set -o pipefail
+          python -u -X utf8 -m pytest core_v2/tests/test_moderation_repository.py core_v2/tests/test_kick_service.py core_v2/tests/test_discord_moderation.py core_v2/tests/test_moderation_commands.py core_v2/tests/test_ban_service.py core_v2/tests/test_ban_gateway.py core_v2/tests/test_ban_commands.py core_v2/tests/test_ban_integration.py core_v2/tests/test_clear_plan.py core_v2/tests/test_clear_repository.py core_v2/tests/test_clear_service.py core_v2/tests/test_clear_gateway.py core_v2/tests/test_clear_commands.py core_v2/tests/test_clear_integration.py core_v2/tests/test_warn_repository.py core_v2/tests/test_warn_service.py core_v2/tests/test_warn_commands.py core_v2/tests/test_warn_integration.py core_v2/tests/test_runtime.py core_v2/tests/test_bootstrap.py core_v2/tests/test_setup_menu.py core_v2/tests/test_windows_setup.py core_v2/tests/test_legacy_launcher.py -vv -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true --junitxml=test-results/moderation.xml 2>&1 | tee test-results/moderation.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: moderation-${{ matrix.os }}
+          path: test-results/
+          retention-days: 7
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare separate application and audit environments
+        shell: bash
+        run: |
+          python -m venv .venv-v2
+          python -m venv .venv-audit
+          .venv-v2/bin/python -I -m pip --isolated --require-virtualenv --disable-pip-version-check --no-cache-dir install --only-binary=:all: --upgrade pip==26.2
+          .venv-audit/bin/python -I -m pip --isolated --require-virtualenv --disable-pip-version-check --no-cache-dir install --only-binary=:all: --upgrade pip==26.2
+          .venv-v2/bin/python -I -m pip --isolated --require-virtualenv --disable-pip-version-check --no-cache-dir install --only-binary=:all: -r core_v2/requirements-dev.txt
+          .venv-audit/bin/python -I -m pip --isolated --require-virtualenv --disable-pip-version-check --no-cache-dir install --only-binary=:all: pip-audit==2.10.1
+      - name: Audit resolved Core, development and installer packages against PyPI advisories
+        shell: bash
+        run: |
+          mkdir -p test-results
+          .venv-audit/bin/python -I -m pip_audit --path .venv-v2/lib/python3.12/site-packages --format=json --output=test-results/dependency-audit.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: core-dependency-audit-linux
+          path: test-results/
+          retention-days: 7

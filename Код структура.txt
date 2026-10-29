@@ -1,43 +1,360 @@
-E:\Discord Bot\Bot
-│
-├── run.py                      # Файл для запуску бота через Python файла bot.py
-├── run.bat                     # Файл для запуску бота через Windows
-├── requirements.txt            # Бібліотеки, необхідні для роботи
-├── README.md                   # Документація
-│
-├── config
-│   ├── options.ini             # Конфігурація (локально)
-│   ├── options.example.ini     # Шаблон конфігурації
-│
-├── Bin
-│   ├── ffmpeg.exe              # FFmpeg для обробки медіафайлів
-│   ├── ffprobe.exe             # FFprobe для перевірки метаданих медіафайлів
-│   │── README.md               # Документація цього файлу
-│
-│
-├── Data
-│   ├── server_names.txt        # Список імен серверів для внутрішнього використання
-│   ├── "983379337430585344"    # Папка з ID серверів та їх даними (кеш, ранги, черги пісень,та інше.)
-│        ├── json файл          # Збереження кешу JSON
-│        ├── song_queue.json    # Черга пісен у файлах для кожного серверу
-│
-├── yeboybot
-│   ├── music.py                # Музичні команди
-│   ├── help.py                 # Команди допомоги
-│   ├── rank.py                 # Команди для рейтингу користувачів та Функції для рейтингів 
-│   ├── admin.py                # Адміністративні функції (управління ролями, банами)
-│   ├── bot.py                  # Основний файл команд бота (наприклад, запуск бота, пропис всих логів до гілок і так далі)
-│   ├── moderation.py           # Функції для модерації (наприклад, попередження, мут)
-│   ├── user.py                 # Функції для взаємодії з користувачами
-│   ├── logging_setup.py        # Функції для логування (можна додати розширене логування)
-│   ├── youtube.py              # Інтеграція з YouTube API (наприклад, для відео чи пісень)
-│   ├── song_queue_handler      # 
-│   ├── help.py                 # Команда для допомоги (наприклад, опис всіх команд бота)
-│   ├── data_menager.py         # 
-│   ├── 
-│   ├── 
-│
-├── logs
-    ├── bot.log                 # Лог файли
-    ├── errors.log              # Лог помилок
+YEBOYBot — карта коду та архітектури
+===================================
+Гілка розробки: feature/core-v2
+Оновлено: 29.10.2026
 
+Це навігація реальними файлами репозиторію. Дерево скорочене: службові
+__init__.py, решту legacy helpers та список усіх тестів згорнуто для читабельності.
+Шляхи наведено від кореня YEBOYBot; папка може бути на будь-якому диску.
+Точні результати перевірок і відомі обмеження: docs/CORE_V2_STATUS_UA.md.
+
+1. З ЧОГО ПОЧИНАТИ
+-------------------
+Основний Windows-вхід — YEBOYBot.cmd: подвійний клік відкриває українське меню.
+Без перевіреного середовища спочатку відкривається PowerShell-панель, яка
+працює без Python. Її [1] дозволяє встановити Python 3.12 x64 через офіційний
+WinGet для поточного користувача, підготувати .venv-v2 та перевірити бібліотеки.
+Потім відкривається головне меню. Наявне справне середовище одразу відкриває
+це меню; [24] повертає панель встановлення. Потрібен інтернет/App Installer.
+Якщо WinGet відсутній, доступні офіційні посилання, без неперевіреного EXE.
+
+Потік керування:
+  YEBOYBot.cmd
+    -> tools/windows_setup.ps1        панель до Python, consent і пошук runtime
+    -> tools/launcher/bootstrap.py    ізольоване середовище, pip та бібліотеки
+    -> tools/launcher/__main__.py     меню та виклик операцій
+    -> tools/launcher/process.py      керування процесом і перевірка стану
+    -> core_v2/managed.py              lock, heartbeat, контроль завершення
+    -> core_v2/bot.py                  Discord-клієнт, команди, фонові задачі
+
+Під час Windows [24] або [5] Python-меню спочатку завершується й передає
+керування PowerShell. Бібліотеки замінюються після звільнення .pyd, потім меню
+відкривається заново в тому самому CMD. install_v2.bat лишається службовим
+Ensure/Repair-входом з уже наявним Python; сам системний Python не встановлює.
+
+Окремий старий режим: [22] у меню або run.bat -> tools/legacy_launcher.py
+-> run.py -> yeboybot/bot.py. Його пакети встановлюються лише в .venv-legacy.
+Нові функції розвиваються у Core V2; старі cogs збережено для сумісності.
+
+2. ОСНОВНІ ФАЙЛИ ТА КАТАЛОГИ
+----------------------------
+YEBOYBot/
+├── YEBOYBot.cmd                   Основний Windows Control Center
+├── install_v2.bat                 Службові Ensure/Repair через Windows setup
+├── start_v2.bat                   Додаткова точка входу для сумісності
+├── run.bat                       Меню ізольованого legacy-режиму
+├── run.py                        Перевірений вхід у legacy-бота
+├── requirements-legacy.txt       Окремі перевірені legacy-залежності
+├── requirements.txt              Історичний список; нові launcher його не ставлять
+├── .env.v2.example               Публічний шаблон Core-конфігурації без токена
+├── .gitignore                    Правила виключення локальних даних і секретів
+├── .gitattributes                Правила текстових файлів і закінчень рядків
+├── README.md                     Огляд і початок роботи
+├── Код структура.txt             Ця карта коду
+│
+├── core_v2/                      Активна реалізація Core V2
+│   ├── __main__.py               Прямий Python-вхід; не заміна CMD-меню на Windows
+│   ├── bot.py                    Discord lifecycle, XP, доставка нагадувань
+│   ├── commands.py               Slash-команди та адаптація interaction/відповідей
+│   ├── moderation.py             Сервіс модерації, свіжі checks, claim і local warn
+│   ├── discord_moderation.py     Свіжі REST-дані ролей/учасників, Discord adapter
+│   ├── clear_plan.py             Обмежений незмінний план підтвердження та payload v1
+│   ├── clear_repository.py       Ручні clear-запити в v2_jobs, atomic claim/expiry
+│   ├── clear_service.py          Preview/confirm/cancel/status без повтору unknown API
+│   ├── discord_clear.py          Свіжі права каналу й видалення лише схвалених ID
+│   ├── clear_commands.py         Приватні кнопки підтвердження та clear-status
+│   ├── security.py               Спільні permission/role checks і безпечні помилки
+│   ├── db.py                     SQLAlchemy, guild-scoped SQL та atomic record_warning
+│   ├── config.py                 Settings зі змінних середовища та .env.v2
+│   ├── runtime.py                OS lock, налаштування логів, приховування секретів
+│   ├── managed.py                Контрольований процес, heartbeat, stop request
+│   ├── recovery.py               Обмежені повтори з backoff та fatal error checks
+│   ├── doctor.py                 Перевірки перед запуском без Discord login
+│   ├── backup.py                 SQLite online backup через штатний Backup API
+│   ├── migrations.py             Реєстр і застосування явних SQLite-міграцій
+│   ├── postgres_migrations.py    Перевірка й транзакційна PostgreSQL-міграція
+│   ├── requirements.txt          Runtime-залежності Core, зокрема discord.py
+│   ├── requirements-dev.txt      Залежності тестування й Ruff
+│   ├── pytest.ini                Налаштування pytest/asyncio
+│   ├── ruff.toml                 Налаштування статичного аналізу
+│   └── tests/                    Unit, integration та негативні сценарії
+│
+├── tools/                        Адміністративні й перевірочні інструменти
+│   ├── windows_setup.ps1          PowerShell 5.1 до Python, WinGet consent і handoff
+│   ├── installer_policy.py       pip policy, очищене середовище, CA/proxy trust
+│   ├── legacy_launcher.py        Окремий legacy venv, install/import guard і меню
+│   ├── check_legacy_cogs.py       Offline smoke справжніх legacy cogs
+│   ├── ci_pg_clients.py          Native PG-клієнти disposable service для CI
+│   └── launcher/
+│       ├── __main__.py           Українське меню Control Center
+│       ├── bootstrap.py          Створення/відновлення ізольованого .venv-v2
+│       ├── configuration.py      Приховане введення токена й збереження налаштувань
+│       ├── process.py            Start/stop/restart і підтверджений стан клієнта
+│       ├── diagnostics.py        Локальні перевірки та очищений JSON-звіт
+│       ├── storage.py            SQLite backup/restore, каталог і retention archive
+│       ├── backup_manifest.py    Маніфести, SHA-256 та перевірка копій
+│       ├── migrations.py         Меню плану/backup/явної SQLite-міграції
+│       ├── pg_native.py          Обмежений виклик pg_dump/pg_restore та перевірки
+│       ├── pg_workflow.py        PostgreSQL plan/backup/upgrade/recovery і звіти
+│       ├── update.py             Контрольоване Git-оновлення без reset --hard
+│       ├── verify_update.py      Перевірки нового коду після оновлення
+│       └── autostart.py          Добровільний Windows Task Scheduler logon-task
+│
+├── yeboybot/                     Legacy-код; не модулі Core V2
+│   ├── bot.py                    Створення клієнта й підключення старих cogs
+│   ├── moderation.py             Старі prefix-команди модерації
+│   ├── user.py                   Старі користувацькі команди
+│   ├── help.py                   Довідка legacy-команд
+│   ├── rank.py                   Старий рейтинг і rank card
+│   ├── logging_setup.py          Legacy-логи з приховуванням credentials
+│   ├── data_manager.py           Legacy-робота з файлами даних
+│   ├── song_queue_handler.py     Legacy-черги відтворення
+│   ├── music.py                  Музика, увімкнена лише окремим вибором
+│   ├── player.py                 Керування старим відтворенням
+│   ├── playlist.py               Старі плейлисти
+│   ├── downloader.py             Legacy-завантаження медіа
+│   ├── youtube.py                Legacy-робота з YouTube
+│   └── spotify.py                Legacy-інтеграція Spotify
+│
+├── config/                       Публічні legacy-шаблони та переклади
+│   ├── example_options.ini       Справжня назва шаблону options.ini
+│   ├── example_permissions.ini   Шаблон старих дозволів
+│   ├── example_aliases.json      Шаблон aliases
+│   ├── _autoplaylist.txt         Наявний legacy-файл autoplaylist
+│   └── i18n/                     Наявні legacy-переклади
+│
+├── DLC/                          Наявні зображення та шрифти rank cards
+├── docs/                         Українські інструкції, аудит і roadmap
+└── .github/workflows/core-v2.yml  Windows/Linux/PG, installer, Ruff і CVE checks
+
+3. МЕЖІ АРХІТЕКТУРИ ТА СТАН МОДУЛІВ
+------------------------------------
+Новий moderation flow:
+  commands.py -> moderation.py -> db.py / discord_moderation.py
+
+Команда формує вхідні дані й приватну відповідь; сервіс перевіряє use-case;
+репозиторні операції ізолюють дані через guild_id; adapter виконує Discord REST.
+Перед небезпечною дією claim справи має бути збережений у БД. Невідомий API
+результат залишається pending; сліпого автоматичного повтору немає. Discord
+і SQL не мають спільної транзакції, exactly-once для API не гарантується.
+Цей flow використовують /kick, /ban і /unban; /modhistory читає справи сервера.
+Ban зберігає повідомлення. Unban працює за ID колишнього учасника й перевіряє
+запис блокування. Нові сценарії: core_v2/tests/test_ban_service.py,
+test_ban_gateway.py, test_ban_commands.py і test_ban_integration.py у тій самій
+папці tests/. Інтеграційні перевірки використовують SQLite та справжні SDK
+моделі з підміненою HTTP-відповіддю, без входу до живого Discord.
+Окремий flow /clear: commands.py -> clear_commands.py -> clear_service.py
+-> clear_repository.py / discord_clear.py. Підтвердження діє 60 секунд для
+автора/каналу/сервера; максимум 25 переглянутих повідомлень. До API зберігаються
+саме схвалені ID, а /clear-status читає власний request receipt. Clear-запити
+мають states clear_* у v2_jobs і не стають фоновими pending-нагадуваннями.
+Unknown не повторюється після restart; старі ephemeral-кнопки не відновлюються.
+Опис обмежень і перевірок: docs/CLEAR_UA.md.
+
+Створення /warn: commands.py -> ModerationService.warn у moderation.py
+-> DiscordGateway.load (fresh guild/owner/roles/actor/bot/target)
+-> Database.record_warning у db.py (одна транзакція warn/applied).
+Moderate Members автора/бота та ієрархія — політика локального попередження.
+Discord mutation/DM/Audit Log запис не викликається. Детермінований guild+interaction
+ID та immutable payload блокують повторний запис; revoked і часові мітки
+зберігаються. DB outcome після помилки COMMIT може бути unconfirmed, тому
+нова ручна команда з новим interaction ID не є безпечним сліпим повтором.
+Старі UUID-записи сумісні; нової схеми або міграції немає.
+warning_embeds у discord_moderation.py обмежує приватний /warnings список
+до 10 записів, екранує причини й рахує UTF-16; повний текст лишається в БД.
+Читання /warnings, /unwarn та старі timeout/untimeout ще потребують свіжої
+авторизації/lifecycle. Не плутати це зі завершеним створенням /warn.
+Нові сценарії: core_v2/tests/test_warn_repository.py, test_warn_service.py,
+test_warn_commands.py і test_warn_integration.py у тій самій папці tests/.
+
+У Core уже підключено текстовий XP, рейтинги й durable-нагадування. Нагадування
+мають at-least-once delivery: після збою повтор повідомлення можливий.
+Таблиці/поля automod, welcome, autorole, voice XP і role panels не означають,
+що відповідні Discord-сценарії вже активні. Нові сервіси додаються послідовно.
+Повна модерація, подієвий аудит, /setup, /help та webpanel ще не завершені.
+Список актуальних slash-команд і межі функцій: docs/MODERATION_UA.md,
+docs/CORE_V2_QUICKSTART_UA.md та docs/PROJECT_AUDIT_UA.md.
+
+Core використовує schema2: v2_schema, v2_settings, v2_xp, v2_cases, v2_jobs,
+v2_role_panels. Наявна schema1 потребує явної перевіреної міграції з backup;
+Discord login автоматично її не застосовує. Для PostgreSQL підтримано лише
+стандартну public Core-схему; recovery відновлює власну копію в окрему порожню БД.
+
+4. ЛОКАЛЬНІ ФАЙЛИ: ДАНІ ТА СЕКРЕТИ
+-----------------------------------
+Це робочі шляхи, а не частина еталонного дерева вихідного коду:
+  .env.v2                Токен, URL БД та локальні Core-налаштування
+  .venv-v2/              Окреме середовище Core
+  .venv-legacy/          Окреме середовище legacy; не змішувати пакети між venv
+  data/v2/               SQLite за замовчуванням, lock/state files, reports і logs
+  backups/               Перевірені snapshots/маніфести та приватні дані серверів
+  config/options.ini     Локальний legacy-токен і налаштування
+  config/permissions.ini Локальні legacy-дозволи
+  logs/                  Історичні та локальні legacy-журнали
+
+DATABASE_URL може вказувати інший файл SQLite або PostgreSQL; data/v2/yeboy.db
+є лише типовим локальним шляхом. Копії даних серверів не шифруються й потребують
+приватного зберігання. Не публікуйте .env, токени, URL із паролем або журнали.
+Не видаляйте папки даних/копій чи невідоме неповне venv під час очищення коду.
+
+У Git історично відстежуються деякі pyc, logs і JSON-черги. Це не зразок для
+нових runtime-файлів; їх виведення з tracking потребує збереження локальних даних.
+Карта не містить вмісту таких файлів. У репозиторії немає еталонного Bin/ із
+FFmpeg: переносність старого music потребує окремого виправлення шляхів і TLS.
+
+5. ДЕ ШУКАТИ ПОТРІБНУ ІНФОРМАЦІЮ
+---------------------------------
+  README.md                           Встановлення й основні посилання
+  docs/CLEAN_PC_SETUP_UA.md           Чистий Windows-ПК, Python/пакети та відмови
+  docs/WINDOWS_CMD_LAUNCHER_UA.md      Меню, запуск, оновлення, автозапуск, помилки
+  docs/CORE_V2_QUICKSTART_UA.md        Discord Application, token/intents і команди
+  docs/CORE_V2_STATUS_UA.md            Фактичні local/CI/Windows/live результати
+  docs/PROJECT_AUDIT_UA.md             Матриця функцій і відомі ризики
+  docs/LAUNCHER_AUDIT_UA.md            Критерії приймання launcher
+  docs/MODERATION_UA.md               Права, ролі, модераційні справи й обмеження
+  docs/CLEAR_UA.md                    Підтвердження очищення та діагностика запитів
+  docs/MIGRATIONS_UA.md               SQLite-версії, backup і відновлення
+  docs/POSTGRES_RECOVERY_UA.md        Native PG backup/upgrade/recovery та межі
+  docs/LEGACY_LAUNCHER_UA.md           Окремий запуск старих функцій
+  docs/DEPENDENCY_AUDIT_UA.md          Scope CVE-аудиту та спосіб його повторення
+  docs/COMPETITIVE_SCENARIOS_UA.md     Перевірені джерела й методика з ProBot
+  docs/NEXT_DEVELOPMENT_PROMPT_UA.md  Поточний промт наступної ітерації
+
+Тести лежать у core_v2/tests/. Вони перевіряють SQL/міграції, process lifecycle,
+bootstrap, backup/recovery, permissions, Discord adapters і slash binding.
+Unit-тести не повинні входити в реальний Discord; SQL integration потребує
+окремої disposable БД. CI-успіх не замінює ручний Windows 10/11, живий Discord
+або перевірену експлуатацію 24/7. Старі тестові totals не переносити на новий HEAD.
+
+6. КАРТКА РАНГУ, ГОЛОСОВИЙ XP ТА МУЗИКА CORE
+--------------------------------------------
+core_v2/rank_card.py              PNG500×188, rank_background+gg, український font
+core_v2/commands.py               /rank: SQL snapshot, CDN icons, bounded render threads
+core_v2/voice_xp.py               Спостережені хвилини, >=2 придатні люди, reset/backpressure
+core_v2/db.py                     rank_snapshot одним SQL, окремі guild-scoped ranks
+core_v2/music.py                  Opt-in /music, permissions, VoiceClient, nonblocking FFmpeg cleanup
+core_v2/music_engine.py           FIFO/AP priority, bounded extractor subprocess, backoff/reconnect
+core_v2/music_options.py          Підтримуваний subset options.ini та _autoplaylist до10000 рядків
+core_v2/spotify.py                Official track metadata; YouTube match, не Spotify audio
+core_v2/media_environment.py      FFmpeg, Opus, voice/JS dependencies та runtime discovery
+tools/launcher/media.py           [25] options/config, opt-in FFmpeg/Deno WinGet
+tools/launcher/rank_import.py     [26] validated legacy JSON→SQLite, backup/max-merge/rollback
+docs/RANK_MUSIC_UA.md             Налаштування, команди, гарантії й ручна перевірка
+
+Дані XP legacy не видаляються. Імпорт не додає повторні бали, не зменшує жоден
+лічильник і не переносить збережені рівні: рівень обчислюється з XP.
+Початковий обсяг цієї ітерації: 20 основних команд + music group6.
+Поточний музичний модуль має 9 підкоманд (див. розділи 10 і 12). Черги лише в пам'яті.
+Тривале реальне відтворення/Discord не підтверджене автоматичними mocks.
+
+7. ДІАГНОСТИКА МУЗИКИ ТА ЖИТТЄВИЙ ЦИКЛ
+--------------------------------------
+core_v2/music_engine.py: failure_message/normalize_failure_code, allowlisted worker
+JSON, streamed stdin16KiB/stdout64KB, bounded ownedchild kill/reap/drain.
+core_v2/music_options.py: MusicError.code; raw message не виводиться у snapshot.
+core_v2/music.py: український /music queue, stop guards до/після automaticconnect,
+валідація перед voice, _OwnedVoiceClient cancellation cleanup, _teardowns registry.
+core_v2/tests/test_music_diagnostics.py: offline child/yt-dlp protocol й межі I/O.
+core_v2/tests/test_music_lifecycle.py: REST/connect/stop interleavings, cancellation,
+removedguild, independent parallel guild close, private safe localized queue.
+No schema/dependency/config changes. Реальний Discord/24hsoak не підтверджені.
+
+8. ДОВІДКА ТА СТАН МОДУЛІВ CORE
+-------------------------------
+core_v2/guide.py                  Guide Cog: /help + /modules, author/guild-bound View
+core_v2/help_catalog.py           Runtime CommandEntry catalog, guild override, bounded UA embeds
+core_v2/module_status.py          Fresh read-only guildsettings + ready/cog/task/intent state
+core_v2/tests/test_guide.py       Real callbacks/components, private scope, limits/unload/update smoke
+core_v2/tests/test_help_catalog.py  Actual tree metadata, pagination/Unicode limits/no remote calls
+core_v2/tests/test_module_status.py  SQLite SELECT-only, guild scope, unknown/paused/disabled states
+docs/GUIDE_UA.md                 Discord UX, синхронізація, фактичні стани й межі
+
+Guide завантажується до sync у bot.setup_hook і перевіряється verify_update.
+Під час додавання довідки: 20 основних команд + music group6; нині music9.
+HelpView120s, cap100; післяrestart
+панелі не відновлюються. /modules не змінює конфігурацію й не активує заготовки.
+
+9. ПІДТВЕРДЖЕНЕ ЗАВЕРШЕННЯ МУЗИЧНОЇ СЕСІЇ
+--------------------------------------------
+core_v2/music.py                  Session.closing/close_failed, облік власного backend
+                                 зі створення SDK-клієнта до локального cleanup
+                                 повтор /music stop, блокування нового connect
+core_v2/music_engine.py           Instant EOF/backoff від моменту передачі в backend;
+                                 пошук треку не підміняє тривалість відтворення
+core_v2/module_status.py          Незавершена/непідтверджена сесія в /modules
+core_v2/tests/test_music_teardown.py  Помилки/таймаути, повтори, cancellation, late connect
+core_v2/tests/test_music_backoff.py   Контрольований clock: slow resolve, EOF, skip, priority
+docs/RANK_MUSIC_UA.md             Непідтверджена зупинка й штатне відновлення
+
+Помилка source cleanup не означає успіх. Нові треки й з'єднання блокуються
+до підтвердженого завершення власної сесії. Нескінченного retry немає;
+команди не завершують сторонні Python-процеси. Ручний Discord/Windows/24hsoak
+залишається окремим критерієм, переваги над ProBot без порівняння не заявляються.
+Успіх локального SDK teardown не є незалежним доказом remote voice-state ack.
+
+10. РУЧНА ПАУЗА Й ВІДНОВЛЕННЯ МУЗИКИ
+------------------------------------
+core_v2/music.py                  /music pause/resume: Manage Guild, поточний канал,
+                                 лише наявна сесія; незалежні manual/AutoPause,
+                                 queue з причинами та локальним SDK-станом
+core_v2/music_engine.py           GuildPlayer.manual_paused, set_manual_paused;
+                                 не брати наступний запит під ручною паузою,
+                                 після відновлення отримувати свіже джерело
+core_v2/tests/test_music_pause_engine.py    FIFO/AP/skip, resolution/close та clock
+core_v2/tests/test_music_pause_backend.py   Комбіновані причини, помилки SDK, cleanup
+core_v2/tests/test_music_pause_commands.py  Права/канал/guild, callbacks, metadata
+docs/RANK_MUSIC_UA.md             Правила manual/AutoPause та sync [11] → restart [2]
+
+Під час додавання паузи: 20 основних команд + optional music group8.
+Прихід людини не знімає ручну
+паузу; resume не обходить активну AutoPause. Намір діє лише в пам'яті сесії
+до resume або її завершення. Нових залежностей, schema чи intents немає.
+Нові підкоманди потребують синхронізації в обраній області; none не публікує їх.
+
+11. УЗГОДЖЕНІ РЕЙТИНГИ ЧАТУ Й ГОЛОСУ
+------------------------------------
+core_v2/db.py                     leaderboard(kind=total/text/voice), guild-scoped
+                                 сторінки; exact total carry/remainder без overflow
+                                 і tie за user_id, як у rank_snapshot
+core_v2/commands.py               /leaderboard page xp_type: optional choices,
+                                 public bounded output, DB timeout, safe errors
+core_v2/tests/test_leaderboard_repository.py  SQLite/PG, великі XP, tie/page/guild scope
+core_v2/tests/test_leaderboard_commands.py    Metadata/defaults, негативні API/DB стани
+core_v2/tests/test_rank_commands.py           Сумісність старого leaderboard виклику
+docs/RANK_MUSIC_UA.md             Вибір Загальний/Чат/Голос і sync нового параметра
+
+Без xp_type зберігається загальна сума XP. Чат і Голос узгоджені з двома
+місцями PNG /rank; власні assets й лічильники не змінюються. Total може бути
+більшим за signed int64, але відображається й сортується точно. На тому етапі
+було 20 основних команд + music8; міграція/нові залежності не потрібні;
+metadata sync [11] → restart [2].
+
+12. ГУЧНІСТЬ НАЯВНОЇ МУЗИЧНОЇ СЕСІЇ — 29.10.2026
+-------------------------------------------------
+core_v2/music.py                  /music volume percent: необов'язкове ціле 0–100;
+                                 без числа — приватний стан; Manage Guild,
+                                 свіжий учасник і поточний голосовий канал,
+                                 актуальна власна сесія без нового підключення
+                                 FFmpegVoiceBackend.set_volume/volume_state:
+                                 власний поточний PCM і наступні треки,
+                                 блокування очищення під час зміни коефіцієнта;
+                                 спостережений/майбутній/невідомий стан у queue
+core_v2/music_engine.py           GuildPlayer.set_volume: діапазон, завершена
+                                 задача й reconnect, передача власному backend
+core_v2/help_catalog.py           Правила читання й зміни гучності в /help
+core_v2/tests/test_music_volume_backend.py   PCM SDK, cleanup, часткова помилка
+core_v2/tests/test_music_volume_engine.py    Наступні user/AP треки, skip і пауза
+core_v2/tests/test_music_volume_commands.py  Права, канал, guild, metadata й стани
+docs/RANK_MUSIC_UA.md             0 проти паузи, INI та sync [11] → restart [2]
+
+Поточний обсяг: 20 основних команд + optional music group9, тобто 21 команда
+на корені дерева з групою. Значення гучності ізольоване між сесіями серверів;
+0 вимикає звук без додавання паузи; наявні паузи залишаються. Під час
+відтворення час треку й черга продовжуються. Ручна пауза/AutoPause незалежні.
+Нова Session або перезапуск бере DefaultVolume з INI 0.01–1.0, у тому числі дробові
+відсотки. Командне 0 не записується в INI/БД; схема, ключі конфігурації,
+залежності та intents незмінні.
+Часткова помилка setter не підтверджує майбутнє налаштування; UI показує
+поточний PCM і майбутнє значення за розбіжності й доступного спостереження.
+Локальний коефіцієнт PCM не доводить почуту гучність; один старий кадр можливий.
+Живий Discord, native FFmpeg і 24-годинний сценарій не підтверджені.
