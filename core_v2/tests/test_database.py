@@ -173,3 +173,58 @@ async def test_schema_rejects_newer_version(db):
         await conn.execute(text("UPDATE v2_schema SET version = 999"))
     with pytest.raises(RuntimeError, match="Unsupported schema"):
         await db.initialize()
+
+
+async def test_panels_persist_and_revoke_only_in_own_guild(db):
+    panel = await db.create_panel(1, 20)
+    await db.close()
+    await db.initialize()
+    assert await db.panel(1, panel) == 20
+    assert await db.panel(2, panel) is None
+    assert await db.list_panels(2) == []
+    assert not await db.delete_panel(2, panel)
+    assert await db.panel(1, panel) == 20
+    assert await db.delete_panel(1, panel) == 1
+    assert await db.panel(1, panel) is None
+    assert not await db.delete_panel(1, panel)
+
+
+async def test_panel_limit_is_atomic_and_guild_scoped(db):
+    for _ in range(48):
+        await db.create_panel(1, 20)
+    results = await asyncio.gather(*(db.create_panel(1, 20) for _ in range(6)),
+                                   return_exceptions=True)
+    assert sum(isinstance(result, str) for result in results) == 2
+    assert sum(isinstance(result, ValueError) for result in results) == 4
+    pages = [await db.list_panels(1, page) for page in range(1, 6)]
+    assert all(len(page) == 10 for page in pages)
+    ids = [row["id"] for page in pages for row in page]
+    assert len(set(ids)) == 50 and ids == sorted(ids)
+    assert await db.create_panel(2, 20)
+    await db.delete_panel(1, ids[0])
+    assert await db.create_panel(1, 20)
+
+
+@pytest.mark.parametrize("value", [True, 0, -1, 2**63, "1", None])
+async def test_panel_invalid_scope_rejected_without_writes(db, value):
+    with pytest.raises(ValueError):
+        await db.create_panel(value, 20)
+    with pytest.raises(ValueError):
+        await db.create_panel(1, value)
+    with pytest.raises(ValueError):
+        await db.list_panels(value)
+    assert not await db.list_panels(1)
+
+
+@pytest.mark.parametrize("value", [True, 0, 6, "1", None])
+async def test_panel_pagination_validation(db, value):
+    with pytest.raises(ValueError):
+        await db.list_panels(1, value)
+
+
+@pytest.mark.parametrize("value", ["", "../panel", "A" * 32, "x" * 33, 123, True, None])
+async def test_panel_ids_rejected(db, value):
+    with pytest.raises(ValueError):
+        await db.panel(1, value)
+    with pytest.raises(ValueError):
+        await db.delete_panel(1, value)

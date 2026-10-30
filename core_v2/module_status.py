@@ -214,7 +214,18 @@ async def collect_module_status(bot, guild):
         reminders = "Планувальник працює. Доставка залежить від доступу до каналу; довідка: `/help` → Нагадування."
     embed.add_field(name="Нагадування", value=reminders, inline=False)
     embed.add_field(name="Музика", value=_music(bot, guild_id, music, available, ready), inline=False)
-    missing = ["панелі ролей", "нагороди XP"]
+    missing = ["нагороди XP"]
+    role_panels = _read(lambda: bot.get_cog("RolePanels"))
+    if role_panels is None:
+        missing.insert(0, "панелі ролей")
+    else:
+        role_status = "Невідомо: стан модуля не підтверджено."
+        if role_panels is not _UNKNOWN:
+            role_status = _feature_ready(available, ready) or (
+                "Кнопки отримання та зняття ролі підключені; панелі зберігаються після перезапуску. "
+                "Налаштування: `/role-panel create`, `/role-panel list`, `/role-panel remove`. "
+                "Видача залежить від поточних прав і властивостей ролі.")
+        embed.add_field(name="Панелі ролей", value=role_status, inline=False)
     community = _read(lambda: bot.get_cog("Community"))
     automod = _read(lambda: bot.get_cog("AutoMod"))
     if community is None:

@@ -52,3 +52,23 @@ async def test_automod_failure_does_not_award_xp():
         author=SimpleNamespace(id=202, bot=False), webhook_id=None)
     await Bot.on_message(bot, message)
     bot.db.award.assert_not_awaited()
+
+
+@pytest.mark.parametrize("start", [0.0, 0.5, 10.0, 59.0])
+async def test_first_message_xp_does_not_depend_on_machine_uptime(monkeypatch, start):
+    import core_v2.bot as module
+    clock = [start]
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    bot = SimpleNamespace(get_cog=lambda _: None, xp_times=OrderedDict(),
+        guild_settings=AsyncMock(return_value={"levels": True}),
+        db=SimpleNamespace(award=AsyncMock()))
+    message = SimpleNamespace(guild=SimpleNamespace(id=101),
+        author=SimpleNamespace(id=202, bot=False), webhook_id=None)
+    await Bot.on_message(bot, message)
+    bot.db.award.assert_awaited_once_with(101, 202)
+    clock[0] = start + 59
+    await Bot.on_message(bot, message)
+    assert bot.db.award.await_count == 1
+    clock[0] = start + 60
+    await Bot.on_message(bot, message)
+    assert bot.db.award.await_count == 2

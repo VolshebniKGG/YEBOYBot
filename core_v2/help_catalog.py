@@ -39,6 +39,8 @@ _INTRO = {
     "other": "Команди інших підключених модулів.",
 }
 _CATEGORIES = {
+    "role-panel create": "community", "role-panel list": "community",
+    "role-panel remove": "community",
     "automod": "community", "community welcome": "community",
     "community autorole": "community", "community logs": "community",
     "help": "general", "modules": "general", "status": "general",
@@ -50,6 +52,9 @@ _CATEGORIES = {
     "remind": "reminders", "reminders": "reminders", "cancel-reminder": "reminders",
 }
 _PERMISSIONS = {
+    "role-panel create": "Автору: керувати сервером і ролями; боту: керувати ролями й надсилати в канал.",
+    "role-panel list": "Автору: керувати сервером і ролями. Приватна відповідь.",
+    "role-panel remove": "Автору: керувати сервером і ролями. Вже видані ролі залишаються.",
     "help": "Доступно учасникам сервера.",
     "modules": "Доступно учасникам сервера; відповідь приватна.",
     "status": "Доступно учасникам сервера.",

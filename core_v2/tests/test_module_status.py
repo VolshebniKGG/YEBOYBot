@@ -479,3 +479,13 @@ async def test_connected_community_needs_members_intent(sample):
     sample.cogs["Community"] = object()
     result = await collect_module_status(sample.bot, sample.guild)
     assert "потрібен Members Intent" in field(result, "Спільнота")
+
+
+async def test_role_panel_module_report_requires_connected_cog(sample):
+    sample.cogs["RolePanels"] = object()
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "/role-panel create" in field(result, "Панелі ролей")
+    assert "панелі ролей" not in field(result, "Ще не підключено")
+    sample.cogs["RolePanels"] = None
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "панелі ролей" in field(result, "Ще не підключено")

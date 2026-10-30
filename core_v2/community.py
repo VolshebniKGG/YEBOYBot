@@ -12,6 +12,7 @@ from .security import UserError, permission, safe_role
 log = logging.getLogger(__name__)
 TIMEOUT = 15
 MAX_EVENTS = 16
+SHUTDOWN_GRACE = 2
 
 
 def validate_channel(guild, channel):
@@ -39,26 +40,56 @@ class Community(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._active = 0
+        self._closing = False
+        self._tasks = set()
 
     @asynccontextmanager
     async def _slot(self):
         # Drop excess transient events instead of accumulating unbounded waiters
         # during a raid. These best-effort notifications are not an audit ledger.
-        admitted = self._active < MAX_EVENTS
+        admitted = not self._closing and self._active < MAX_EVENTS
+        task = asyncio.current_task()
         if admitted:
             self._active += 1
+            self._tasks.add(task)
         try:
             yield admitted
         finally:
             if admitted:
                 self._active -= 1
+                self._tasks.discard(task)
+
+    async def cog_unload(self):
+        # Close admission before the first await. A dispatched listener may not
+        # have entered its slot yet; it must not start a new database operation.
+        self._closing = True
+        current = asyncio.current_task()
+        tasks = tuple(task for task in self._tasks if task is not current)
+        if not tasks:
+            return
+        try:
+            _, pending = await asyncio.wait(tasks, timeout=SHUTDOWN_GRACE)
+        except asyncio.CancelledError:
+            # Cancellation of shutdown must still cancel and join our children.
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        for task in pending:
+            task.cancel()
+        # These handlers propagate CancelledError, including through SQL/Discord
+        # awaits. Join their finally blocks before Bot.close disposes the DB.
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _configure(self, interaction, key, value):
-        async with asyncio.timeout(TIMEOUT):
-            await self.bot.db.configure(interaction.guild.id, **{key: value})
-        self.bot.settings_cache.pop(interaction.guild.id, None)
-        await interaction.followup.send("Налаштування збережено.", ephemeral=True,
-                                        allowed_mentions=discord.AllowedMentions.none())
+        async with self._slot() as admitted:
+            if not admitted:
+                raise UserError("Модуль завершує роботу або зайнятий. Спробуйте пізніше.")
+            async with asyncio.timeout(TIMEOUT):
+                await self.bot.db.configure(interaction.guild.id, **{key: value})
+            self.bot.settings_cache.pop(interaction.guild.id, None)
+            await interaction.followup.send("Налаштування збережено.", ephemeral=True,
+                                            allowed_mentions=discord.AllowedMentions.none())
 
     def _members_enabled(self):
         if not self.bot.intents.members:

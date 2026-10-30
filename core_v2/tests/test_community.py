@@ -220,3 +220,100 @@ async def test_raw_departure_logs_uncached_member(context):
     c = context
     await c.cog.on_raw_member_remove(SimpleNamespace(guild_id=10, user=SimpleNamespace(id=123)))
     assert '123' in c.channel.send.await_args.args[0]
+
+
+@pytest.mark.parametrize('operation', ['settings', 'send', 'configure'])
+async def test_unload_cancels_and_joins_busy_operations(context, monkeypatch, operation):
+    import core_v2.community as module
+    c = context
+    monkeypatch.setattr(module, 'SHUTDOWN_GRACE', 0.01)
+    entered = asyncio.Event()
+    cleaned = asyncio.Event()
+
+    async def blocked(*args, **kwargs):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaned.set()
+
+    if operation == 'settings':
+        c.bot.db.get_settings.side_effect = blocked
+        work = c.cog.on_member_join(c.member)
+    elif operation == 'send':
+        c.channel.send.side_effect = blocked
+        work = c.cog.on_guild_role_create(c.role)
+    else:
+        c.bot.db.configure.side_effect = blocked
+        work = Community.welcome.callback(c.cog, c.interaction, c.channel)
+    task = asyncio.create_task(work)
+    await entered.wait()
+    await asyncio.wait_for(c.cog.cog_unload(), timeout=1)
+    assert cleaned.is_set()
+    assert task.cancelled()
+    assert c.cog._closing and c.cog._active == 0 and not c.cog._tasks
+    # Already-dispatched and new callbacks cannot touch SQL after shutdown.
+    before = c.bot.db.get_settings.await_count
+    await c.cog.on_member_join(c.member)
+    await c.cog.on_guild_role_delete(c.role)
+    assert c.bot.db.get_settings.await_count == before
+    await c.cog.cog_unload()  # repeated shutdown is harmless
+
+
+async def test_unload_allows_short_work_to_finish(context):
+    c = context
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def finish_soon(*args, **kwargs):
+        entered.set()
+        await release.wait()
+
+    c.channel.send.side_effect = finish_soon
+    task = asyncio.create_task(c.cog.on_guild_role_create(c.role))
+    await entered.wait()
+    closing = asyncio.create_task(c.cog.cog_unload())
+    await asyncio.sleep(0)
+    assert c.cog._closing and not closing.done()
+    release.set()
+    await closing
+    assert task.done() and not task.cancelled()
+    assert c.cog._active == 0 and not c.cog._tasks
+
+
+async def test_cancelled_unload_still_joins_handlers(context):
+    c = context
+    entered, cleaned = asyncio.Event(), asyncio.Event()
+
+    async def blocked(*args, **kwargs):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaned.set()
+
+    c.bot.db.get_settings.side_effect = blocked
+    task = asyncio.create_task(c.cog.on_member_join(c.member))
+    await entered.wait()
+    closing = asyncio.create_task(c.cog.cog_unload())
+    await asyncio.sleep(0)
+    closing.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await closing
+    assert cleaned.is_set() and task.cancelled()
+    assert c.cog._active == 0 and not c.cog._tasks
+
+
+async def test_unload_never_cancels_or_waits_on_its_current_task(context):
+    c = context
+    async with c.cog._slot() as admitted:
+        assert admitted
+        await c.cog.cog_unload()
+    assert c.cog._closing and not c.cog._tasks and c.cog._active == 0
+
+
+async def test_configuration_after_unload_is_refused_without_sql(context):
+    c = context
+    await c.cog.cog_unload()
+    with pytest.raises(UserError, match='завершує'):
+        await Community.welcome.callback(c.cog, c.interaction, c.channel)
+    c.bot.db.configure.assert_not_awaited()

@@ -6,7 +6,7 @@ import time
 import uuid
 from pathlib import Path
 from sqlalchemy import (MetaData, Table, Column, BigInteger, Integer, String, Boolean,
-                        Float, select, update, event, func, text, inspect, case)
+                        Float, select, update, delete, event, func, text, inspect, case)
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -434,13 +434,52 @@ class Database:
                 jobs.c.user_id == user_id, jobs.c.id == job_id, jobs.c.state == "pending",
                 jobs.c.lease <= time.time()).values(state="cancelled"))).rowcount
 
+    @staticmethod
+    def _panel_scope(guild_id, panel_id=None):
+        if type(guild_id) is not int or not 0 < guild_id < 2**63:
+            raise ValueError("Invalid panel scope")
+        if panel_id is not None and (not isinstance(panel_id, str) or
+                not re.fullmatch(r"[0-9a-f]{32}", panel_id)):
+            raise ValueError("Invalid panel ID")
+
     async def create_panel(self, guild_id, role_id):
-        panel = uuid.uuid4().hex
+        self._panel_scope(guild_id)
+        if type(role_id) is not int or not 0 < role_id < 2**63:
+            raise ValueError("Invalid panel role")
+        panel_id = uuid.uuid4().hex
         async with self.engine.begin() as conn:
-            await conn.execute(panels.insert().values(id=panel, guild_id=guild_id, role_id=role_id))
-        return panel
+            if self.sqlite:
+                await conn.execute(text("BEGIN IMMEDIATE"))
+            else:
+                await conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": guild_id})
+            count = await conn.scalar(select(func.count()).select_from(panels).where(
+                panels.c.guild_id == guild_id))
+            if count >= 50:
+                raise ValueError("Максимум 50 активних панелей на сервері. Вимкніть зайві через /role-panel remove.")
+            await conn.execute(panels.insert().values(id=panel_id, guild_id=guild_id, role_id=role_id))
+        return panel_id
 
     async def panel(self, guild_id, panel):
+        if not isinstance(panel, str):
+            raise ValueError("Invalid panel ID")
+        self._panel_scope(guild_id, panel)
         async with self.engine.connect() as conn:
             return await conn.scalar(select(panels.c.role_id).where(panels.c.guild_id == guild_id,
                                                                    panels.c.id == panel))
+
+    async def list_panels(self, guild_id, page=1):
+        self._panel_scope(guild_id)
+        if type(page) is not int or not 1 <= page <= 5:
+            raise ValueError("Invalid panel page")
+        async with self.engine.connect() as conn:
+            rows = await conn.execute(select(panels).where(panels.c.guild_id == guild_id)
+                .order_by(panels.c.id).limit(10).offset((page - 1) * 10))
+            return [dict(row) for row in rows.mappings()]
+
+    async def delete_panel(self, guild_id, panel_id):
+        if not isinstance(panel_id, str):
+            raise ValueError("Invalid panel ID")
+        self._panel_scope(guild_id, panel_id)
+        async with self.engine.begin() as conn:
+            return (await conn.execute(delete(panels).where(
+                panels.c.guild_id == guild_id, panels.c.id == panel_id))).rowcount
