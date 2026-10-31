@@ -9,6 +9,7 @@ from discord.ext import commands, tasks
 
 from .db import Database
 from .security import UserError
+from .settings_cache import SettingsCache
 
 log = logging.getLogger(__name__)
 
@@ -19,8 +20,8 @@ class Tree(app_commands.CommandTree):
             raise UserError("Команда доступна лише на сервері.")
         key = (interaction.guild_id, interaction.user.id)
         now = time.monotonic()
-        previous = self.client.command_times.get(key, 0)
-        if now - previous < 1:
+        previous = self.client.command_times.get(key)
+        if previous is not None and now - previous < 1:
             raise UserError("Зачекайте секунду між командами.")
         self.client.command_times[key] = now
         self.client.command_times.move_to_end(key)
@@ -58,31 +59,46 @@ class Bot(commands.AutoShardedBot):
         super().__init__(command_prefix=commands.when_mentioned, help_command=None,
                          intents=intents, tree_cls=Tree, shard_count=settings.shard_count,
                          max_messages=100, chunk_guilds_at_startup=False,
-                         member_cache_flags=discord.MemberCacheFlags(voice=True, joined=False),
+                         member_cache_flags=discord.MemberCacheFlags(voice=True, joined=settings.members),
                          allowed_mentions=discord.AllowedMentions.none())
         self.settings = settings
         self.db = Database(settings.database)
         self.command_times = OrderedDict()
-        self.settings_cache = OrderedDict()
+        self.settings_cache = SettingsCache()
         self.xp_times = OrderedDict()
 
     async def guild_settings(self, guild_id):
-        now = time.monotonic()
-        cached = self.settings_cache.get(guild_id)
-        if cached and now - cached[0] < 15:
+        # An old read must not repopulate settings after a command invalidates
+        # them. A global epoch is bounded and deliberately conservative.
+        for _ in range(3):
+            now = time.monotonic()
+            cached = self.settings_cache.get(guild_id)
+            if cached and now - cached[0] < 15:
+                self.settings_cache.move_to_end(guild_id)
+                return cached[1]
+            generation = self.settings_cache.generation
+            result = await self.db.get_settings(guild_id)
+            if generation != self.settings_cache.generation:
+                continue
+            self.settings_cache[guild_id] = (now, result)
             self.settings_cache.move_to_end(guild_id)
-            return cached[1]
-        result = await self.db.get_settings(guild_id)
-        self.settings_cache[guild_id] = (now, result)
-        self.settings_cache.move_to_end(guild_id)
-        if len(self.settings_cache) > 10000:
-            self.settings_cache.popitem(last=False)
-        return result
+            if len(self.settings_cache) > 10000:
+                self.settings_cache.popitem(last=False)
+            return result
+        raise RuntimeError("Settings changed repeatedly during read; retry later")
 
     async def setup_hook(self):
         await self.db.initialize()
         from .commands import Core
         await self.add_cog(Core(self))
+        from .community import Community
+        await self.add_cog(Community(self))
+        from .automod import AutoMod
+        await self.add_cog(AutoMod(self))
+        from .role_panels import RolePanels
+        await self.add_cog(RolePanels(self))
+        from .level_rewards import LevelRewards
+        await self.add_cog(LevelRewards(self))
         from .voice_xp import VoiceXP
         await self.add_cog(VoiceXP(self))
         if self.settings.music:
@@ -104,9 +120,18 @@ class Bot(commands.AutoShardedBot):
     async def on_message(self, message):
         if not message.guild or message.author.bot or message.webhook_id:
             return
+        automod = self.get_cog("AutoMod")
+        if automod is not None:
+            try:
+                if await automod.inspect_message(message):
+                    return
+            except Exception:
+                log.exception("AutoMod inspection failed")
+                return
         key = (message.guild.id, message.author.id)
         now = time.monotonic()
-        if now - self.xp_times.get(key, 0) < 60:
+        previous = self.xp_times.get(key)
+        if previous is not None and now - previous < 60:
             return
         self.xp_times[key] = now
         self.xp_times.move_to_end(key)
@@ -114,7 +139,10 @@ class Bot(commands.AutoShardedBot):
             self.xp_times.popitem(last=False)
         try:
             if (await self.guild_settings(message.guild.id))["levels"]:
-                await self.db.award(*key)
+                awarded = await self.db.award(*key)
+                rewards = self.get_cog("LevelRewards")
+                if awarded is not None and rewards is not None:
+                    rewards.enqueue(*key)
         except Exception:
             log.exception("XP update failed")
 
@@ -167,7 +195,7 @@ class Bot(commands.AutoShardedBot):
         await self.wait_until_ready()
 
     async def close(self):
-        for name in ("Guide", "Music", "VoiceXP"):
+        for name in ("Guide", "Music", "VoiceXP", "Community", "AutoMod", "RolePanels", "LevelRewards"):
             await self.remove_cog(name)
         self.deliver.cancel()
         task = self.deliver.get_task()

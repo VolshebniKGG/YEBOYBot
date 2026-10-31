@@ -11,7 +11,7 @@ import stat
 
 from sqlalchemy.exc import ArgumentError
 
-from core_v2.db import sqlite_version
+from core_v2.db import CURRENT_SCHEMA_VERSION, sqlite_version
 from core_v2.runtime import InstanceLock
 from . import storage
 
@@ -123,15 +123,15 @@ def _database(root):
         raise RankImportError("Імпорт XP підтримує лише файлову SQLite. Для PostgreSQL потрібен окремий перевірений workflow; автоматичного імпорту немає.") from error
     try:
         version = storage.validate(path)
-        if version == 1:
-            raise RankImportError("Спочатку явно оновіть схему SQLite v1 через [21], потім повторіть імпорт XP.")
-        if version != 2:
-            raise RankImportError("Імпорт XP потребує наявної перевіреної схеми SQLite v2.")
+        if version in (1, 2):
+            raise RankImportError("Спочатку явно оновіть схему SQLite v1/v2 через [21], потім повторіть імпорт XP.")
+        if version != CURRENT_SCHEMA_VERSION:
+            raise RankImportError("Імпорт XP потребує наявної перевіреної схеми SQLite v3.")
         return path, _file_identity(path)
     except RankImportError:
         raise
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
-        raise RankImportError("Потрібна наявна, ціла й підтримувана SQLite v2. Перевірте [4]/[21]; імпорт не створює й не мігрує БД.") from error
+        raise RankImportError("Потрібна наявна, ціла й підтримувана SQLite v3. Перевірте [4]/[21]; імпорт не створює й не мігрує БД.") from error
 
 
 def _prepare(root, guild_id):
@@ -178,7 +178,7 @@ def apply(guild_id, root=ROOT, *, confirmed=False, expected_plan=None):
             path, rows = _require_same(root, guild_id, preview)
             # The verified recovery copy is complete before opening a write transaction.
             saved = storage._create(root, source=path)
-            if storage._require_verified(saved)["schema_version"] != 2:
+            if storage._require_verified(saved)["schema_version"] != CURRENT_SCHEMA_VERSION:
                 raise RankImportError("Схема резервної копії змінилася. Імпорт скасовано.")
             _require_same(root, guild_id, preview)
             with closing(sqlite3.connect(path.as_uri() + "?mode=rw", uri=True,
@@ -186,7 +186,7 @@ def apply(guild_id, root=ROOT, *, confirmed=False, expected_plan=None):
                 try:
                     connection.execute("BEGIN IMMEDIATE")
                     with closing(connection.cursor()) as cursor:
-                        if sqlite_version(cursor) != 2:
+                        if sqlite_version(cursor) != CURRENT_SCHEMA_VERSION:
                             raise RankImportError("Схема БД змінилася. Імпорт скасовано.")
                     if storage.database_path(root) != path or _file_identity(path) != preview["database_identity"]:
                         raise RankImportError("Файл або конфігурація БД змінилися. Повторіть перегляд.")
@@ -201,7 +201,7 @@ def apply(guild_id, root=ROOT, *, confirmed=False, expected_plan=None):
                     if any(source[key] != preview[key] for key in source):
                         raise RankImportError("Файл XP змінився під час імпорту. Зміни БД скасовано.")
                     with closing(connection.cursor()) as cursor:
-                        if sqlite_version(cursor) != 2:
+                        if sqlite_version(cursor) != CURRENT_SCHEMA_VERSION:
                             raise RankImportError("Схема БД змінилася. Зміни імпорту скасовано.")
                     if storage.database_path(root) != path or _file_identity(path) != preview["database_identity"]:
                         raise RankImportError("Файл або конфігурація БД змінилися. Зміни імпорту скасовано.")

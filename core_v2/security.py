@@ -31,7 +31,10 @@ def target_check(actor, target, bot_member, owner_id):
 DANGEROUS = {"administrator", "manage_guild", "manage_roles", "manage_channels",
              "manage_messages", "manage_webhooks", "ban_members", "kick_members",
              "moderate_members", "mention_everyone", "manage_threads",
-             "mute_members", "deafen_members", "move_members"}
+             "mute_members", "deafen_members", "move_members", "manage_nicknames",
+             "manage_events", "manage_expressions", "create_events", "create_expressions",
+             "view_audit_log", "view_guild_insights", "view_creator_monetization_analytics",
+             "pin_messages", "bypass_slowmode"}
 
 
 def safe_role(role, bot_member, actor=None, owner_id=None):

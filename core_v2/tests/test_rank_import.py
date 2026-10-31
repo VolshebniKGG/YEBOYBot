@@ -7,7 +7,7 @@ import sqlite3
 import pytest
 from sqlalchemy import create_engine
 
-from core_v2.db import meta
+from core_v2.db import CURRENT_SCHEMA_VERSION, meta
 from core_v2.runtime import InstanceLock
 from tools.launcher import rank_import as importer, storage
 
@@ -30,7 +30,7 @@ def installation(tmp_path, monkeypatch):
     try:
         meta.create_all(engine)
         with engine.begin() as connection:
-            connection.exec_driver_sql("INSERT INTO v2_schema VALUES (2)")
+            connection.exec_driver_sql("INSERT INTO v2_schema VALUES (?)", (CURRENT_SCHEMA_VERSION,))
             connection.exec_driver_sql("INSERT INTO v2_xp VALUES (11,101,30,100,123,456)")
             connection.exec_driver_sql("INSERT INTO v2_xp VALUES (22,101,999,888,12,34)")
             connection.exec_driver_sql("INSERT INTO v2_xp VALUES (11,777,5,5,55,66)")
@@ -270,6 +270,7 @@ def test_existing_current_schema_is_required_without_migration(installation, sch
     else:
         with closing(sqlite3.connect(path)) as connection:
             if schema == "v1":
+                connection.execute("DROP TABLE v2_level_rewards")
                 connection.execute("ALTER TABLE v2_cases DROP COLUMN updated")
                 connection.execute("UPDATE v2_schema SET version=1")
             elif schema == "future":

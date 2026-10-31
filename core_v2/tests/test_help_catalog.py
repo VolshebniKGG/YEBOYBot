@@ -161,7 +161,7 @@ def test_discovery_is_stable_and_observes_later_removal_without_stale_cache():
 def test_available_categories_are_populated_plus_general():
     assert available_categories(()) == ("general",)
     assert available_categories((entry(), entry("custom", "other"))) == ("general", "rank", "other")
-    assert list(CATEGORY_LABELS) == ["general", "rank", "moderation", "reminders", "music", "other"]
+    assert list(CATEGORY_LABELS) == ["general", "rank", "moderation", "reminders", "music", "community", "other"]
 
 
 def test_general_page_lists_all_topic_counts_and_static_topic_navigation():

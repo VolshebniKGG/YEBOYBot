@@ -66,7 +66,7 @@ async def _preview(connection, url):
     objects = (await connection.execute(text(
         "SELECT relname FROM pg_class WHERE relnamespace='public'::regnamespace "
         "AND relkind IN ('r','p','v','m','f') AND relname LIKE 'v2\\_%' ESCAPE '\\'"))).scalars().all()
-    if set(objects) != set(engine.TABLES):
+    if set(objects) != set(engine.tables_for_version(current)):
         raise PostgresError("Набір PostgreSQL таблиць Core V2 не підтримується; автоматичні зміни заблоковано.")
     await _standard_layout(connection, current)
     major = int(await connection.scalar(text("SHOW server_version_num"))) // 10000
@@ -76,14 +76,14 @@ async def _preview(connection, url):
     # No password or URL is placed in plans/reports. Credential rotation is permitted.
     source = (url.host, url.port or 5432, url.database, *identity)
     source_id = hashlib.sha256(repr(source).encode("utf-8")).hexdigest()
-    return {"current": current, "target": 2, "revisions": [r.name for r in revisions],
+    return {"current": current, "target": engine.CURRENT_SCHEMA_VERSION, "revisions": [r.name for r in revisions],
             "source_id": source_id, "server_major": major}
 
 
 async def _standard_layout(connection, version):
     """Table-scoped pg_dump must not omit custom dependencies or descendants."""
     table_ids = "SELECT oid FROM pg_class WHERE relnamespace='public'::regnamespace AND relname = ANY(:names)"
-    args = {"names": list(engine.TABLES)}
+    args = {"names": list(engine.tables_for_version(version))}
     checks = [
         f"SELECT count(*) FROM pg_class WHERE oid IN ({table_ids}) AND relkind <> 'r'",
         f"SELECT count(*) FROM pg_inherits WHERE inhparent IN ({table_ids}) OR inhrelid IN ({table_ids})",
@@ -101,7 +101,7 @@ async def _standard_layout(connection, version):
     actual = (await connection.execute(text(
         "SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='public' "
         "AND table_name = ANY(:names)"), args)).all()
-    columns = {name: {column for table, column in actual if table == name} for name in engine.TABLES}
+    columns = {name: {column for table, column in actual if table == name} for name in engine.tables_for_version(version)}
     if columns != required_columns(version):
         raise PostgresError("Кастомні колонки Core-таблиць потребують окремого повного PostgreSQL backup workflow.")
     await engine.validate_defaults(connection)
@@ -114,7 +114,7 @@ async def plan(root=ROOT):
         async with database.connect() as connection:
             return await _preview(connection, url)
     except Exception:
-        raise PostgresError("План PostgreSQL не отримано: перевірте доступ і підтримувану схему v1/v2. Дані не змінювалися.") from None
+        raise PostgresError("План PostgreSQL не отримано: перевірте доступ і підтримувану схему v1/v2/v3. Дані не змінювалися.") from None
     finally:
         await database.dispose()
 
@@ -283,7 +283,7 @@ async def restore_empty(root, path, target_url, *, confirmed=False):
 
 def menu(root=ROOT):
     while True:
-        print("\n=== PostgreSQL Core V2 (public) ===\n[1] План міграції\n[2] Резервна копія Core-таблиць\n[3] Міграція v1 → v2\n[4] Відновити у нову порожню БД\n[0] Назад")
+        print("\n=== PostgreSQL Core V2 (public) ===\n[1] План міграції\n[2] Резервна копія Core-таблиць\n[3] Міграція v1/v2 → v3\n[4] Відновити у нову порожню БД\n[0] Назад")
         choice = input("Дія: ").strip()
         if choice == "0":
             return

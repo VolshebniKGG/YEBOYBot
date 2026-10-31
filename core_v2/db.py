@@ -6,13 +6,13 @@ import time
 import uuid
 from pathlib import Path
 from sqlalchemy import (MetaData, Table, Column, BigInteger, Integer, String, Boolean,
-                        Float, select, update, event, func, text, inspect, case)
+                        Float, select, update, delete, event, func, text, inspect, case)
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-CURRENT_SCHEMA_VERSION = 2
-SUPPORTED_SCHEMA_VERSIONS = (1, 2)
+CURRENT_SCHEMA_VERSION = 3
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3)
 
 
 class MigrationRequired(RuntimeError):
@@ -57,12 +57,20 @@ panels = Table("v2_role_panels", meta,
     Column("guild_id", BigInteger, nullable=False, index=True),
     Column("role_id", BigInteger, nullable=False))
 
+level_rewards = Table("v2_level_rewards", meta,
+    Column("guild_id", BigInteger, primary_key=True),
+    Column("kind", String(5), primary_key=True),
+    Column("level", Integer, primary_key=True),
+    Column("role_id", BigInteger, nullable=False))
+
 
 def required_columns(version):
     """Column requirements for each supported on-disk version."""
     if type(version) is not int or version not in SUPPORTED_SCHEMA_VERSIONS:
         raise RuntimeError("Unsupported schema version")
     result = {table.name: {column.name for column in table.columns} for table in meta.sorted_tables}
+    if version < 3:
+        result.pop("v2_level_rewards")
     if version == 1:
         result["v2_cases"].remove("updated")
     return result
@@ -81,6 +89,8 @@ def _schema_state(table_names, view_names, columns, current):
     for name, required in required_columns(version).items():
         if name not in table_names or not required <= columns.get(name, set()):
             raise RuntimeError("Unsupported schema structure; restore compatible code or a verified backup")
+    if version < 3 and "v2_level_rewards" in existing:
+        raise RuntimeError("Unsupported schema structure; ambiguous partially migrated rewards")
     if version == 1 and "updated" in columns.get("v2_cases", set()):
         raise RuntimeError("Unsupported schema structure; ambiguous partially migrated v1")
     return version
@@ -199,8 +209,12 @@ class Database:
         now = time.time() if now is None else now
         counter, last = f"{kind}_xp", f"last_{kind}"
         stmt = self.insert(xp).values(guild_id=guild_id, user_id=user_id, **{counter: 5, last: now})
+        # Imported counters may already be at bigint's upper bound. Never let
+        # PostgreSQL overflow or SQLite silently promote the counter to float.
+        awarded = case((xp.c[counter] > (2**63 - 1) - 5, 2**63 - 1),
+                       else_=xp.c[counter] + 5)
         stmt = stmt.on_conflict_do_update(index_elements=[xp.c.guild_id, xp.c.user_id],
-            set_={counter: xp.c[counter] + 5, last: now}, where=xp.c[last] <= now - 60
+            set_={counter: awarded, last: now}, where=xp.c[last] <= now - 60
             ).returning(xp.c[counter])
         async with self.engine.begin() as conn:
             return (await conn.execute(stmt)).scalar_one_or_none()
@@ -281,7 +295,7 @@ class Database:
             raise ValueError("Invalid moderation scope")
         if not isinstance(case_id, str) or not re.fullmatch(r"[0-9a-f]{32}", case_id):
             raise ValueError("Invalid moderation case ID")
-        if (not isinstance(action, str) or action not in {"kick", "ban", "unban"}
+        if (not isinstance(action, str) or action not in {"kick", "ban", "unban", "timeout", "untimeout"}
                 or not isinstance(reason, str) or not reason.strip()
                 or len(reason.strip()) > 500 or "\0" in reason):
             raise ValueError("Invalid moderation request")
@@ -394,6 +408,12 @@ class Database:
         async with self.engine.begin() as conn:
             if self.sqlite:
                 await conn.execute(text("BEGIN IMMEDIATE"))
+            # A crashed worker cannot call finish_job. Expired final attempts
+            # must still terminate instead of being reclaimed indefinitely.
+            await conn.execute(update(jobs).where(
+                jobs.c.guild_id.in_(guild_ids), jobs.c.state == "pending",
+                jobs.c.attempts >= 5, jobs.c.lease <= now
+            ).values(state="failed", lease=0))
             query = select(jobs.c.id).where(jobs.c.guild_id.in_(guild_ids), jobs.c.state == "pending",
                 jobs.c.due <= now, jobs.c.lease <= now).order_by(jobs.c.due).limit(20)
             if not self.sqlite:
@@ -424,13 +444,100 @@ class Database:
                 jobs.c.user_id == user_id, jobs.c.id == job_id, jobs.c.state == "pending",
                 jobs.c.lease <= time.time()).values(state="cancelled"))).rowcount
 
+    @staticmethod
+    def _panel_scope(guild_id, panel_id=None):
+        if type(guild_id) is not int or not 0 < guild_id < 2**63:
+            raise ValueError("Invalid panel scope")
+        if panel_id is not None and (not isinstance(panel_id, str) or
+                not re.fullmatch(r"[0-9a-f]{32}", panel_id)):
+            raise ValueError("Invalid panel ID")
+
     async def create_panel(self, guild_id, role_id):
-        panel = uuid.uuid4().hex
+        self._panel_scope(guild_id)
+        if type(role_id) is not int or not 0 < role_id < 2**63:
+            raise ValueError("Invalid panel role")
+        panel_id = uuid.uuid4().hex
         async with self.engine.begin() as conn:
-            await conn.execute(panels.insert().values(id=panel, guild_id=guild_id, role_id=role_id))
-        return panel
+            if self.sqlite:
+                await conn.execute(text("BEGIN IMMEDIATE"))
+            else:
+                await conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": guild_id})
+            count = await conn.scalar(select(func.count()).select_from(panels).where(
+                panels.c.guild_id == guild_id))
+            if count >= 50:
+                raise ValueError("Максимум 50 активних панелей на сервері. Вимкніть зайві через /role-panel remove.")
+            await conn.execute(panels.insert().values(id=panel_id, guild_id=guild_id, role_id=role_id))
+        return panel_id
 
     async def panel(self, guild_id, panel):
+        if not isinstance(panel, str):
+            raise ValueError("Invalid panel ID")
+        self._panel_scope(guild_id, panel)
         async with self.engine.connect() as conn:
             return await conn.scalar(select(panels.c.role_id).where(panels.c.guild_id == guild_id,
                                                                    panels.c.id == panel))
+
+    async def list_panels(self, guild_id, page=1):
+        self._panel_scope(guild_id)
+        if type(page) is not int or not 1 <= page <= 5:
+            raise ValueError("Invalid panel page")
+        async with self.engine.connect() as conn:
+            rows = await conn.execute(select(panels).where(panels.c.guild_id == guild_id)
+                .order_by(panels.c.id).limit(10).offset((page - 1) * 10))
+            return [dict(row) for row in rows.mappings()]
+
+    async def delete_panel(self, guild_id, panel_id):
+        if not isinstance(panel_id, str):
+            raise ValueError("Invalid panel ID")
+        self._panel_scope(guild_id, panel_id)
+        async with self.engine.begin() as conn:
+            return (await conn.execute(delete(panels).where(
+                panels.c.guild_id == guild_id, panels.c.id == panel_id))).rowcount
+
+    @staticmethod
+    def _reward_scope(guild_id, kind=None, level=None, role_id=None):
+        if type(guild_id) is not int or not 0 < guild_id < 2**63:
+            raise ValueError("Invalid reward guild")
+        if kind is not None and (type(kind) is not str or kind not in {"text", "voice"}):
+            raise ValueError("Invalid reward kind")
+        if level is not None and (type(level) is not int or not 2 <= level <= 1000):
+            raise ValueError("Invalid reward level")
+        if role_id is not None and (type(role_id) is not int or not 0 < role_id < 2**63):
+            raise ValueError("Invalid reward role")
+
+    async def level_rewards(self, guild_id):
+        self._reward_scope(guild_id)
+        async with self.engine.connect() as conn:
+            rows = await conn.execute(select(level_rewards).where(
+                level_rewards.c.guild_id == guild_id).order_by(level_rewards.c.kind, level_rewards.c.level))
+            return [dict(row) for row in rows.mappings()]
+
+    async def set_level_reward(self, guild_id, kind, level, role_id):
+        if any(value is None for value in (kind, level, role_id)):
+            raise ValueError("Missing reward input")
+        self._reward_scope(guild_id, kind, level, role_id)
+        async with self.engine.begin() as conn:
+            if self.sqlite:
+                await conn.execute(text("BEGIN IMMEDIATE"))
+            else:
+                await conn.execute(text("SELECT pg_advisory_xact_lock(:guild)"), {"guild": guild_id})
+            where = (level_rewards.c.guild_id == guild_id, level_rewards.c.kind == kind,
+                     level_rewards.c.level == level)
+            existing = await conn.scalar(select(level_rewards.c.role_id).where(*where))
+            count = await conn.scalar(select(func.count()).select_from(level_rewards).where(
+                level_rewards.c.guild_id == guild_id))
+            if existing is None and count >= 25:
+                raise ValueError("Максимум 25 нагород на сервері. Видаліть зайві через /level-reward remove.")
+            statement = self.insert(level_rewards).values(guild_id=guild_id, kind=kind, level=level, role_id=role_id)
+            await conn.execute(statement.on_conflict_do_update(
+                index_elements=[level_rewards.c.guild_id, level_rewards.c.kind, level_rewards.c.level],
+                set_={"role_id": role_id}))
+
+    async def delete_level_reward(self, guild_id, kind, level):
+        if kind is None or level is None:
+            raise ValueError("Missing reward input")
+        self._reward_scope(guild_id, kind, level)
+        async with self.engine.begin() as conn:
+            result = await conn.execute(delete(level_rewards).where(level_rewards.c.guild_id == guild_id,
+                level_rewards.c.kind == kind, level_rewards.c.level == level))
+            return result.rowcount > 0

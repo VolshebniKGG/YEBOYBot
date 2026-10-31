@@ -459,3 +459,52 @@ async def test_real_sqlite_settings_are_fresh_guild_scoped_and_read_only(sample,
     finally:
         event.remove(db.engine.sync_engine, "before_cursor_execute", capture)
         await db.close()
+
+
+async def test_connected_community_and_automod_are_reported_without_claiming_delivery(sample):
+    sample.cogs.update(Community=object(), AutoMod=object())
+    sample.bot.intents.members = True
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "Модуль підключено" in field(result, "Спільнота")
+    assert "Увімкнено базовий антиспам" in field(result, "Автомодерація")
+    missing = field(result, "Ще не підключено")
+    assert "привітання" not in missing and "Автомодерація" not in missing
+    assert "панелі ролей" in missing
+    sample.bot.db.get_settings.return_value["automod"] = False
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "Вимкнено" in field(result, "Автомодерація")
+
+
+async def test_connected_community_needs_members_intent(sample):
+    sample.cogs["Community"] = object()
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "потрібен Members Intent" in field(result, "Спільнота")
+
+
+async def test_role_panel_module_report_requires_connected_cog(sample):
+    sample.cogs["RolePanels"] = object()
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "/role-panel create" in field(result, "Панелі ролей")
+    assert "панелі ролей" not in field(result, "Ще не підключено")
+    sample.cogs["RolePanels"] = None
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "панелі ролей" in field(result, "Ще не підключено")
+
+
+async def test_level_rewards_module_report_distinguishes_connected_and_disabled(sample):
+    sample.cogs["LevelRewards"] = object()
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "/claim-rewards" in field(result, "Нагороди XP")
+    assert "нагороди XP" not in field(result, "Ще не підключено")
+    sample.bot.db.get_settings.return_value["levels"] = False
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "Вимкнено" in field(result, "Нагороди XP")
+    sample.bot.db.get_settings.side_effect = RuntimeError("synthetic")
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "Невідомо" in field(result, "Нагороди XP")
+
+
+async def test_all_current_community_modules_have_no_empty_missing_prefix(sample):
+    sample.cogs.update(LevelRewards=object(), RolePanels=object(), Community=object(), AutoMod=object())
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert field(result, "Ще не підключено").startswith("Тікети й вебпанель")

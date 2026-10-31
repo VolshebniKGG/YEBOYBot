@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 
-from core_v2.db import Database, meta, jobs, cases
+from core_v2.db import Database, meta, jobs, cases, xp
 
 
 @pytest.fixture
@@ -52,6 +52,22 @@ async def test_text_voice_counters_and_read_are_independent(db):
     assert before == await db.rank(1, 2)
     with pytest.raises(ValueError):
         await db.award(1, 2, "invalid")
+
+
+@pytest.mark.parametrize("kind", ["text", "voice"])
+@pytest.mark.parametrize("headroom", [0, 1, 4, 5, 6])
+async def test_xp_award_saturates_imported_bigint_without_losing_precision(db, kind, headroom):
+    maximum = 2**63 - 1
+    counter = f"{kind}_xp"
+    async with db.engine.begin() as conn:
+        await conn.execute(xp.insert().values(guild_id=1, user_id=2,
+                                             **{counter: maximum - headroom}))
+    expected = min(maximum, maximum - headroom + 5)
+    assert await db.award(1, 2, kind, now=1000) == expected
+    stored = (await db.rank(1, 2))[counter]
+    assert type(stored) is int
+    assert stored == expected
+    assert await db.award(1, 2, kind, now=1059) is None
 
 
 async def test_leaderboard_scope(db):
@@ -103,6 +119,29 @@ async def test_old_worker_cannot_finish_new_attempt(db):
     assert not await db.reminders(1, 2)
 
 
+async def test_crashed_reminder_workers_exhaust_retry_budget(db):
+    job = await db.schedule(1, 2, 3, "hello", 1)
+    other = await db.schedule(2, 2, 3, "other guild", 1)
+    async with db.engine.begin() as conn:
+        await conn.execute(jobs.update().where(jobs.c.id == other).values(attempts=5))
+    for attempt in range(1, 6):
+        batch = await db.claim_jobs([1], 10 + (attempt - 1) * 120)
+        assert len(batch) == 1
+        assert batch[0]["attempts"] == attempt
+    # The final worker still owns its lease and can finish normally.
+    assert not await db.claim_jobs([1], 609)
+    assert len(await db.reminders(1, 2)) == 1
+    assert not await db.claim_jobs([1], 610)
+    assert not await db.reminders(1, 2)
+    async with db.engine.connect() as conn:
+        states = dict((await conn.execute(select(jobs.c.id, jobs.c.state))).all())
+    assert states == {job: "failed", other: "pending"}
+    # A late completion cannot resurrect a terminal job.
+    await db.finish_job(1, job, 5, True)
+    async with db.engine.connect() as conn:
+        assert await conn.scalar(select(jobs.c.state).where(jobs.c.id == job)) == "failed"
+
+
 async def test_reminder_cancel_scope_and_active_lease(db):
     job = await db.schedule(1, 2, 3, "hello", 1)
     assert not await db.cancel_reminder(2, 2, job)
@@ -134,3 +173,58 @@ async def test_schema_rejects_newer_version(db):
         await conn.execute(text("UPDATE v2_schema SET version = 999"))
     with pytest.raises(RuntimeError, match="Unsupported schema"):
         await db.initialize()
+
+
+async def test_panels_persist_and_revoke_only_in_own_guild(db):
+    panel = await db.create_panel(1, 20)
+    await db.close()
+    await db.initialize()
+    assert await db.panel(1, panel) == 20
+    assert await db.panel(2, panel) is None
+    assert await db.list_panels(2) == []
+    assert not await db.delete_panel(2, panel)
+    assert await db.panel(1, panel) == 20
+    assert await db.delete_panel(1, panel) == 1
+    assert await db.panel(1, panel) is None
+    assert not await db.delete_panel(1, panel)
+
+
+async def test_panel_limit_is_atomic_and_guild_scoped(db):
+    for _ in range(48):
+        await db.create_panel(1, 20)
+    results = await asyncio.gather(*(db.create_panel(1, 20) for _ in range(6)),
+                                   return_exceptions=True)
+    assert sum(isinstance(result, str) for result in results) == 2
+    assert sum(isinstance(result, ValueError) for result in results) == 4
+    pages = [await db.list_panels(1, page) for page in range(1, 6)]
+    assert all(len(page) == 10 for page in pages)
+    ids = [row["id"] for page in pages for row in page]
+    assert len(set(ids)) == 50 and ids == sorted(ids)
+    assert await db.create_panel(2, 20)
+    await db.delete_panel(1, ids[0])
+    assert await db.create_panel(1, 20)
+
+
+@pytest.mark.parametrize("value", [True, 0, -1, 2**63, "1", None])
+async def test_panel_invalid_scope_rejected_without_writes(db, value):
+    with pytest.raises(ValueError):
+        await db.create_panel(value, 20)
+    with pytest.raises(ValueError):
+        await db.create_panel(1, value)
+    with pytest.raises(ValueError):
+        await db.list_panels(value)
+    assert not await db.list_panels(1)
+
+
+@pytest.mark.parametrize("value", [True, 0, 6, "1", None])
+async def test_panel_pagination_validation(db, value):
+    with pytest.raises(ValueError):
+        await db.list_panels(1, value)
+
+
+@pytest.mark.parametrize("value", ["", "../panel", "A" * 32, "x" * 33, 123, True, None])
+async def test_panel_ids_rejected(db, value):
+    with pytest.raises(ValueError):
+        await db.panel(1, value)
+    with pytest.raises(ValueError):
+        await db.delete_panel(1, value)
