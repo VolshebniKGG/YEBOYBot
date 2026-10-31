@@ -43,8 +43,8 @@ def test_plan_reads_actual_version_without_mutation_or_backup(installation):
     root, path = installation
     before = path.read_bytes()
     preview = launcher.plan(root)
-    assert preview["current"] == 1 and preview["target"] == 2
-    assert preview["revisions"] == ["002_case_updated_at"]
+    assert preview["current"] == 1 and preview["target"] == 3
+    assert preview["revisions"] == ["002_case_updated_at", "003_level_rewards"]
     assert preview["requires_backup"] is True
     assert path.read_bytes() == before
     assert not (root / "backups").exists()
@@ -58,7 +58,7 @@ def test_upgrade_and_recovery_preserve_payload_and_verified_copies(installation)
     preview = launcher.plan(root)
     outcome = launcher.apply(root, confirmed=True, expected_plan=preview)
     assert outcome["status"] == "applied"
-    assert version(path) == 2
+    assert version(path) == 3
     assert saved_payload(path) == before
     saved = root / outcome["backup"]
     metadata = storage.inspect_backup(saved)
@@ -72,8 +72,8 @@ def test_upgrade_and_recovery_preserve_payload_and_verified_copies(installation)
     # Recovery uses the old snapshot, retaining a safety copy of the migrated DB.
     safety = storage.restore(saved, root=root, confirmed=True)
     assert version(path) == 1 and saved_payload(path) == before
-    assert version(safety) == 2 and saved_payload(safety) == before
-    assert storage.inspect_backup(safety)["schema_version"] == 2
+    assert version(safety) == 3 and saved_payload(safety) == before
+    assert storage.inspect_backup(safety)["schema_version"] == 3
     assert diagnostics.sqlite_check(path)["code"] == "migration_required"
 
 
@@ -201,7 +201,7 @@ def test_report_failure_after_commit_reports_actual_applied_database(installatio
     monkeypatch.setattr(launcher, "write_report", fail_applied_report)
     with pytest.raises(launcher.MigrationError, match="БД оновлено"):
         launcher.apply(root, confirmed=True)
-    assert version(path) == 2 and saved_payload(path) == before
+    assert version(path) == 3 and saved_payload(path) == before
     saved = root / report(root)["backup"]
     assert storage.inspect_backup(saved)["status"] == "verified" and version(saved) == 1
 
@@ -228,7 +228,7 @@ def test_diagnostics_transition_from_required_to_current(installation):
     root, path = installation
     assert diagnostics.sqlite_check(path) == diagnostics.result("error", "migration_required")
     launcher.apply(root, confirmed=True)
-    assert diagnostics.sqlite_check(path) == diagnostics.result("ok", "sqlite_schema_v2")
+    assert diagnostics.sqlite_check(path) == diagnostics.result("ok", "sqlite_schema_v3")
 
 
 def test_manifest_schema_mismatch_is_invalid_even_with_correct_hash(installation):

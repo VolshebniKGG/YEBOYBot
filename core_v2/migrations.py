@@ -18,11 +18,11 @@ class Revision:
     name: str
 
 
-REVISIONS = (Revision(1, 2, "002_case_updated_at"),)
+REVISIONS = (Revision(1, 2, "002_case_updated_at"), Revision(2, 3, "003_level_rewards"))
 
 
 def inspect_sqlite(connection):
-    """Inspect fresh/v1/v2 without changing journal mode, schema or data."""
+    """Inspect fresh/v1/v2/v3 without changing journal mode, schema or data."""
     cursor = connection.cursor()
     try:
         return sqlite_version(cursor)
@@ -59,6 +59,10 @@ def plan_sqlite(path, target=CURRENT_SCHEMA_VERSION):
 
 
 def _apply_revision(connection, revision):
+    if revision.name == "003_level_rewards" and revision.source == 2 and revision.target == 3:
+        connection.execute("CREATE TABLE v2_level_rewards (guild_id BIGINT NOT NULL, kind VARCHAR(5) NOT NULL, "
+                           "level INTEGER NOT NULL, role_id BIGINT NOT NULL, PRIMARY KEY (guild_id,kind,level))")
+        return
     if revision.name != "002_case_updated_at" or revision.source != 1 or revision.target != 2:
         raise MigrationError("Unknown migration revision")
     connection.execute("ALTER TABLE v2_cases ADD COLUMN updated FLOAT NOT NULL DEFAULT 0")

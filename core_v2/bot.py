@@ -97,6 +97,8 @@ class Bot(commands.AutoShardedBot):
         await self.add_cog(AutoMod(self))
         from .role_panels import RolePanels
         await self.add_cog(RolePanels(self))
+        from .level_rewards import LevelRewards
+        await self.add_cog(LevelRewards(self))
         from .voice_xp import VoiceXP
         await self.add_cog(VoiceXP(self))
         if self.settings.music:
@@ -137,7 +139,10 @@ class Bot(commands.AutoShardedBot):
             self.xp_times.popitem(last=False)
         try:
             if (await self.guild_settings(message.guild.id))["levels"]:
-                await self.db.award(*key)
+                awarded = await self.db.award(*key)
+                rewards = self.get_cog("LevelRewards")
+                if awarded is not None and rewards is not None:
+                    rewards.enqueue(*key)
         except Exception:
             log.exception("XP update failed")
 
@@ -190,7 +195,7 @@ class Bot(commands.AutoShardedBot):
         await self.wait_until_ready()
 
     async def close(self):
-        for name in ("Guide", "Music", "VoiceXP", "Community", "AutoMod", "RolePanels"):
+        for name in ("Guide", "Music", "VoiceXP", "Community", "AutoMod", "RolePanels", "LevelRewards"):
             await self.remove_cog(name)
         self.deliver.cancel()
         task = self.deliver.get_task()

@@ -30,7 +30,7 @@ async def test_community_commands_registered_and_discoverable(tmp_path):
 @pytest.mark.parametrize('flagged', [True, False])
 async def test_automod_runs_before_xp_and_excludes_flagged_messages(flagged):
     automod = SimpleNamespace(inspect_message=AsyncMock(return_value=flagged))
-    bot = SimpleNamespace(get_cog=lambda _: automod, xp_times=OrderedDict(),
+    bot = SimpleNamespace(get_cog=lambda name: automod if name == "AutoMod" else None, xp_times=OrderedDict(),
         guild_settings=AsyncMock(return_value={'levels': True}),
         db=SimpleNamespace(award=AsyncMock()))
     message = SimpleNamespace(guild=SimpleNamespace(id=101),

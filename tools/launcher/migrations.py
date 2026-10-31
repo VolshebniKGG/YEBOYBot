@@ -29,7 +29,7 @@ def _prepare(root):
         result = engine.plan_sqlite(path)
         return path, dict(result, source_id=_identity(path))
     except storage.StorageError as error:
-        raise MigrationError("[21] підтримує файлову SQLite. Для PostgreSQL v1 використовуйте перевірений pg_dump workflow через [23].") from error
+        raise MigrationError("[21] підтримує файлову SQLite. Для PostgreSQL v1/v2 використовуйте перевірений pg_dump workflow через [23].") from error
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
         raise MigrationError("План не отримано: перевірте наявність, цілісність і підтримувану схему БД. Нова БД створюється під час запуску [1].") from error
 
@@ -111,7 +111,7 @@ def menu(root=ROOT):
         return
     print("Ревізії:", ", ".join(preview["revisions"]))
     print("Бот має бути зупинений через [3]. Спочатку буде створено перевірену резервну копію.")
-    print("v2 додає час останньої зміни модераційної справи; наявні записи зберігаються.")
+    print("v3 додає нагороди ролями за рівні; v1 також отримує час зміни модераційної справи. Наявні записи зберігаються.")
     if input("Для підтвердження введіть МІГРУВАТИ: ").strip() != "МІГРУВАТИ":
         print("Скасовано.")
         return

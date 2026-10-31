@@ -214,7 +214,20 @@ async def collect_module_status(bot, guild):
         reminders = "Планувальник працює. Доставка залежить від доступу до каналу; довідка: `/help` → Нагадування."
     embed.add_field(name="Нагадування", value=reminders, inline=False)
     embed.add_field(name="Музика", value=_music(bot, guild_id, music, available, ready), inline=False)
-    missing = ["нагороди XP"]
+    missing = []
+    rewards = _read(lambda: bot.get_cog("LevelRewards"))
+    if rewards is None:
+        missing.append("нагороди XP")
+    else:
+        rewards_status = "Невідомо: стан модуля не підтверджено."
+        if rewards is not _UNKNOWN:
+            rewards_status = _feature_ready(available, ready) or (
+                "Вимкнено разом із XP через `/levels`." if levels is False else
+                "Невідомо: налаштування XP не підтверджено." if levels is _UNKNOWN else
+                "Модуль підключено. Правила: `/level-reward set`, `/level-reward list`, "
+                "`/level-reward remove`. Отримати власні зароблені ролі: `/claim-rewards`. "
+                "Видача залежить від налаштованих нагород і поточних прав Discord.")
+        embed.add_field(name="Нагороди XP", value=rewards_status, inline=False)
     role_panels = _read(lambda: bot.get_cog("RolePanels"))
     if role_panels is None:
         missing.insert(0, "панелі ролей")
@@ -253,7 +266,8 @@ async def collect_module_status(bot, guild):
                     "фільтри слів і посилань ще не реалізовані.")
         embed.add_field(name="Автомодерація", value=automod_status, inline=False)
     embed.add_field(name="Ще не підключено", value=(
-        ", ".join(missing) + " ще не підключені. Тікети й вебпанель також у плані. "
+        (", ".join(missing) + " ще не підключені. " if missing else "")
+        + "Тікети й вебпанель у плані. "
         "Увімкнення intent або поля налаштувань саме собою їх не активує."), inline=False)
     embed.add_field(name="Налаштування сервера", value=(
         "Прочитано поточні налаштування саме цього сервера." if settings_read else

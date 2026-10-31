@@ -38,7 +38,7 @@ async def test_native_backup_upgrade_restore_preserves_two_guilds_and_indexes(tm
             async with database.connect() as conn:
                 before = await snapshot(conn)
             preview = await pg.plan(tmp_path)
-            assert preview["current"] == 1 and preview["revisions"] == ["002_case_updated_at"]
+            assert preview["current"] == 1 and preview["revisions"] == ["002_case_updated_at", "003_level_rewards"]
             assert not (tmp_path / "backups").exists()
             report = await pg.maintain(tmp_path, upgrade=True, confirmed=True, expected_plan=preview)
             assert report["status"] == "applied"
@@ -46,7 +46,7 @@ async def test_native_backup_upgrade_restore_preserves_two_guilds_and_indexes(tm
             assert native.verify_archive(saved)["schema_version"] == 1
             async with database.connect() as conn:
                 after = await snapshot(conn)
-                assert before | {"v2_schema": [(2,)]} == after
+                assert before | {"v2_schema": [(3,)]} == after
                 assert (await conn.execute(text("SELECT created,updated FROM v2_cases"))).all() == [(1234.5, 1234.5)] * 2
             assert (await pg.maintain(tmp_path, upgrade=True, confirmed=True))["status"] == "unchanged"
             assert len(list(saved.parent.glob("*.dump"))) == 1
@@ -67,19 +67,26 @@ async def test_native_backup_upgrade_restore_preserves_two_guilds_and_indexes(tm
             await database.dispose()
 
 
-async def test_native_v2_snapshot_and_empty_restore_keep_actual_version(tmp_path, fresh_database, monkeypatch):
+async def test_native_v3_snapshot_and_empty_restore_keep_rewards(tmp_path, fresh_database, monkeypatch):
     async with fresh_database() as source, fresh_database() as target:
         await seed_v1(source)
         configure(tmp_path, source, monkeypatch)
         await pg.maintain(tmp_path, upgrade=True, confirmed=True)
+        current = maintenance_engine(source)
+        try:
+            async with current.begin() as conn:
+                await conn.execute(text("INSERT INTO v2_level_rewards VALUES (11,'text',2,77),(22,'voice',5,88)"))
+        finally:
+            await current.dispose()
         backup = await pg.maintain(tmp_path)
         saved = tmp_path / backup["backup"]
-        assert native.verify_archive(saved)["schema_version"] == 2
+        assert native.verify_archive(saved)["schema_version"] == 3
         await pg.restore_empty(tmp_path, saved, target, confirmed=True)
         restored = maintenance_engine(target)
         try:
             async with restored.connect() as conn:
-                assert await migration.inspect_postgres(conn) == 2
+                assert await migration.inspect_postgres(conn) == 3
+                assert (await conn.execute(text("SELECT guild_id,kind,level,role_id FROM v2_level_rewards ORDER BY guild_id"))).all() == [(11, "text", 2, 77), (22, "voice", 5, 88)]
                 assert (await conn.execute(text("SELECT created,updated FROM v2_cases"))).all() == [(1234.5, 1234.5)] * 2
         finally:
             await restored.dispose()
@@ -247,7 +254,7 @@ async def test_report_failure_after_commit_does_not_claim_migration_failed(tmp_p
     database = maintenance_engine(maintenance_database)
     try:
         async with database.connect() as conn:
-            assert await migration.inspect_postgres(conn) == 2
+            assert await migration.inspect_postgres(conn) == 3
     finally:
         await database.dispose()
 

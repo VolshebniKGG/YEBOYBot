@@ -174,16 +174,16 @@ async def test_real_upgrade_preserves_all_payload_indexes_and_timestamp(maintena
             # SERIAL PK defaults and their owned sequences are native/restorable.
             await pg.validate_defaults(connection)
             assert await pg.lock_source(connection) == 1
-            assert await pg.migrate_postgres(connection) == ["002_case_updated_at"]
+            assert await pg.migrate_postgres(connection) == ["002_case_updated_at", "003_level_rewards"]
             after = await snapshot(connection)
             assert before | {"v2_schema": after["v2_schema"]} == after
-            assert after["v2_schema"] == [(2,)]
+            assert after["v2_schema"] == [(3,)]
             assert (await connection.execute(text("SELECT created,updated FROM v2_cases ORDER BY id"))).all() == [(1234.5, 1234.5)] * 2
             assert await connection.scalar(text("SELECT count(*) FROM pg_indexes WHERE indexname='preserve_case_index'")) == 1
         async with engine.begin() as connection:
             # The new constant timestamp default is admitted as well.
             await pg.validate_defaults(connection)
-            assert await pg.lock_source(connection) == 2
+            assert await pg.lock_source(connection) == 3
             assert await pg.migrate_postgres(connection) == []
     finally:
         await engine.dispose()
@@ -281,5 +281,37 @@ async def test_real_source_lock_excludes_writers_and_other_maintenance(maintenan
                 await writer.rollback()
         async with engine.begin() as writer:
             await writer.execute(text("UPDATE v2_settings SET levels=true WHERE guild_id=11"))
+    finally:
+        await engine.dispose()
+
+
+async def test_real_v2_reward_migration_rollback_and_retry(maintenance_database, monkeypatch):
+    await seed_v1(maintenance_database)
+    engine = maintenance_engine(maintenance_database)
+    apply_revision = pg._apply_revision
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("ALTER TABLE v2_cases ADD COLUMN updated DOUBLE PRECISION NOT NULL DEFAULT 0"))
+            await connection.execute(text("UPDATE v2_cases SET updated=created"))
+            await connection.execute(text("UPDATE v2_schema SET version=2"))
+            before = await snapshot(connection)
+        async def interrupted(connection, revision):
+            await apply_revision(connection, revision)
+            raise RuntimeError("interrupted reward migration")
+        monkeypatch.setattr(pg, "_apply_revision", interrupted)
+        with pytest.raises(RuntimeError, match="interrupted reward"):
+            async with engine.begin() as connection:
+                assert await pg.lock_source(connection) == 2
+                await pg.migrate_postgres(connection)
+        async with engine.connect() as connection:
+            assert await pg.inspect_postgres(connection) == 2
+            assert await snapshot(connection) == before
+        monkeypatch.setattr(pg, "_apply_revision", apply_revision)
+        async with engine.begin() as connection:
+            assert await pg.lock_source(connection) == 2
+            assert await pg.migrate_postgres(connection) == ["003_level_rewards"]
+            assert await pg.inspect_postgres(connection) == 3
+            await connection.execute(text("INSERT INTO v2_level_rewards VALUES (11,'text',2,77)"))
+            assert (await connection.execute(text("SELECT guild_id,kind,level,role_id FROM v2_level_rewards"))).all() == [(11, "text", 2, 77)]
     finally:
         await engine.dispose()

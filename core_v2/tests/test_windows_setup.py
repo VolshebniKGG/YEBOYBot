@@ -25,7 +25,7 @@ def _cmd_entry(script):
     return f'"{os.environ["COMSPEC"]}" /d /s /c ""{script}""'
 
 
-def _run_ps(tmp_path, body, *, input_text="", source=SOURCE):
+def _run_ps(tmp_path, body, *, input_text="", source=SOURCE, timeout=45):
     """Exercise the real PS functions while replacing only OS side effects."""
     directory = tmp_path / "Бот з пробілами O'Connor"
     directory.mkdir(exist_ok=True)
@@ -47,7 +47,7 @@ def _run_ps(tmp_path, body, *, input_text="", source=SOURCE):
         [str(interpreter), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
          "-File", str(script)],
         cwd=tmp_path, input=input_text, text=True, encoding="utf-8", errors="replace",
-        capture_output=True, timeout=45,
+        capture_output=True, timeout=timeout,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "YEBOY_TEST_OK" in result.stdout, result.stdout + result.stderr
@@ -63,6 +63,10 @@ def test_setup_source_preserves_ukrainian_on_windows_powershell_51():
 
 @WINDOWS
 def test_powershell_parser_and_library_mode_do_not_start_installation(tmp_path):
+    # This is the focused Windows job's first PowerShell process. It exceeded
+    # 45s once on the hosted runner while the same test passed
+    # in the full Windows job. Keep assertions and no retries; allow startup
+    # headroom here without relaxing the other scripts' execution budgets.
     _run_ps(tmp_path, r"""
 $tokens = $null
 $parseErrors = $null
@@ -74,7 +78,7 @@ foreach ($name in @('Find-YeboyPython', 'Find-YeboyWinget', 'Invoke-YeboyWinget'
                     'Install-YeboyCore', 'Show-YeboySetup', 'Invoke-YeboyEntry')) {
     Assert-True ($null -ne (Get-Command $name -CommandType Function)) ('Missing ' + $name)
 }
-""".replace("$SOURCE_FILE", _literal(SOURCE)))
+""".replace("$SOURCE_FILE", _literal(SOURCE)), timeout=90)
 
 
 @WINDOWS

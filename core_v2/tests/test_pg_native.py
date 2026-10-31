@@ -11,10 +11,10 @@ from tools.launcher import pg_native as native
 URL = "postgresql+asyncpg://test_operator:private%40percent%25word@db.example:6543/test_database"
 
 
-def listing(extra=""):
+def listing(extra="", version=1):
     tables = "\n".join(f"{i}; 1259 {100+i} TABLE public {name} test_operator\n"
                        f"{i+100}; 0 {100+i} TABLE DATA public {name} test_operator"
-                       for i, name in enumerate(native.TABLES, 1))
+                       for i, name in enumerate(native.tables_for_version(version), 1))
     return (tables + "\n" + extra).encode()
 
 
@@ -100,7 +100,7 @@ def test_dump_is_private_credential_free_and_exactly_scoped(tmp_path, fake_tools
     path = tmp_path / "База з пробілами.dump"
     metadata = native.dump(URL, path, 1)
     assert metadata["schema_version"] == 1 and metadata["backend"] == "postgresql"
-    assert metadata["tables"] == list(native.TABLES)
+    assert metadata["tables"] == list(native.tables_for_version(1))
     assert native.verify_archive(path) == metadata
     rendered = native.sidecar(path).read_text(encoding="utf-8")
     assert not any(secret in rendered for secret in (URL, "private", "test_operator", "db.example", "test_database"))
@@ -109,7 +109,7 @@ def test_dump_is_private_credential_free_and_exactly_scoped(tmp_path, fake_tools
         assert not options.get("shell", False)
         assert options["timeout"] == native.TIMEOUT
     command, options = next((cmd, opts) for cmd, opts in fake_tools if Path(cmd[0]).name == "pg_dump" and "--version" not in cmd)
-    assert {arg for arg in command if arg.startswith("--table=")} == {"--table=public." + name for name in native.TABLES}
+    assert {arg for arg in command if arg.startswith("--table=")} == {"--table=public." + name for name in native.tables_for_version(1)}
     assert {"--format=custom", "--no-owner", "--no-acl", "--no-password", "--no-tablespaces"} <= set(command)
     assert options["env"]["PGPASSWORD"] == "private@percent%word"
     if os.name != "nt":
@@ -245,7 +245,7 @@ def test_restore_failure_preserves_archive_and_never_exposes_stderr(tmp_path, fa
     assert path.read_bytes() == archive and native.sidecar(path).read_bytes() == manifest
 
 
-@pytest.mark.parametrize("version", [0, 3, True, "2"])
+@pytest.mark.parametrize("version", [0, 4, True, "3"])
 def test_unsupported_schema_version_never_runs_tools_or_creates_files(tmp_path, fake_tools, version):
     path = tmp_path / "snapshot.dump"
     with pytest.raises(native.PostgresError, match="версія"):
@@ -288,3 +288,25 @@ def test_manifest_creation_race_does_not_remove_foreign_file(tmp_path, fake_tool
         native.dump(URL, path, 2)
     assert not path.exists()
     assert manifest.read_bytes() == b"preserve-foreign-manifest"
+
+
+@pytest.mark.parametrize("version", [1, 2, 3])
+def test_dump_uses_exact_versioned_tables(tmp_path, fake_tools, monkeypatch, version):
+    old_listing = listing
+    monkeypatch.setattr(__import__(__name__), "listing", lambda extra="": old_listing(extra, version=version))
+    path = tmp_path / "versioned.dump"
+    manifest = native.dump(URL, path, version)
+    assert manifest["schema_version"] == version
+    assert manifest["tables"] == list(native.tables_for_version(version))
+    command = next(command for command, _ in fake_tools if "--format=custom" in command)
+    assert ("--table=public.v2_level_rewards" in command) == (version == 3)
+    assert native.verify_archive(path) == manifest
+
+
+def test_native_listing_rejects_wrong_reward_table_version():
+    native._check_listing(listing(version=2), 2)
+    native._check_listing(listing(version=3), 3)
+    with pytest.raises(native.PostgresError):
+        native._check_listing(listing(version=2), 3)
+    with pytest.raises(native.PostgresError):
+        native._check_listing(listing(version=3), 2)
