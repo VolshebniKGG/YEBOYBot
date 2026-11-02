@@ -53,6 +53,46 @@ class BootstrapTests(unittest.TestCase):
     def installs(self):
         return [args for args in self.commands if "install" in args]
 
+
+    def test_owned_broken_interpreter_is_preserved_and_rebuilt_once(self):
+        b.prepare(self.root)
+        (self.root / '.venv-v2/keep.txt').write_text('preserve')
+        original = b.validate_environment
+        calls = []
+        def validate(root):
+            calls.append(root)
+            if len(calls) == 1:
+                raise b.BootstrapError('broken', stage='environment-probe')
+            return original(root)
+        with patch.object(b, 'validate_environment', side_effect=validate):
+            b.prepare(self.root)
+        saved = list(self.root.glob('.venv-v2.failed-*'))
+        self.assertEqual(len(saved), 1)
+        self.assertEqual((saved[0] / 'keep.txt').read_text(), 'preserve')
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(b.python_path(self.root).is_file())
+
+    def test_unowned_broken_interpreter_is_not_moved(self):
+        b.prepare(self.root)
+        (self.root / '.venv-v2/.yeboy-core-owner').unlink()
+        with patch.object(b, 'validate_environment', side_effect=b.BootstrapError('broken', stage='environment-probe')):
+            with self.assertRaises(b.BootstrapError):
+                b.prepare(self.root, repair=True)
+        self.assertEqual(list(self.root.glob('.venv-v2.failed-*')), [])
+
+    def test_missing_dependency_repairs_once_in_same_attempt(self):
+        b.prepare(self.root)
+        failures = []
+        def missing_once(args, root):
+            if b.IMPORT_CHECK in args and not failures:
+                failures.append(True)
+                raise b.BootstrapError("missing", stage="library-import", category="missing-module")
+            return self.fake_run(args, root)
+        with patch.object(b, "run", side_effect=missing_once):
+            b.prepare(self.root)
+        self.assertEqual(len(self.installs()), 2)
+        self.assertTrue((self.root / ".venv-v2/yeboy-requirements.sha256").is_file())
+
     def test_first_install_and_repeat_preserves_config(self):
         b.prepare(self.root)
         (self.root / ".env.v2").write_text("DISCORD_TOKEN=private-test-value\n")
@@ -298,3 +338,35 @@ class WindowsBootstrapTests(unittest.TestCase):
             self.assertIn("PowerShell", result.stdout, result.stderr)
             self.assertIn("https://www.python.org/downloads/", result.stdout, result.stderr)
             self.assertFalse((Path(directory) / ".venv-v2").exists())
+
+
+class DiagnosticsTests(unittest.TestCase):
+    def test_safe_failure_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            error = b.BootstrapError('secret-token https://private', stage='dependency-install',
+                                     category='certificate', exit_code=7)
+            b.write_failure_report(directory, error)
+            content = (Path(directory) / 'data/v2/install-report.json').read_text()
+            report = json.loads(content)
+            self.assertEqual(report['stage'], 'dependency-install')
+            self.assertEqual(report['exit_code'], 7)
+            self.assertNotIn('secret-token', content)
+            self.assertNotIn('https://private', content)
+
+    def test_failed_process_exposes_stage_not_output(self):
+        result = subprocess.CompletedProcess([], 7, '', 'CERTIFICATE_VERIFY_FAILED secret-token')
+        with patch.object(b.subprocess, 'run', return_value=result):
+            with self.assertRaises(b.BootstrapError) as caught:
+                b.run(['python', '-m', 'pip', 'install'], Path('.'))
+        self.assertEqual(caught.exception.category, 'certificate')
+        self.assertEqual(caught.exception.stage, 'dependency-install')
+        self.assertEqual(caught.exception.exit_code, 7)
+        self.assertNotIn('secret-token', str(caught.exception))
+
+    def test_venv_creation_failure_is_safe(self):
+        failure = subprocess.CalledProcessError(1, ['private'], output='secret-token')
+        with patch.object(b.venv.EnvBuilder, 'create', side_effect=failure):
+            with self.assertRaises(b.BootstrapError) as caught:
+                b.create_environment(Path('.venv-v2'))
+        self.assertEqual(caught.exception.stage, 'venv-create')
+        self.assertNotIn('secret-token', str(caught.exception))

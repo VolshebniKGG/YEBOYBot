@@ -400,13 +400,13 @@ Assert-True ($code -eq 0) 'User can cancel before Python exists'
 
 
 @WINDOWS
-def test_setup_install_button_is_explicit_consent_and_uses_repair(tmp_path):
+def test_setup_install_button_is_explicit_consent_and_reuses_verified_packages(tmp_path):
     _run_ps(tmp_path, r"""
 $script:InstallCalls = 0
 function Read-Host { return '1' }
 function Install-YeboyCore([switch] $AllowPythonInstall, [switch] $Repair) {
     Assert-True ([bool]$AllowPythonInstall) 'Install selection explicitly allows Python install'
-    Assert-True ([bool]$Repair) 'Button repairs missing runtime packages as well'
+    Assert-True (-not $Repair) 'Initial setup reuses verified packages instead of forcing reinstall'
     $script:InstallCalls++
     return 0
 }
@@ -417,7 +417,7 @@ Assert-True ($script:InstallCalls -eq 1) 'One button press invokes one operation
 
 
 @WINDOWS
-def test_invalid_choice_and_failed_install_can_return_to_panel_and_exit(tmp_path):
+def test_invalid_choice_then_failed_install_stops_without_repeating_initial_panel(tmp_path):
     _run_ps(tmp_path, r"""
 $script:Choices = [System.Collections.Generic.Queue[string]]::new()
 foreach ($choice in @('invalid', '1', '0')) { $script:Choices.Enqueue($choice) }
@@ -428,9 +428,9 @@ function Read-Host {
 }
 function Install-YeboyCore { $script:InstallCalls++; return 1 }
 $code = Show-YeboySetup
-Assert-True ($code -eq 0) 'Exit remains available after failure'
+Assert-True ($code -eq 1) 'Preserve installation failure for CMD pause'
 Assert-True ($script:InstallCalls -eq 1) 'Invalid choice does not install or silently retry'
-Assert-True ($script:Choices.Count -eq 0) 'Consume only explicit selections'
+Assert-True ($script:Choices.Count -eq 1) 'Stop after failure instead of reopening initial panel'
 """)
 
 
@@ -570,3 +570,30 @@ foreach ($name in $script:OriginalFlags.Keys) {
          .replace("INITIAL_ALLOW", "'1'" if preset else "$null")
          .replace("INITIAL_ALWAYS", "'1'" if preset else "$null")
          .replace("FAILED_PROBE", "$true" if failed_probe else "$false"))
+
+
+@WINDOWS
+@pytest.mark.parametrize("missing_dependency", [False, True], ids=["ready", "missing-music"])
+def test_environment_readiness_runs_shared_runtime_import_check(tmp_path, missing_dependency):
+    # Real native Python invocation catches PowerShell argument-quoting failures;
+    # the fixture needs no Discord token, external packages or network access.
+    root = tmp_path / "Бот з пробілами O'Connor & music"
+    package = root / "tools/launcher"
+    package.mkdir(parents=True)
+    (root / "tools/__init__.py").write_text("", encoding="utf-8")
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    check = "import nonexistent_yeboy_music_dependency" if missing_dependency else "import json"
+    (package / "bootstrap.py").write_text(
+        "def validate_environment(root):\n    pass\n" + f"IMPORT_CHECK = {check!r}\n",
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [sys.executable, "-I", "-m", "venv", "--without-pip", str(root / ".venv-v2")],
+        check=True, capture_output=True, timeout=45,
+    )
+    _run_ps(tmp_path, r"""
+$script:YeboyRoot = FIXTURE_ROOT
+$ready = Test-YeboyEnvironment
+Assert-True ($ready -eq EXPECTED_READY) 'Shared import check determines readiness, including music dependencies'
+""".replace("FIXTURE_ROOT", _literal(root))
+         .replace("EXPECTED_READY", "$false" if missing_dependency else "$true"))
