@@ -40,6 +40,7 @@ class Settings:
     music: bool = False
     ffmpeg: str = "ffmpeg"
     shard_count: int | None = None
+    prefix_commands: bool = False
 
     @classmethod
     def load(cls, require_token=True):
@@ -58,4 +59,4 @@ class Settings:
         if not database.startswith(("sqlite+aiosqlite:///", "postgresql+asyncpg://")):
             raise ValueError("DATABASE_URL must use sqlite+aiosqlite or postgresql+asyncpg")
         return cls(token, database, guild, sync, flag("ENABLE_MEMBERS"), flag("ENABLE_MUSIC"),
-                   os.getenv("FFMPEG_PATH", "ffmpeg"), shards)
+                   os.getenv("FFMPEG_PATH", "ffmpeg"), shards, flag("ENABLE_PREFIX_COMMANDS"))

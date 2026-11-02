@@ -183,6 +183,14 @@ async def collect_module_status(bot, guild):
                    "Discord-клієнт ще не підтвердив готовність." if ready is False else
                    "Готовність Discord-клієнта невідома.")
     embed = discord.Embed(title="Модулі YEBOYBot", description=description, colour=0x6E63BD)
+    prefix = _read(lambda: bot.get_cog("PrefixCommands"))
+    prefix_enabled = _boolean(_read(lambda: bot.intents.message_content))
+    prefix_status = ("Вимкнено. Для ! увімкніть Message Content Intent у Portal і команди ! через [11]/[12] лаунчера."
+                     if prefix is None else
+                     "Підключено: !команда → кнопка виконання. Приватні відповіді збережено."
+                     if prefix is not _UNKNOWN and prefix_enabled is True else
+                     "Невідомо: модуль або Message Content Intent не підтверджено.")
+    embed.add_field(name="Префікс !", value=prefix_status, inline=False)
     embed.add_field(name="Текстовий XP", value=_xp(available=available, ready=ready,
         levels=levels, connected=text_handler, intent=text_intent, voice=False), inline=False)
     embed.add_field(name="Голосовий XP", value=_voice_status(bot, guild, voice,

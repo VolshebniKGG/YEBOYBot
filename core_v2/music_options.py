@@ -61,8 +61,15 @@ def load_music_options(root: Path) -> MusicOptions:
 
 
 def load_autoplaylist(root: Path) -> list[str]:
-    """Read without rewriting/deleting failed user entries or making directories."""
-    path = Path(root) / "config" / "_autoplaylist.txt"
+    """Prefer the user-named playlist; retain the shipped legacy filename.
+
+    An explicitly empty autoplaylist.txt disables automatic entries. Never merge
+    it with the shipped list or rewrite/delete entries after provider failures.
+    """
+    directory = Path(root) / "config"
+    path = directory / "autoplaylist.txt"
+    if not path.exists():
+        path = directory / "_autoplaylist.txt"
     if not path.exists():
         return []
     try:
@@ -74,4 +81,4 @@ def load_autoplaylist(root: Path) -> list[str]:
             raise ValueError
         return list(dict.fromkeys(lines))
     except (OSError, UnicodeError, ValueError):
-        raise MusicError("Не вдалося прочитати обмежений config/_autoplaylist.txt.") from None
+        raise MusicError("Не вдалося прочитати config/autoplaylist.txt або config/_autoplaylist.txt; перевірте UTF-8 і розмір файлу.") from None

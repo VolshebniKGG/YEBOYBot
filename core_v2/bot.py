@@ -56,7 +56,8 @@ class Bot(commands.AutoShardedBot):
         intents.guild_messages = True
         intents.voice_states = True
         intents.members = settings.members
-        super().__init__(command_prefix=commands.when_mentioned, help_command=None,
+        intents.message_content = settings.prefix_commands
+        super().__init__(command_prefix="!", help_command=None,
                          intents=intents, tree_cls=Tree, shard_count=settings.shard_count,
                          max_messages=100, chunk_guilds_at_startup=False,
                          member_cache_flags=discord.MemberCacheFlags(voice=True, joined=settings.members),
@@ -106,6 +107,9 @@ class Bot(commands.AutoShardedBot):
             await self.add_cog(Music(self))
         from .guide import Guide
         await self.add_cog(Guide(self))
+        if self.settings.prefix_commands:
+            from .prefix_commands import PrefixCommands
+            await self.add_cog(PrefixCommands(self))
         if self.settings.sync == "test":
             guild = discord.Object(id=self.settings.test_guild)
             self.tree.copy_global_to(guild=guild)
@@ -128,6 +132,9 @@ class Bot(commands.AutoShardedBot):
             except Exception:
                 log.exception("AutoMod inspection failed")
                 return
+        prefix = self.get_cog("PrefixCommands")
+        if prefix is not None and await prefix.handle_message(message):
+            return
         key = (message.guild.id, message.author.id)
         now = time.monotonic()
         previous = self.xp_times.get(key)
@@ -195,7 +202,7 @@ class Bot(commands.AutoShardedBot):
         await self.wait_until_ready()
 
     async def close(self):
-        for name in ("Guide", "Music", "VoiceXP", "Community", "AutoMod", "RolePanels", "LevelRewards"):
+        for name in ("PrefixCommands", "Guide", "Music", "VoiceXP", "Community", "AutoMod", "RolePanels", "LevelRewards"):
             await self.remove_cog(name)
         self.deliver.cancel()
         task = self.deliver.get_task()

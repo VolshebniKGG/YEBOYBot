@@ -44,6 +44,8 @@ def main():
         settings = Settings.load()
         print(f"DB: {'SQLite' if settings.database.startswith('sqlite') else 'PostgreSQL'}")
         print(f"Command sync: {settings.sync}")
+        print("Prefix !: " + ("увімкнено; Message Content Intent у Portal треба підтвердити окремо"
+                              if settings.prefix_commands else "вимкнено; налаштування через [11]/[12]"))
         database_failure = sqlite_preflight(settings.database, ROOT)
         if database_failure:
             failures.append(database_failure)

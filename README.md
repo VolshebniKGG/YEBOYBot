@@ -1,5 +1,8 @@
 # YEBOYBot
 
+Оновлення 02.11.2026: [нове меню та команди з префіксом !](docs/PREFIX_AND_LAUNCHER_UA.md),
+[перевірка YouTube, YouTube Music, Spotify й автоплейлиста](docs/MUSIC_SOURCES_AUDIT_UA.md).
+
 Оновлення 31.10.2026: [ролі за рівні чату й голосу](docs/LEVEL_REWARDS_UA.md).
 Потрібні явна міграція БД до схеми **3** та синхронізація нових команд.
 

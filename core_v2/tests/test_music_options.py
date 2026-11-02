@@ -76,6 +76,30 @@ def test_playlist_comments_dedup_unicode_bom_and_no_rewrite(tmp_path):
     assert path.read_bytes() == original
 
 
+def test_user_autoplaylist_overrides_shipped_legacy_without_merging(tmp_path):
+    configuration(tmp_path, "[MusicBot]")
+    legacy = tmp_path / "config/_autoplaylist.txt"
+    legacy.write_text("shipped song\n", encoding="utf-8")
+    preferred = tmp_path / "config/autoplaylist.txt"
+    preferred.write_text("\ufeff# мої треки\nhttps://music.youtube.com/watch?v=abc\n", encoding="utf-8")
+    assert load_autoplaylist(tmp_path) == ["https://music.youtube.com/watch?v=abc"]
+    assert legacy.read_text() == "shipped song\n"
+    preferred.write_text("# intentionally empty\n", encoding="utf-8")
+    assert load_autoplaylist(tmp_path) == []
+    preferred.unlink()
+    assert load_autoplaylist(tmp_path) == ["shipped song"]
+
+
+def test_invalid_preferred_playlist_never_falls_back_to_surprise_music(tmp_path):
+    configuration(tmp_path, "[MusicBot]")
+    (tmp_path / "config/_autoplaylist.txt").write_text("shipped song\n")
+    preferred = tmp_path / "config/autoplaylist.txt"
+    preferred.write_bytes(b"\xff")
+    with pytest.raises(MusicError, match="autoplaylist"):
+        load_autoplaylist(tmp_path)
+    assert preferred.read_bytes() == b"\xff"
+
+
 @pytest.mark.parametrize("content", [b"\xff", b"x" * 2_000_001,
                                            b"x" * 501, b"\n".join([b"a"] * 10001)],
                          ids=["invalid-utf8", "over-2MB", "long-entry", "over-10000-lines"])

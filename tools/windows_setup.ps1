@@ -171,17 +171,18 @@ function Install-YeboyCore {
 function Show-YeboySetup {
     while ($true) {
         Write-Host ''
-        Write-Host '========================================================='
-        Write-Host '         YEBOYBot — ПОЧАТКОВЕ ВСТАНОВЛЕННЯ'
-        Write-Host '========================================================='
+        Write-Host '════════════════════════════════════════════════════════════════════════'
+        Write-Host '  YEBOYBot  /  ПОЧАТКОВЕ ВСТАНОВЛЕННЯ'
+        Write-Host '  Підготуємо все необхідне для першого запуску.'
+        Write-Host '════════════════════════════════════════════════════════════════════════'
         Write-Host '[1] Встановити все для Core V2 / відновити бібліотеки'
-        Write-Host '[0] Вихід'
+        Write-Host '[0] Закрити вікно без встановлення'
         Write-Host ''
         Write-Host '[1] дозволяє встановити Python 3.12 x64 для цього користувача,'
         Write-Host 'якщо його немає, через WinGet з погодженням умов Python і каталогу.'
         Write-Host 'Потім буде підготовлено .venv-v2 з бібліотеками бота.'
         Write-Host 'Потрібні інтернет і дозвіл Windows на встановлення програм.'
-        $choice = Read-Host 'Виберіть дію (Enter — вихід)'
+        $choice = Read-Host 'Номер дії (Enter — вихід)'
         if ([string]::IsNullOrWhiteSpace($choice) -or $choice.Trim() -eq '0') { return 0 }
         if ($choice.Trim() -ne '1') {
             Write-Host 'Оберіть [1] для встановлення або [0] для виходу.'

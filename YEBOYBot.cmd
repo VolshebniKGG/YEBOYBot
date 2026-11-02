@@ -2,6 +2,10 @@
 setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul
 set "PYTHONUTF8=1"
+title YEBOYBot - Control Center
+echo.
+echo   YEBOYBot / Завантаження панелі керування...
+echo.
 cd /d "%~dp0"
 if errorlevel 1 goto failed
 set "SETUP_PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
