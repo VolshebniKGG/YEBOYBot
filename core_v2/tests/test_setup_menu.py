@@ -72,7 +72,7 @@ def test_cancel_menu_does_not_request_setup_and_preserves_existing_actions(
     assert launcher.main() == 0
     setup.assert_not_called()
     no_children.assert_not_called()
-    output = capsys.readouterr().out
+    output = " ".join(capsys.readouterr().out.split())
     assert "[24] Повне встановлення / відновлення Core V2" in output
     assert "[5] Оновити Python-залежності" in output
     assert "[12] Початкове налаштування" in output

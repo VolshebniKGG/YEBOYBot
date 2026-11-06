@@ -74,7 +74,7 @@ $null = [System.Management.Automation.Language.Parser]::ParseFile(
     $SOURCE_FILE, [ref]$tokens, [ref]$parseErrors)
 Assert-True ($parseErrors.Count -eq 0) 'PowerShell 5.1 syntax must parse'
 foreach ($name in @('Find-YeboyPython', 'Find-YeboyWinget', 'Invoke-YeboyWinget',
-                    'Invoke-YeboyBootstrap', 'Test-YeboyEnvironment', 'Start-YeboyMenu',
+                    'Invoke-YeboyBootstrap', 'Invoke-YeboyMedia', 'Test-YeboyEnvironment', 'Start-YeboyMenu',
                     'Install-YeboyCore', 'Show-YeboySetup', 'Invoke-YeboyEntry')) {
     Assert-True ($null -ne (Get-Command $name -CommandType Function)) ('Missing ' + $name)
 }
@@ -195,6 +195,7 @@ function Invoke-YeboyBootstrap([string] $Python, [switch] $Repair) {
     $script:BootstrapCalls++
     return 0
 }
+function Invoke-YeboyMedia { return 0 }
 function Test-YeboyEnvironment { return $true }
 $code = Install-YeboyCore -AllowPythonInstall
 Assert-True ($code -eq 0) 'Complete first installation'
@@ -218,6 +219,7 @@ function Invoke-YeboyBootstrap([string] $Python, [switch] $Repair) {
     $script:BootstrapCalls++
     return 0
 }
+function Invoke-YeboyMedia { return 0 }
 function Test-YeboyEnvironment { return $true }
 $code = Install-YeboyCore -AllowPythonInstall REPAIR_ARGUMENT
 Assert-True ($code -eq 0) 'Repeat installation succeeds'
@@ -231,6 +233,7 @@ def test_dependency_failure_does_not_report_ready_environment(tmp_path):
     _run_ps(tmp_path, r"""
 function Find-YeboyPython { return 'existing-python' }
 function Invoke-YeboyBootstrap { return 7 }
+function Invoke-YeboyMedia { throw 'Failed bootstrap must not prepare music' }
 function Test-YeboyEnvironment { throw 'Failed bootstrap cannot be treated as ready' }
 $code = Install-YeboyCore
 Assert-True ($code -ne 0) 'Dependency failure remains failure'
@@ -242,6 +245,7 @@ def test_failed_imports_after_bootstrap_do_not_report_success(tmp_path):
     _run_ps(tmp_path, r"""
 function Find-YeboyPython { return 'existing-python' }
 function Invoke-YeboyBootstrap { return 0 }
+function Invoke-YeboyMedia { return 0 }
 function Test-YeboyEnvironment { return $false }
 $code = Install-YeboyCore
 Assert-True ($code -ne 0) 'Readiness requires actual environment probe'
@@ -257,6 +261,7 @@ function Test-YeboyEnvironment { return $true }
 function Start-YeboyMenu { $script:MenuCalls++; return MENU_CODE }
 function Show-YeboySetup { throw 'Healthy launcher must keep ordinary menu' }
 function Install-YeboyCore { throw 'Healthy launcher must not reinstall packages' }
+function Invoke-YeboyMedia { throw 'Healthy launcher must not download music tools' }
 $code = Invoke-YeboyEntry -Mode Launcher
 Assert-True ($code -eq MENU_CODE) 'Healthy menu returns its exit code'
 Assert-True ($script:MenuCalls -eq 1) 'Open one control center'
@@ -587,6 +592,7 @@ def test_environment_readiness_runs_shared_runtime_import_check(tmp_path, missin
         "def validate_environment(root):\n    pass\n" + f"IMPORT_CHECK = {check!r}\n",
         encoding="utf-8",
     )
+    (package / "media.py").write_text("def check_enabled_music(root):\n    pass\n", encoding="utf-8")
     subprocess.run(
         [sys.executable, "-I", "-m", "venv", "--without-pip", str(root / ".venv-v2")],
         check=True, capture_output=True, timeout=45,
@@ -597,3 +603,67 @@ $ready = Test-YeboyEnvironment
 Assert-True ($ready -eq EXPECTED_READY) 'Shared import check determines readiness, including music dependencies'
 """.replace("FIXTURE_ROOT", _literal(root))
          .replace("EXPECTED_READY", "$false" if missing_dependency else "$true"))
+
+
+@WINDOWS
+def test_installation_prepares_media_before_readiness_in_one_ordered_attempt(tmp_path):
+    result = _run_ps(tmp_path, r"""
+$script:Sequence = [System.Collections.Generic.List[string]]::new()
+function Find-YeboyPython { $script:Sequence.Add('python'); return 'existing-python' }
+function Invoke-YeboyBootstrap { $script:Sequence.Add('bootstrap'); return 0 }
+function Invoke-YeboyMedia { $script:Sequence.Add('media'); return 0 }
+function Test-YeboyEnvironment { $script:Sequence.Add('ready'); return $true }
+$code = Install-YeboyCore
+Assert-True ($code -eq 0) 'Complete all four stages before reporting ready'
+Assert-True (($script:Sequence -join ',') -eq 'python,bootstrap,media,ready') 'Music follows dependencies and precedes final readiness'
+""")
+    stages = [result.stdout.index(f"[{number}/4]") for number in range(1, 5)]
+    assert stages == sorted(stages)
+
+
+@WINDOWS
+def test_media_failure_stops_installation_before_ready_or_menu(tmp_path):
+    result = _run_ps(tmp_path, r"""
+$script:MediaCalls = 0
+function Find-YeboyPython { return 'existing-python' }
+function Invoke-YeboyBootstrap { return 0 }
+function Invoke-YeboyMedia { $script:MediaCalls++; return 19 }
+function Test-YeboyEnvironment { throw 'Failed music cannot be marked ready' }
+function Start-YeboyMenu { throw 'Failed music must not launch the menu' }
+$code = Install-YeboyCore
+Assert-True ($code -eq 19) 'Keep actual media failure code'
+Assert-True ($script:MediaCalls -eq 1) 'Do not retry media forever'
+""")
+    assert "ГОТОВО" not in result.stdout
+    assert "[4/4]" not in result.stdout
+
+
+@WINDOWS
+@pytest.mark.parametrize("exit_code", [0, 23], ids=["success", "failure"])
+def test_media_boundary_uses_native_python_with_literal_root_and_exit_code(tmp_path, exit_code):
+    # A synthetic Python module captures the real argument boundary without
+    # downloading or running media executables.
+    root = tmp_path / "Бот з пробілами O'Connor & music"
+    package = root / "tools/launcher"
+    package.mkdir(parents=True)
+    (root / "tools/__init__.py").write_text("", encoding="utf-8")
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "media.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "assert sys.flags.isolated\n"
+        "assert sys.argv[1:] == ['--prepare']\n"
+        f"assert Path(sys.path[0]).resolve() == Path({str(root)!r}).resolve()\n"
+        "print('YEBOY_MEDIA_BOUNDARY_OK')\n"
+        f"raise SystemExit({exit_code})\n",
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [sys.executable, "-I", "-m", "venv", "--without-pip", str(root / ".venv-v2")],
+        check=True, capture_output=True, timeout=45,
+    )
+    result = _run_ps(tmp_path, r"""
+$script:YeboyRoot = FIXTURE_ROOT
+$code = Invoke-YeboyMedia
+Assert-True ($code -eq EXPECTED_CODE) 'Preserve successful and failed native media exits'
+""".replace("FIXTURE_ROOT", _literal(root)).replace("EXPECTED_CODE", str(exit_code)))
+    assert "YEBOY_MEDIA_BOUNDARY_OK" in result.stdout

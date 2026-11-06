@@ -1,51 +1,56 @@
-"""Portable console presentation; no terminal control codes or side effects."""
+"""Ordered, readable console presentation without terminal-specific controls."""
 import shutil
 import textwrap
 
+STATUS_LABELS = {
+    "running": "ПРАЦЮЄ",
+    "stopped": "ЗУПИНЕНО",
+    "starting": "ЗАПУСКАЄТЬСЯ",
+    "unknown": "СТАН НЕ ВИЗНАЧЕНО",
+}
 
-GROUPS = (
-    ("КЕРУВАННЯ БОТОМ", ("1", "2", "3", "9")),
-    ("НАЛАШТУВАННЯ", ("12", "11", "25", "15")),
-    ("ДАНІ ТА РЕЗЕРВНІ КОПІЇ", ("7", "8", "10", "20", "21", "23", "26")),
-    ("ОБСЛУГОВУВАННЯ", ("4", "18", "6", "5", "24", "22")),
-)
 
-
-def _section(title, keys, actions, width):
-    lines = [title, "─" * min(width, len(title) + 5)]
-    for key in keys:
-        label = actions[key][0]
-        lines.extend(textwrap.wrap(f"[{key}] {label}", width=width,
-            subsequent_indent="     ", break_long_words=False, break_on_hyphens=False))
-    return lines
+def _lines(text, width, *, continuation=""):
+    return textwrap.wrap(text, width=width, subsequent_indent=continuation,
+                         break_long_words=False, break_on_hyphens=False)
 
 
 def show_menu(actions, status):
-    width = min(120, max(60, shutil.get_terminal_size(fallback=(80, 24)).columns))
+    width = min(100, max(40, shutil.get_terminal_size(fallback=(80, 24)).columns))
+    content_width = width - 4
+
+    def paragraph(text):
+        for line in _lines(text, content_width):
+            print("  " + line)
+
     print("\n" + "═" * width)
-    print("  YEBOYBot  /  ПАНЕЛЬ КЕРУВАННЯ")
-    print("  Core V2 · Ваш сервер, музика та спільнота")
+    paragraph("YEBOYBot  /  ПАНЕЛЬ КЕРУВАННЯ")
+    paragraph("Discord · Музика · Спільнота")
     print("─" * width)
-    for line in textwrap.wrap(f"Стан бота: {status}", width=width - 4):
-        print("  " + line)
+    paragraph("Стан бота: " + STATUS_LABELS.get(status, str(status)))
     print("═" * width)
-    if width >= 112:
-        column = (width - 6) // 2
-        for index in (0, 2):
-            left = _section(*GROUPS[index], actions, column)
-            right = _section(*GROUPS[index + 1], actions, column)
+    paragraph("Оберіть дію. Номери впорядковано за зростанням.")
+    print()
+    paragraph("[0]  Закрити панель (бот продовжить працювати)")
+    # Display original routing IDs, including gaps, to preserve documented
+    # commands and existing launcher integrations. Never renumber actions.
+    previous_group = None
+    for key in sorted(actions, key=int):
+        number = int(key)
+        group = ("ОСНОВНІ ДІЇ" if number <= 6 else
+                 "ДАНІ ТА ЖУРНАЛ" if number <= 10 else
+                 "НАЛАШТУВАННЯ ТА ДІАГНОСТИКА" if number <= 18 else
+                 "ДОДАТКОВІ ІНСТРУМЕНТИ")
+        if group != previous_group:
             print()
-            for row in range(max(len(left), len(right))):
-                first = left[row] if row < len(left) else ""
-                second = right[row] if row < len(right) else ""
-                print("  " + first.ljust(column) + "  " + second)
-    else:
-        for title, keys in GROUPS:
-            print()
-            for line in _section(title, keys, actions, width - 4):
-                print("  " + line)
+            paragraph(group)
+            print("  " + "─" * content_width)
+            previous_group = group
+        for line in _lines(f"[{key}]".ljust(5) + actions[key][0], content_width,
+                           continuation="     "):
+            print("  " + line)
     print("\n" + "─" * width)
-    print("  Перший запуск: [12] Налаштування → [4] Перевірка → [1] Запуск")
-    print("  [0] Закрити панель · Працюючий бот залишиться увімкненим")
-    print("  Щоб зупинити бота, виберіть [3].")
+    paragraph("ПЕРШИЙ ЗАПУСК")
+    paragraph("Налаштуйте Discord → підготуйте музику → перевірте конфігурацію → запустіть бота.")
+    paragraph("Закриття панелі не зупиняє бота. Для цього виберіть «Зупинити бота».")
     print("─" * width)

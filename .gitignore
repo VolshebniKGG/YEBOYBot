@@ -47,3 +47,10 @@ backups/
 *.db-wal
 *.db-shm
 .env
+
+# Downloaded portable music tools and preserved environments
+bin/ffmpeg/
+bin/deno/
+bin/.media-stage-*/
+bin/*.previous-*/
+.venv-v2.failed-*/

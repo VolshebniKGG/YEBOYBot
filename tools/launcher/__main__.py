@@ -70,7 +70,7 @@ def main():
         "1": ("Запустити Discord-бота", start),
         "4": ("Перевірити конфігурацію та БД", lambda: run("-m", "tools.launcher.diagnostics")),
         "24": ("Повне встановлення / відновлення Core V2", full_setup),
-        "25": ("Музика: options.ini / FFmpeg / увімкнення", media.menu),
+        "25": ("Музика: автоматична підготовка й увімкнення", media.menu),
         "26": ("Перенести старий XP у Core V2 (SQLite)", rank_import.menu),
         "5": ("Оновити Python-залежності", repair_dependencies),
         "6": ("Оновити YEBOYBot із GitHub", update.menu),
