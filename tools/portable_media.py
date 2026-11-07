@@ -110,6 +110,10 @@ def unpack(archive, destination, package):
         seen = set()
         executables = []
         for item in members:
+            # ZipInfo normalizes backslashes on Windows and truncates NULs.
+            # Validate the original archive name before using its normalized form.
+            if item.orig_filename != item.filename:
+                raise MediaInstallError('Архів містить неприпустимий шлях або посилання.')
             path = PurePosixPath(item.filename)
             parts = path.parts
             kind = stat.S_IFMT(item.external_attr >> 16)

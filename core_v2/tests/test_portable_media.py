@@ -21,7 +21,14 @@ def archive_bytes(members):
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w') as archive:
         for name, data in members:
-            archive.writestr(name, data)
+            if isinstance(name, str):
+                # Preserve raw names in the fixture on every OS. ZipInfo's
+                # constructor would sanitize backslashes on Windows and NULs.
+                item = zipfile.ZipInfo('placeholder')
+                item.filename = item.orig_filename = name
+            else:
+                item = name
+            archive.writestr(item, data)
     return buffer.getvalue()
 
 
@@ -99,7 +106,7 @@ def test_unpack_keeps_notices_and_has_stable_executable(tmp_path):
 @pytest.mark.parametrize('name', [
     '../outside', '/outside', 'dir/../../outside', r'dir\outside', 'C:/outside',
     'file:stream', 'dir/NUL.txt', 'dir/COM1', 'dir/LPT¹.txt', 'dir/bad.',
-    'dir/bad ', 'dir/what?.txt', 'dir/pipe|name', 'dir/control\x01.txt',
+    'dir/bad ', 'dir/what?.txt', 'dir/pipe|name', 'dir/control\x01.txt', 'dir/nul\x00hidden',
 ])
 def test_unpack_rejects_windows_unsafe_paths_before_writing(tmp_path, name):
     path, destination, package = write_archive(tmp_path, [('deno.exe', b'binary'), (name, b'bad')])
