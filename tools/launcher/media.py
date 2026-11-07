@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import zipfile
 
 from dotenv import dotenv_values, set_key
 
@@ -76,15 +77,55 @@ def _install_native(root, package, label, verify):
         return False
 
 
+def check_enabled_music(root=ROOT):
+    """Offline readiness; do not load token/settings or mutate the environment."""
+    values = dotenv_values(root / ".env.v2")
+    enabled = os.getenv("ENABLE_MUSIC", values.get("ENABLE_MUSIC") or "false")
+    enabled = enabled.strip().lower()
+    if enabled not in {"true", "false"}:
+        raise ValueError("ENABLE_MUSIC: use true or false")
+    if enabled == "true":
+        configured = os.getenv("FFMPEG_PATH", values.get("FFMPEG_PATH") or "ffmpeg")
+        check_music(configured, root)
+
+
+def prepare_portable(root=ROOT):
+    from tools.portable_media import ensure_tools
+    print("  • Перевірка локальних FFmpeg і Deno…")
+    ensure_tools(root)
+    print("  • Підготовка налаштувань музики…")
+    prepare_options(root)
+    values = dotenv_values(root / ".env.v2")
+    configured = os.getenv("FFMPEG_PATH", values.get("FFMPEG_PATH") or "ffmpeg")
+    print("  • Перевірка голосових бібліотек і музичних програм…")
+    check_music(configured, root)
+    print("[OK] Музичний комплект готовий. Наявні налаштування збережено.")
+
+
+def main(root=ROOT):
+    from tools.portable_media import MediaInstallError
+    try:
+        prepare_portable(root)
+    except MediaInstallError as error:
+        print("[ПОМИЛКА] " + str(error))
+        return 1
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, zipfile.BadZipFile):
+        print("[ПОМИЛКА] Музичний комплект не готовий. Перевірте інтернет, права папки та вільне місце; зупиніть бот перед повторенням.")
+        return 1
+    return 0
+
+
 def menu(root=ROOT):
     print("Музика Core V2: /music. Безпечний токен лишається в .env.v2 або Credentials/Token options.ini.")
-    print("[1] Підготувати options.ini й увімкнути музику  [2] Вимкнути  [3] Встановити FFmpeg (Windows)  [4] Встановити Deno для YouTube  [0] Назад")
+    print("\n[0] Назад\n[1] Автоматично підготувати все й увімкнути музику\n[2] Вимкнути музику\n[3] FFmpeg через WinGet (альтернатива)\n[4] Deno через WinGet (альтернатива)")
     choice = input("Вибір: ").strip()
     if choice == "3":
         install_ffmpeg(root)
     elif choice == "4":
         install_deno(root)
     elif choice == "1":
+        if os.name == "nt" and main(root):
+            return
         values = dotenv_values(root / ".env.v2")
         configured = os.getenv("FFMPEG_PATH", values.get("FFMPEG_PATH") or "ffmpeg")
         check_music(configured, root)
@@ -98,3 +139,7 @@ def menu(root=ROOT):
         print("Музику вимкнено в конфігурації. Перезапустіть бот через [2].")
     if os.getenv("ENABLE_MUSIC"):
         print("Змінна середовища ENABLE_MUSIC має пріоритет над файлом.")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,12 +1,18 @@
 """Explicit PostgreSQL upgrades; caller owns backup, locks and transaction."""
 from sqlalchemy import text
 
-from .db import CURRENT_SCHEMA_VERSION, _connection_schema_state, meta
+from .db import CURRENT_SCHEMA_VERSION, _connection_schema_state, meta, required_columns
 from .migrations import MigrationError, migration_path
 
 
 LOCK_KEY = 91027602
 TABLES = tuple(sorted(table.name for table in meta.sorted_tables))
+
+
+def tables_for_version(version):
+    return tuple(sorted(required_columns(version)))
+
+
 _LOCK_PROOF = "yeboy_postgres_migration_transaction"
 
 
@@ -39,7 +45,7 @@ async def validate_defaults(connection):
     """
     version = await inspect_postgres(connection)
     migration_path(version)
-    args = {"names": list(TABLES)}
+    args = {"names": list(tables_for_version(version))}
     table_ids = "SELECT oid FROM pg_class WHERE relnamespace='public'::regnamespace AND relname = ANY(:names)"
     if await connection.scalar(text(
             f"SELECT count(*) FROM pg_class WHERE oid IN ({table_ids}) "
@@ -80,7 +86,7 @@ async def validate_defaults(connection):
         "JOIN pg_class c ON c.oid=d.adrelid "
         f"WHERE c.oid IN ({table_ids})"), args)).all()
     for table, column, expression, owned_serial in defaults:
-        standard_timestamp = version == 2 and (table, column, expression) == ("v2_cases", "updated", "0")
+        standard_timestamp = version >= 2 and (table, column, expression) == ("v2_cases", "updated", "0")
         if not standard_timestamp and not owned_serial:
             raise MigrationError("Custom defaults require a separate full PostgreSQL backup workflow")
 
@@ -99,7 +105,7 @@ async def lock_source(connection):
         raise MigrationError("Another PostgreSQL maintenance operation is running")
     current = await inspect_postgres(connection)
     migration_path(current)
-    relations = ", ".join(f'public."{name}"' for name in TABLES)
+    relations = ", ".join(f'public."{name}"' for name in tables_for_version(current))
     await connection.execute(text(f"LOCK TABLE {relations} IN SHARE MODE NOWAIT"))
     if await inspect_postgres(connection) != current:
         raise MigrationError("Schema changed while acquiring PostgreSQL maintenance locks")
@@ -108,6 +114,11 @@ async def lock_source(connection):
 
 
 async def _apply_revision(connection, revision):
+    if revision.name == "003_level_rewards" and revision.source == 2 and revision.target == 3:
+        await connection.execute(text("CREATE TABLE public.v2_level_rewards (guild_id BIGINT NOT NULL, "
+            "kind VARCHAR(5) NOT NULL, level INTEGER NOT NULL, role_id BIGINT NOT NULL, "
+            "PRIMARY KEY (guild_id,kind,level))"))
+        return
     if revision.name != "002_case_updated_at" or revision.source != 1 or revision.target != 2:
         raise MigrationError("Unknown PostgreSQL migration revision")
     await connection.execute(text(

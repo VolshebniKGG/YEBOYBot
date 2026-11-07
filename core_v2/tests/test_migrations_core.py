@@ -15,6 +15,8 @@ from core_v2.db import CURRENT_SCHEMA_VERSION, Database, MigrationRequired, case
 def legacy_metadata():
     legacy = MetaData()
     for table in meta.sorted_tables:
+        if table.name not in required_columns(1):
+            continue
         Table(table.name, legacy, *(Column(column.name, column.type,
               primary_key=column.primary_key, nullable=column.nullable)
               for column in table.columns if not (table.name == "v2_cases" and column.name == "updated")))
@@ -60,8 +62,8 @@ def legacy(tmp_path):
 
 def test_plan_is_read_only_and_reports_actual_revision(legacy):
     before = legacy.read_bytes()
-    assert m.plan_sqlite(legacy) == {"current": 1, "target": 2,
-        "revisions": ["002_case_updated_at"], "requires_backup": True}
+    assert m.plan_sqlite(legacy) == {"current": 1, "target": 3,
+        "revisions": ["002_case_updated_at", "003_level_rewards"], "requires_backup": True}
     assert legacy.read_bytes() == before
 
 
@@ -77,13 +79,13 @@ def test_upgrade_preserves_all_payload_and_backfills_timestamp(legacy):
         before = payload(connection)
         index = connection.execute("SELECT sql FROM sqlite_master WHERE name='preserve_case_index'").fetchone()
         connection.execute("BEGIN IMMEDIATE")
-        assert m.migrate_sqlite(connection) == ["002_case_updated_at"]
+        assert m.migrate_sqlite(connection) == ["002_case_updated_at", "003_level_rewards"]
         connection.commit()
         assert payload(connection) == before
         assert connection.execute("SELECT created,updated FROM v2_cases").fetchall() == [(1234.5, 1234.5)] * 2
         assert connection.execute("SELECT version FROM v2_schema").fetchall() == [(CURRENT_SCHEMA_VERSION,)]
         assert connection.execute("SELECT sql FROM sqlite_master WHERE name='preserve_case_index'").fetchone() == index
-        assert m.inspect_sqlite(connection) == 2
+        assert m.inspect_sqlite(connection) == 3
 
 
 def test_failed_revision_rolls_back_ddl_marker_and_payload(legacy, monkeypatch):
@@ -129,7 +131,7 @@ def test_repeated_upgrade_is_noop(legacy):
     assert m.plan_sqlite(legacy)["requires_backup"] is False
 
 
-@pytest.mark.parametrize("target", [0, 1, 3, True, "2"])
+@pytest.mark.parametrize("target", [0, 1, 2, 4, True, "3"])
 def test_unsupported_target_or_downgrade_never_writes(legacy, target):
     before = legacy.read_bytes()
     with pytest.raises(m.MigrationError):

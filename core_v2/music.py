@@ -704,7 +704,7 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
             return True
         return await asyncio.shield(task)
 
-    @app_commands.command(name="play", description="Додати YouTube/SoundCloud трек або пошуковий запит")
+    @app_commands.command(name="play", description="YouTube, YouTube Music, Spotify-трек через пошук, SoundCloud або назва")
     @app_commands.guild_only()
     async def play(self, interaction: discord.Interaction, query: app_commands.Range[str, 1, 500]):
         guild_context(interaction)

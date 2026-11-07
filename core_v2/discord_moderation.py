@@ -1,6 +1,7 @@
 """Pinned discord.py adapter; fresh detached guilds avoid stale shared role caches."""
 import asyncio
 import math
+from datetime import timedelta
 
 import discord
 
@@ -75,6 +76,22 @@ class DiscordGateway:
 
     async def unban(self, context, target_id, audit_reason):
         await context.handle.unban(discord.Object(id=target_id), reason=audit_reason)
+
+    async def timeout(self, context, target_id, audit_reason, minutes):
+        member = context.handle.get_member(target_id)
+        # REST-fetched guilds do not populate a member cache. Build the edit
+        # handle locally; authorization came from the fresh service snapshot.
+        if member is None:
+            member = discord.Member(data={"user": {"id": str(target_id), "username": "", "discriminator": "0", "avatar": None},
+                                          "roles": [], "flags": 0},
+                                    guild=context.handle, state=context.handle._state)
+        await member.timeout(timedelta(minutes=minutes), reason=audit_reason)
+
+    async def untimeout(self, context, target_id, audit_reason):
+        member = discord.Member(data={"user": {"id": str(target_id), "username": "", "discriminator": "0", "avatar": None},
+                                      "roles": [], "flags": 0},
+                                guild=context.handle, state=context.handle._state)
+        await member.timeout(None, reason=audit_reason)
 
     async def ban_exists(self, context, target_id):
         try:

@@ -11,9 +11,15 @@ from urllib.parse import parse_qsl, urlsplit
 
 from sqlalchemy.engine import make_url
 
-from core_v2.db import SUPPORTED_SCHEMA_VERSIONS, meta
+from core_v2.db import SUPPORTED_SCHEMA_VERSIONS, meta, required_columns
 
 TABLES = tuple(sorted(table.name for table in meta.sorted_tables))
+
+
+def tables_for_version(version):
+    return tuple(sorted(required_columns(version)))
+
+
 TIMEOUT = 180
 
 
@@ -137,7 +143,7 @@ def _read_manifest(path):
             raise ValueError
         if not isinstance(data["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", data["sha256"]):
             raise ValueError
-        if data["tables"] != list(TABLES):
+        if data["tables"] != list(tables_for_version(data["schema_version"])):
             raise ValueError
         date = datetime.fromisoformat(data["created_utc"])
         if date.utcoffset() is None or date.utcoffset().total_seconds() != 0:
@@ -147,7 +153,7 @@ def _read_manifest(path):
         raise PostgresError("Некоректний маніфест PostgreSQL-копії.") from None
 
 
-def _check_listing(output):
+def _check_listing(output, schema_version):
     tables = []
     for line in output.decode("utf-8", errors="replace").splitlines():
         match = re.match(r"\d+;\s+\d+\s+\d+\s+TABLE\s+(?!DATA\s)(\S+)\s+(\S+)(?:\s|$)", line)
@@ -156,7 +162,7 @@ def _check_listing(output):
             if schema != "public":
                 raise PostgresError("Архів містить таблиці поза підтримуваною public схемою.")
             tables.append(name)
-    if sorted(tables) != list(TABLES):
+    if sorted(tables) != list(tables_for_version(schema_version)):
         raise PostgresError("Архів не містить рівно підтримувані таблиці Core V2.")
 
 
@@ -175,7 +181,7 @@ def verify_archive(path):
         if versions["pg_restore"] < data["pg_dump_major"]:
             raise PostgresError("pg_restore старіший за версію, яка створила копію.")
         with path.open("rb") as source:
-            _check_listing(_run("pg_restore", ["--list"], stdin=source))
+            _check_listing(_run("pg_restore", ["--list"], stdin=source), data["schema_version"])
         return data
     except PostgresError:
         raise
@@ -200,12 +206,12 @@ def dump(url, destination, schema_version):
         created.append(destination)
         with os.fdopen(descriptor, "wb") as target:
             args = ["--format=custom", "--no-owner", "--no-acl", "--no-password", "--no-tablespaces"]
-            args.extend("--table=public." + name for name in TABLES)
+            args.extend("--table=public." + name for name in tables_for_version(schema_version))
             _run("pg_dump", args, env=env, stdout=target)
         size, digest = fingerprint(destination)
         data = {"format_version": 1, "backend": "postgresql", "schema_version": schema_version,
                 "created_utc": datetime.now(timezone.utc).isoformat(), "size_bytes": size,
-                "sha256": digest, "pg_dump_major": major, "tables": list(TABLES)}
+                "sha256": digest, "pg_dump_major": major, "tables": list(tables_for_version(schema_version))}
         descriptor = os.open(manifest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         created.append(manifest)
         with os.fdopen(descriptor, "w", encoding="utf-8") as target:

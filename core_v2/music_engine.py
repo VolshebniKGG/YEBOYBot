@@ -187,7 +187,9 @@ def spotify_track_id(source: str) -> str | None:
     try:
         url = urlsplit(source)
         if _host_is((url.hostname or "").lower(), ("spotify.com",)):
-            match = re.fullmatch(r"/track/([A-Za-z0-9]{22})/?", url.path)
+            # Spotify's localized share pages still identify the same public
+            # track. Accept only the fixed locale prefix, never arbitrary paths.
+            match = re.fullmatch(r"/(?:intl-[a-z]{2}/)?track/([A-Za-z0-9]{22})/?", url.path)
             if (url.scheme != "https" or url.hostname != "open.spotify.com" or
                     url.username is not None or url.password is not None or
                     url.port not in (None, 443) or not match):

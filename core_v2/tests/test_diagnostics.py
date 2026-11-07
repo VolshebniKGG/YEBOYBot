@@ -28,7 +28,7 @@ async def test_valid_schema_checked_without_modification(tmp_path, configured):
     await db.close()
     before = path.read_bytes()
     report = d.collect(tmp_path)
-    assert report["checks"]["database"] == d.result("ok", "sqlite_schema_v2")
+    assert report["checks"]["database"] == d.result("ok", "sqlite_schema_v3")
     assert report["local_checks_passed"]
     assert not report["runtime"]["discord_ready"]
     assert not report["discord_api_checked"]

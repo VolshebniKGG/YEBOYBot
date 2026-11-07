@@ -79,7 +79,11 @@ def _context(context, guild_id, actor_id, target_id=None, *, allow_absent=False)
 
 
 def _action_permissions(context, action):
-    bit, label = (KICK, "Виганяти учасників") if action == "kick" else (BAN, "Блокувати учасників")
+    bit, label = {"kick": (KICK, "Виганяти учасників"),
+                  "ban": (BAN, "Блокувати учасників"),
+                  "unban": (BAN, "Блокувати учасників"),
+                  "timeout": (MODERATE, "Модерувати учасників"),
+                  "untimeout": (MODERATE, "Модерувати учасників")}[action]
     if not _permission(context.actor, context.owner_id, bit):
         raise ModerationError(f"Вам потрібен дозвіл «{label}».")
     if not _permission(context.bot, context.owner_id, bit):
@@ -133,6 +137,20 @@ class ModerationService:
 
     async def unban(self, guild_id, actor_id, target_id, request_id, reason):
         return await self._act("unban", guild_id, actor_id, target_id, request_id, reason)
+
+    async def timeout(self, guild_id, actor_id, target_id, request_id, minutes, reason):
+        if type(minutes) is not int or not 1 <= minutes <= 40320:
+            raise ModerationError("Вкажіть тривалість від 1 до 40320 хвилин.")
+        if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 470:
+            raise ModerationError("Вкажіть причину від 1 до 470 символів.")
+        # Bind duration to the persisted request without a database migration.
+        recorded_reason = f"[timeout={minutes}m] {reason.strip()}"
+        return await self._act("timeout", guild_id, actor_id, target_id, request_id,
+                               recorded_reason, minutes=minutes)
+
+    async def untimeout(self, guild_id, actor_id, target_id, request_id):
+        return await self._act("untimeout", guild_id, actor_id, target_id, request_id,
+                               "Ручне зняття обмеження")
 
     async def warn(self, guild_id, actor_id, target_id, request_id, reason):
         """Authorize current members, then atomically record one local warning."""
@@ -201,9 +219,11 @@ class ModerationService:
                 raise ModerationError("Discord не підтвердив запис блокування. Дію не надсилали.")
         elif current.target is not None:
             _hierarchy(current)
+            if action == "timeout" and current.target.permissions & ADMIN:
+                raise ModerationError("Discord не дозволяє timeout адміністратора.")
         return current
 
-    async def _act(self, action, guild_id, actor_id, target_id, request_id, reason):
+    async def _act(self, action, guild_id, actor_id, target_id, request_id, reason, *, minutes=None):
         for value in (guild_id, actor_id, target_id, request_id):
             valid_id(value)
         if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 500 or "\0" in reason:
@@ -231,7 +251,10 @@ class ModerationService:
         try:
             # discord.py may retry transport failures internally; no application retry is used.
             async with asyncio.timeout(20):
-                await getattr(self.gateway, action)(current, target_id, audit_reason(case_id, actor_id, reason))
+                if action == "timeout":
+                    await self.gateway.timeout(current, target_id, audit_reason(case_id, actor_id, reason), minutes)
+                else:
+                    await getattr(self.gateway, action)(current, target_id, audit_reason(case_id, actor_id, reason))
         except asyncio.CancelledError:
             log.warning("Moderation cancelled with unknown outcome action=%s guild=%s case=%s", action, guild_id, case_id)
             raise

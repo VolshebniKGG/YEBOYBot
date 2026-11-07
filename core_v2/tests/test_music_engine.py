@@ -97,7 +97,9 @@ def test_unsafe_streams_rejected(source):
 
 
 @pytest.mark.parametrize("source", ["spotify:track:1234567890123456789012",
-                                   "https://open.spotify.com/track/1234567890123456789012?si=x"])
+                                   "https://open.spotify.com/track/1234567890123456789012?si=x",
+                                   "https://open.spotify.com/intl-uk/track/1234567890123456789012?si=x",
+                                   "https://open.spotify.com/intl-de/track/1234567890123456789012/"])
 def test_single_spotify_track_reference_allowed_for_metadata_mapping(source):
     assert spotify_track_id(source) == "1234567890123456789012"
     assert validate_source(source) == source
@@ -106,6 +108,9 @@ def test_single_spotify_track_reference_allowed_for_metadata_mapping(source):
 @pytest.mark.parametrize("source", ["spotify:album:1234567890123456789012",
     "https://open.spotify.com/playlist/1234567890123456789012", "spotify:track:bad",
     "https://user:pass@open.spotify.com/track/1234567890123456789012",
+    "https://open.spotify.com/intl-uk/playlist/1234567890123456789012",
+    "https://open.spotify.com/intl-uk/anything/track/1234567890123456789012",
+    "https://open.spotify.com/intl-uk/../track/1234567890123456789012",
     "https://evil.spotify.com/track/1234567890123456789012"])
 def test_spotify_nontracks_and_credentials_rejected(source):
     with pytest.raises(MusicError):

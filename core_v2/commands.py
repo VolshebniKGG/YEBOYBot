@@ -1,5 +1,4 @@
 import asyncio
-import datetime
 import logging
 from io import BytesIO
 import time
@@ -353,41 +352,33 @@ class Core(commands.Cog):
         changed = await self.bot.db.revoke_warning(interaction.guild_id, case_id)
         await respond(interaction, "Відкликано." if changed else "Чинного попередження не знайдено.")
 
-    @app_commands.command(name="timeout", description="Тимчасово обмежити учасника")
+    @app_commands.command(name="timeout", description="Тимчасово обмежити учасника з актуальною перевіркою прав")
     @app_commands.default_permissions(moderate_members=True)
     @app_commands.guild_only()
     async def timeout(self, interaction: discord.Interaction, member: discord.Member,
                       minutes: app_commands.Range[int, 1, 40320],
-                      reason: app_commands.Range[str, 1, 500]):
-        guild = await self.checked_target(interaction, member, "moderate_members")
-        if member.guild_permissions.administrator:
-            raise UserError("Discord не дозволяє timeout адміністратора.")
+                      reason: app_commands.Range[str, 1, 470]):
+        guild = guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
-        case = await self.bot.db.create_case(guild.id, member.id, interaction.user.id, "timeout", reason)
         try:
-            await member.timeout(datetime.timedelta(minutes=minutes),
-                                 reason=f"{interaction.user.id}: {reason}"[:512])
-        except discord.HTTPException:
-            await self.bot.db.finish_case(guild.id, case, "failed")
-            raise
-        await self.bot.db.finish_case(guild.id, case, "applied")
-        await respond(interaction, f"Timeout: {minutes} хв. ID: {case}")
+            result = await self.moderation.timeout(guild.id, interaction.user.id, member.id,
+                                                   interaction.id, minutes, reason)
+        except ModerationError as error:
+            raise UserError(str(error)) from None
+        await moderation_response(interaction, result)
 
-    @app_commands.command(name="untimeout", description="Зняти тимчасове обмеження")
+    @app_commands.command(name="untimeout", description="Зняти тимчасове обмеження з актуальною перевіркою прав")
     @app_commands.default_permissions(moderate_members=True)
     @app_commands.guild_only()
     async def untimeout(self, interaction: discord.Interaction, member: discord.Member):
-        guild = await self.checked_target(interaction, member, "moderate_members")
+        guild = guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
-        case = await self.bot.db.create_case(guild.id, member.id, interaction.user.id,
-                                             "untimeout", "Manual removal")
         try:
-            await member.timeout(None, reason=f"{interaction.user.id}: manual removal")
-        except discord.HTTPException:
-            await self.bot.db.finish_case(guild.id, case, "failed")
-            raise
-        await self.bot.db.finish_case(guild.id, case, "applied")
-        await respond(interaction, "Обмеження знято.")
+            result = await self.moderation.untimeout(guild.id, interaction.user.id, member.id,
+                                                     interaction.id)
+        except ModerationError as error:
+            raise UserError(str(error)) from None
+        await moderation_response(interaction, result)
 
     @app_commands.command(name="remind", description="Нагадування в поточному каналі")
     @app_commands.guild_only()

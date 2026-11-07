@@ -2,33 +2,107 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+import uuid
 import venv
+from datetime import UTC, datetime
+from pathlib import Path
 
 from core_v2.runtime import InstanceLock
-from tools.installer_policy import (PIP_VERSION, PIP_VERSION_CHECK, clean_environment,
-                                    pip_command, pip_is_current)
+from tools.installer_policy import (
+    PIP_VERSION,
+    PIP_VERSION_CHECK,
+    clean_environment,
+    pip_command,
+    pip_is_current,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 IMPORT_CHECK = "import discord, sqlalchemy, aiosqlite, asyncpg, dotenv, PIL, nacl, davey, yt_dlp, yt_dlp_ejs"
 
 
 class BootstrapError(RuntimeError):
-    pass
+    def __init__(self, message, *, stage="bootstrap", category="unknown", exit_code=None):
+        super().__init__(message)
+        self.stage, self.category, self.exit_code = stage, category, exit_code
+
+
+def command_stage(args):
+    if ENVIRONMENT_PROBE in args:
+        return "environment-probe"
+    if IMPORT_CHECK in args:
+        return "library-import"
+    if PIP_VERSION_CHECK in args:
+        return "pip-version"
+    if "ensurepip" in args:
+        return "ensurepip"
+    if "check" in args:
+        return "dependency-check"
+    if any(str(arg).startswith("pip==") for arg in args):
+        return "pip-upgrade"
+    return "dependency-install" if "install" in args else "subprocess"
+
+
+def failure_hint(output):
+    # Recognize fixed patterns only. Never echo command output, URLs, credentials,
+    # environment values or arbitrary package names from a failed subprocess.
+    value = output.lower()
+    for patterns, category, hint in (
+        (("certificate_verify_failed", "sslcertverificationerror"), "certificate",
+         "Не підтверджено TLS-сертифікат. Перевірте дату Windows і довірені сертифікати; не вимикайте TLS-перевірку."),
+        (("no matching distribution", "could not find a version"), "package-unavailable",
+         "Не знайдено сумісного пакета. Перевірте доступ до PyPI та Python 3.12 x64; повторна інсталяція Python може не допомогти."),
+        (("no python at", "unable to create process"), "broken-interpreter",
+         "Середовище посилається на відсутній Python. Потрібне відновлення .venv-v2 зі справного Python 3.12 x64."),
+        (("no module named", "modulenotfounderror"), "missing-module",
+         "Не знайдено потрібний модуль. Запустіть відновлення бібліотек після перевірки середовища."),
+        (("permission denied", "access is denied", "winerror 5"), "access-denied",
+         "Немає доступу до файлів. Закрийте інші процеси бота й перевірте права та захист папки Windows."),
+        (("no space left", "disk full", "winerror 112"), "disk-full",
+         "Недостатньо вільного місця на диску."),
+        (("proxyerror", "connectionerror", "connection refused", "name resolution", "timed out"), "network",
+         "Не вдалося з'єднатися з джерелом пакетів. Перевірте інтернет, проксі та правила мережі."),
+        (("syntaxerror",), "probe-syntax", "Помилка запуску перевірки Python. Оновіть повний комплект файлів бота."),
+    ):
+        if any(pattern in value for pattern in patterns):
+            return category, hint
+    return "unknown", "Причину не визначено автоматично. Передайте безпечний install-report.json для діагностики; не повторюйте встановлення навмання."
+
+
+def write_failure_report(root, error):
+    path = Path(root) / "data/v2/install-report.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        raise OSError("Report target is a symlink")
+    report = {"status": "failed", "time_utc": datetime.now(UTC).isoformat(),
+              "python_version": list(sys.version_info[:3]), "platform": sys.platform,
+              "stage": getattr(error, "stage", "bootstrap"),
+              "category": getattr(error, "category", "filesystem"),
+              "exit_code": getattr(error, "exit_code", None)}
+    temporary = path.with_name("install-report-" + uuid.uuid4().hex + ".tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as stream:
+            json.dump(report, stream, ensure_ascii=False, indent=2)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def run(args, root):
+    stage = command_stage(args)
     try:
-        result = subprocess.run(args, cwd=root, env=clean_environment(), timeout=600,
+        result = subprocess.run(args, check=False, cwd=root, env=clean_environment(), timeout=600,
                                 capture_output=True, text=True, encoding="utf-8", errors="replace")
     except (OSError, subprocess.SubprocessError) as exc:
-        raise BootstrapError("Не вдалося виконати встановлення. Перевірте Python, доступ, сертифікати й мережу.") from exc
+        category = "timeout" if isinstance(exc, subprocess.TimeoutExpired) else "process-start"
+        raise BootstrapError(f"Етап {stage}: процес не запущено або перевищено час очікування ({category}).",
+                             stage=stage, category=category) from exc
     if result.returncode:
-        # Package manager/parser output can contain credentials in URLs. Keep it private.
-        raise BootstrapError("Перевірка або встановлення не вдалося. Перевірте мережу, сертифікати та ізольоване середовище й повторіть [5].")
+        category, hint = failure_hint((result.stdout or "") + "\n" + (result.stderr or ""))
+        raise BootstrapError(f"Етап {stage}, код {result.returncode}, категорія {category}.\n{hint}",
+                             stage=stage, category=category, exit_code=result.returncode)
     return result.stdout or ""
 
 
@@ -61,8 +135,8 @@ def validate_environment(root):
         cfg = target / "pyvenv.cfg"
         if cfg.is_symlink() or not cfg.is_file():
             raise ValueError("Missing owned venv configuration")
-        values = dict((key.strip().lower(), value.strip().lower()) for key, value in
-                      (line.split("=", 1) for line in cfg.read_text(encoding="utf-8").splitlines() if "=" in line))
+        values = {key.strip().lower(): value.strip().lower() for key, value in
+                      (line.split("=", 1) for line in cfg.read_text(encoding="utf-8").splitlines() if "=" in line)}
         if values.get("include-system-site-packages") != "false":
             raise ValueError("System site packages are not isolated")
         info = json.loads(run([str(python_path(root)), "-I", "-c", ENVIRONMENT_PROBE], root))
@@ -96,11 +170,22 @@ def ensure_pip(root, stamp):
     print("Оновлення pip у .venv-v2 перед встановленням залежностей…")
     run(pip_command(interpreter, "install", "--only-binary=:all:", "--upgrade", "pip==" + PIP_VERSION), root)
     if not pip_is_current(run([interpreter, "-I", "-c", PIP_VERSION_CHECK], root).strip()):
-        raise BootstrapError("Версію виправленого pip не підтверджено. Залежності не встановлювалися; повторіть [5].")
+        raise BootstrapError("Версію виправленого pip не підтверджено. Залежності не встановлювалися; повторіть встановлення.")
 
 
 def python_path(root):
     return root / ".venv-v2" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+
+def create_environment(target):
+    try:
+        venv.EnvBuilder(with_pip=True, system_site_packages=False, clear=False).create(target)
+    except (OSError, subprocess.SubprocessError) as exc:
+        output = str(getattr(exc, "output", "") or "") + str(getattr(exc, "stderr", "") or "")
+        category, hint = failure_hint(output)
+        raise BootstrapError("Не вдалося створити .venv-v2. " + hint,
+                             stage="venv-create", category=category,
+                             exit_code=getattr(exc, "returncode", None)) from exc
 
 
 def prepare(root=ROOT, *, repair=False):
@@ -123,18 +208,44 @@ def prepare(root=ROOT, *, repair=False):
             target.mkdir(exist_ok=True)
             owner.write_text(str(root), encoding="utf-8")
             print("Створення .venv-v2…")
-            venv.EnvBuilder(with_pip=True, system_site_packages=False, clear=False).create(target)
-        validate_environment(root)
+            create_environment(target)
+        try:
+            validate_environment(root)
+        except BootstrapError as error:
+            owner = target / ".yeboy-core-owner"
+            if (error.stage != "environment-probe"
+                    or owner.is_symlink() or not owner.is_file()
+                    or owner.read_text(encoding="utf-8") != str(root)):
+                raise
+            # A copied/relocated or partially created Windows venv may contain
+            # python.exe but cannot execute. Preserve it; rebuild once, not a loop.
+            saved = root / (".venv-v2.failed-" + uuid.uuid4().hex)
+            target.rename(saved)
+            print("Непрацездатне власне середовище збережено в .venv-v2.failed-*; створюється нове.")
+            target.mkdir()
+            (target / ".yeboy-core-owner").write_text(str(root), encoding="utf-8")
+            create_environment(target)
+            validate_environment(root)
         install = repair or not stamp.is_file() or stamp.read_text(encoding="ascii").strip() != digest
         try:
             # Enforce the installer version even if application requirements are unchanged.
             ensure_pip(root, stamp)
+            if not install:
+                try:
+                    run(pip_command(interpreter, "check"), root)
+                    run([str(interpreter), "-I", "-c", IMPORT_CHECK], root)
+                except BootstrapError as error:
+                    if error.stage not in {"dependency-check", "library-import"}:
+                        raise
+                    stamp.unlink(missing_ok=True)
+                    install = True
+                    print("Перевірка бібліотек не пройшла; одна спроба відновлення залежностей…")
             if install:
                 stamp.unlink(missing_ok=True)
                 print("Встановлення залежностей у .venv-v2…")
                 run(pip_command(interpreter, "install", "--only-binary=:all:", "-r", str(requirements)), root)
             if not pip_is_current(run([str(interpreter), "-I", "-c", PIP_VERSION_CHECK], root).strip()):
-                raise BootstrapError("Після встановлення версію pip не підтверджено; повторіть [5].")
+                raise BootstrapError("Після встановлення версію pip не підтверджено; повторіть встановлення.")
             run(pip_command(interpreter, "check"), root)
             run([str(interpreter), "-I", "-c", IMPORT_CHECK], root)
         except BootstrapError:
@@ -164,6 +275,11 @@ def main():
             print(str(exc))
         else:
             print("Перевірте права запису, вільне місце та доступність Python. Дані й конфігурація не видаляються.")
+        try:
+            write_failure_report(ROOT, exc)
+            print("Безпечний звіт: data/v2/install-report.json (без токена, URL і вмісту конфігурації).")
+        except OSError:
+            print("Не вдалося записати звіт. Збережіть зазначені вище етап і код помилки.")
         return 1
     return 0
 

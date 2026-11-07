@@ -16,7 +16,9 @@ class ConfigurationError(ValueError):
     pass
 
 
-def save(root, token, guild, sync):
+def save(root, token, guild, sync, *, prefix=None):
+    if prefix is not None and type(prefix) is not bool:
+        raise ConfigurationError("Префікс: виберіть true або false.")
     if not token or not re.fullmatch(r"[A-Za-z0-9_.-]+", token):
         raise ConfigurationError("Токен порожній або містить неприпустимі символи.")
     if sync not in {"test", "none"}:
@@ -33,7 +35,10 @@ def save(root, token, guild, sync):
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
                 stream.write(original)
-            for key, value in {"DISCORD_TOKEN": token, "TEST_GUILD_ID": guild, "SYNC_COMMANDS": sync}.items():
+            updates = {"DISCORD_TOKEN": token, "TEST_GUILD_ID": guild, "SYNC_COMMANDS": sync}
+            if prefix is not None:
+                updates["ENABLE_PREFIX_COMMANDS"] = str(prefix).lower()
+            for key, value in updates.items():
                 set_key(str(temporary), key, value)
             os.replace(temporary, env)
         finally:
@@ -56,8 +61,12 @@ def wizard(root=ROOT):
     token = token or values.get("DISCORD_TOKEN") or ""
     guild = input("ID тестового сервера (Enter — зберегти наявний): ").strip() or values.get("TEST_GUILD_ID") or ""
     sync = "test" if guild else "none"
-    save(root, token, guild, sync)
+    print("Для команд ! увімкніть Bot → Privileged Gateway Intents → Message Content Intent у Developer Portal.")
+    choice = input("Команди !: true — увімкнути, false — вимкнути, Enter — без змін: ").strip().lower()
+    if choice not in {"", "true", "false"}:
+        raise ConfigurationError("Введіть true, false або залиште поле порожнім. Зміни не збережено.")
+    save(root, token, guild, sync, prefix=None if not choice else choice == "true")
     print("Конфігурацію збережено. Інші параметри залишено. Токен не перевірявся через Discord API.")
-    if os.getenv("DISCORD_TOKEN") or os.getenv("TEST_GUILD_ID") or os.getenv("SYNC_COMMANDS"):
+    if any(os.getenv(key) for key in ("DISCORD_TOKEN", "TEST_GUILD_ID", "SYNC_COMMANDS", "ENABLE_PREFIX_COMMANDS")):
         print("Увага: змінні середовища мають пріоритет над .env.v2.")
     print("Перезапустіть працюючий бот через [2], щоб застосувати зміни.")

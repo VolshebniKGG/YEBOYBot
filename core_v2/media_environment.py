@@ -11,7 +11,7 @@ def javascript_runtime(root=ROOT):
     """Use an already installed trusted runtime; never fetch executable code."""
     suffix = ".exe" if os.name == "nt" else ""
     for name in ("deno", "node"):
-        paths = [root / "bin" / (name + suffix)]
+        paths = [root / "bin" / name / (name + suffix), root / "bin" / (name + suffix)]
         if os.name == "nt" and os.getenv("LOCALAPPDATA"):
             paths.append(Path(os.environ["LOCALAPPDATA"]) / "Microsoft/WinGet/Links" / (name + suffix))
         found = next((str(path.resolve()) for path in paths if path.is_file()), None) or shutil.which(name)
@@ -30,7 +30,8 @@ def ffmpeg_path(configured="ffmpeg", root=ROOT):
         if resolved:
             return resolved
         raise ValueError("FFMPEG_PATH не знайдено; перевірте [25].")
-    paths = [root / "bin" / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")]
+    filename = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    paths = [root / "bin" / "ffmpeg" / filename, root / "bin" / filename]
     if os.name == "nt" and os.getenv("LOCALAPPDATA"):
         paths.append(Path(os.environ["LOCALAPPDATA"]) / "Microsoft/WinGet/Links/ffmpeg.exe")
     for path in paths:

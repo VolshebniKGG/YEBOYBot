@@ -205,7 +205,10 @@ async def test_music_enabled_setup_registers_group_without_connecting_or_startin
         assert group is not None and len(group.commands) == 9
         assert {command.name for command in group.commands} == {
             "play", "join", "queue", "skip", "stop", "autoplay", "pause", "resume", "volume"}
-        assert len(bot.tree.get_commands()) == 21
+        assert len(bot.tree.get_commands()) == 26
+        assert bot.get_cog("Community") is not None
+        assert bot.get_cog("AutoMod") is not None
+        assert bot.get_cog("RolePanels") is not None
         assert {"help", "modules"} <= {command.name for command in bot.tree.get_commands()}
         for command in bot.tree.get_commands():
             command.to_dict(bot.tree)
@@ -214,3 +217,62 @@ async def test_music_enabled_setup_registers_group_without_connecting_or_startin
         await bot.remove_cog("Music")
         await bot.remove_cog("VoiceXP")
         await bot.db.close()
+
+
+def test_portable_layout_is_found_before_path(tmp_path, monkeypatch):
+    suffix = '.exe' if os.name == 'nt' else ''
+    for name in ('ffmpeg', 'deno'):
+        executable = tmp_path / 'bin' / name / (name + suffix)
+        executable.parent.mkdir(parents=True)
+        executable.touch()
+    monkeypatch.setattr(environment.shutil, 'which', lambda name: '/other/' + name)
+    assert environment.ffmpeg_path(root=tmp_path) == str((tmp_path / 'bin/ffmpeg' / ('ffmpeg' + suffix)).resolve())
+    assert environment.javascript_runtime(tmp_path) == {
+        'deno': {'path': str((tmp_path / 'bin/deno' / ('deno' + suffix)).resolve())}}
+
+
+def test_enabled_readiness_honors_override_without_loading_token(tmp_path, monkeypatch):
+    root = setup_root(tmp_path)
+    (root / '.env.v2').write_text('ENABLE_MUSIC=true\nFFMPEG_PATH=custom.exe\nDISCORD_TOKEN=\n')
+    monkeypatch.delenv('ENABLE_MUSIC', raising=False)
+    monkeypatch.delenv('FFMPEG_PATH', raising=False)
+    check = MagicMock()
+    monkeypatch.setattr(media, 'check_music', check)
+    media.check_enabled_music(root)
+    check.assert_called_once_with('custom.exe', root)
+    check.reset_mock()
+    monkeypatch.setenv('ENABLE_MUSIC', 'false')
+    media.check_enabled_music(root)
+    check.assert_not_called()
+    monkeypatch.setenv('ENABLE_MUSIC', 'true')
+    monkeypatch.setenv('FFMPEG_PATH', 'override.exe')
+    media.check_enabled_music(root)
+    check.assert_called_once_with('override.exe', root)
+    monkeypatch.setenv('ENABLE_MUSIC', 'yes')
+    with pytest.raises(ValueError, match='ENABLE_MUSIC'):
+        media.check_enabled_music(root)
+
+
+def test_portable_preparation_preserves_disabled_music_and_private_options(tmp_path, monkeypatch):
+    from tools import portable_media
+    root = setup_root(tmp_path)
+    private = '[Credentials]\nToken=synthetic-private\n'
+    (root / 'config/options.ini').write_text(private)
+    (root / '.env.v2').write_text('ENABLE_MUSIC=false\nDISCORD_TOKEN=synthetic\n')
+    before = (root / '.env.v2').read_bytes()
+    events = []
+    monkeypatch.setattr(portable_media, 'ensure_tools', lambda root: events.append('install'))
+    monkeypatch.setattr(media, 'check_music', lambda configured, root: events.append('check'))
+    media.prepare_portable(root)
+    assert events == ['install', 'check']
+    assert (root / '.env.v2').read_bytes() == before
+    assert (root / 'config/options.ini').read_text() == private
+
+
+def test_music_prepare_failure_returns_nonzero_without_success_or_secrets(tmp_path, monkeypatch, capsys):
+    def fail(root):
+        raise OSError('synthetic-secret')
+    monkeypatch.setattr(media, 'prepare_portable', fail)
+    assert media.main(tmp_path) == 1
+    text = capsys.readouterr().out
+    assert '[ПОМИЛКА]' in text and 'synthetic-secret' not in text and '[OK]' not in text

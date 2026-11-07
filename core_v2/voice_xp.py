@@ -138,7 +138,10 @@ class VoiceXP(commands.Cog):
                     session.since = now
                     try:
                         async with asyncio.timeout(5):
-                            await self.bot.db.award(*key, kind="voice")
+                            awarded = await self.bot.db.award(*key, kind="voice")
+                            rewards = getattr(self.bot, "get_cog", lambda _: None)("LevelRewards")
+                            if awarded is not None and rewards is not None:
+                                rewards.enqueue(*key)
                     except Exception as error:
                         # A timeout may hide a committed write. Wait a complete
                         # new minute; durable last_voice also rejects duplicates.

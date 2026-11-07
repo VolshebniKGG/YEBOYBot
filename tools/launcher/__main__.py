@@ -63,13 +63,14 @@ def main():
     os.chdir(ROOT)
     from . import process, storage, update, configuration, autostart, migrations, pg_workflow
     from . import media, rank_import
+    from .interface import show_menu
     actions = {
         "2": ("Перезапустити бота", lambda: print(process.restart()["status"])),
         "3": ("Зупинити бота", lambda: print("Зупинено" if process.stop() else "Не зупинено")),
         "1": ("Запустити Discord-бота", start),
         "4": ("Перевірити конфігурацію та БД", lambda: run("-m", "tools.launcher.diagnostics")),
         "24": ("Повне встановлення / відновлення Core V2", full_setup),
-        "25": ("Музика: options.ini / FFmpeg / увімкнення", media.menu),
+        "25": ("Музика: автоматична підготовка й увімкнення", media.menu),
         "26": ("Перенести старий XP у Core V2 (SQLite)", rank_import.menu),
         "5": ("Оновити Python-залежності", repair_dependencies),
         "6": ("Оновити YEBOYBot із GitHub", update.menu),
@@ -87,18 +88,15 @@ def main():
         "12": ("Початкове налаштування", lambda: (setup(), run("-m", "core_v2.doctor"))),
     }
     while True:
-        print("\n=== YEBOYBot Core V2 | Windows ===")
-        print("Стан:", process.state()["status"])
-        for key, (label, _) in actions.items():
-            print(f"[{key}] {label}")
-        print("[0] Вихід")
-        choice = input("Виберіть дію: ").strip()
+        show_menu(actions, process.state()["status"])
+        choice = input("  Номер дії › ").strip()
         if choice == "0":
             return 0
         if choice not in actions:
-            print("Невідома дія. Недоступні функції не показуються.")
+            print("Номер не знайдено. Виберіть дію з меню або [0], щоб закрити панель.")
             continue
         try:
+            print(f"\n  › {actions[choice][0]}\n")
             result = actions[choice][1]()
             if choice == "24" and result == SETUP_EXIT_CODE:
                 return SETUP_EXIT_CODE

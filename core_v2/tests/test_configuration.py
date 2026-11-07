@@ -30,3 +30,17 @@ def test_wizard_keeps_token_without_printing_it(tmp_path, monkeypatch, capsys):
     wizard(tmp_path)
     assert dotenv_values(path)['DISCORD_TOKEN'] == 'fake.secret'
     assert 'fake.secret' not in capsys.readouterr().out
+
+
+def test_prefix_choice_is_explicit_and_preserves_other_configuration(tmp_path):
+    path = tmp_path / '.env.v2'
+    path.write_text('DISCORD_TOKEN=old\nENABLE_MUSIC=true\nENABLE_PREFIX_COMMANDS=true\n')
+    save(tmp_path, 'fake.token', '123', 'test')
+    assert dotenv_values(path)['ENABLE_PREFIX_COMMANDS'] == 'true'
+    save(tmp_path, 'fake.token', '123', 'test', prefix=False)
+    assert dotenv_values(path)['ENABLE_PREFIX_COMMANDS'] == 'false'
+    assert dotenv_values(path)['ENABLE_MUSIC'] == 'true'
+    before = path.read_bytes()
+    with pytest.raises(ConfigurationError):
+        save(tmp_path, 'fake.token', '123', 'test', prefix='true')
+    assert path.read_bytes() == before

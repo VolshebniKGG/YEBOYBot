@@ -30,7 +30,9 @@ function Find-YeboyPython {
             }
         }
         foreach ($key in @('HKCU:\SOFTWARE\Python\PythonCore\3.12\InstallPath',
+                            'HKCU:\SOFTWARE\Python\PythonCore\3.12-64\InstallPath',
                             'HKLM:\SOFTWARE\Python\PythonCore\3.12\InstallPath',
+                            'HKLM:\SOFTWARE\Python\PythonCore\3.12-64\InstallPath',
                             'HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore\3.12\InstallPath')) {
             $registry = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
             if ($registry) {
@@ -50,7 +52,7 @@ function Find-YeboyPython {
             try {
                 $prefix = $candidate.Prefix
                 $global:LASTEXITCODE = 1
-                $found = @(& $candidate.Path @prefix -I -X utf8 -c "import sys,struct,venv;print(sys.executable);sys.exit(sys.version_info[:2]!=(3,12) or struct.calcsize('P')!=8)" 2>$null)
+                $found = @(& $candidate.Path @prefix -I -X utf8 -c "import sys,struct,venv,ensurepip;print(sys.executable);sys.exit(sys.version_info[:2]!=(3,12) or struct.calcsize('P')!=8)" 2>$null)
                 if ($LASTEXITCODE -eq 0 -and $found.Count -eq 1 -and
                     (Test-Path -LiteralPath ([string]$found[0]) -PathType Leaf)) {
                     return [string]$found[0]
@@ -98,13 +100,25 @@ function Invoke-YeboyBootstrap {
     }
 }
 
+function Invoke-YeboyMedia {
+    $python = Join-Path $script:YeboyRoot '.venv-v2\Scripts\python.exe'
+    try {
+        $global:LASTEXITCODE = 1
+        & $python -I -X utf8 -c $script:YeboyModuleCode $script:YeboyRoot 'tools.launcher.media' --prepare | Out-Host
+        return [int]$LASTEXITCODE
+    } catch {
+        Write-Host 'Не вдалося підготувати FFmpeg і Deno. Зупиніть бота та перевірте доступ до папки й мережі.'
+        return 1
+    }
+}
+
 function Test-YeboyEnvironment {
     $directory = Join-Path $script:YeboyRoot '.venv-v2'
     $python = Join-Path $directory 'Scripts\python.exe'
     if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { return $false }
     if ((Get-Item -LiteralPath $directory).Attributes -band [IO.FileAttributes]::ReparsePoint) { return $false }
     # Reuse the existing isolation/path checks before importing runtime packages.
-    $check = "import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);from tools.launcher.bootstrap import validate_environment;validate_environment(Path(sys.argv[1]));import discord,sqlalchemy,aiosqlite,asyncpg,dotenv"
+    $check = "import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);from tools.launcher.bootstrap import validate_environment,IMPORT_CHECK;validate_environment(Path(sys.argv[1]));exec(IMPORT_CHECK);from tools.launcher.media import check_enabled_music;check_enabled_music(Path(sys.argv[1]))"
     try {
         $global:LASTEXITCODE = 1
         & $python -I -X utf8 -c $check $script:YeboyRoot *> $null
@@ -126,7 +140,7 @@ function Start-YeboyMenu {
 
 function Install-YeboyCore {
     param([switch]$AllowPythonInstall, [switch]$Repair)
-    Write-Host '[1/3] Перевірка Python 3.12 x64...'
+    Write-Host '[1/4] Перевірка Python 3.12 x64...'
     $python = Find-YeboyPython
     if (-not $python) {
         if (-not $AllowPythonInstall) {
@@ -155,15 +169,20 @@ function Install-YeboyCore {
             return 1
         }
     }
-    Write-Host '[2/3] Окреме середовище й усі бібліотеки Core V2...'
+    Write-Host ('Знайдено сумісний Python 3.12 x64: {0}' -f $python)
+    Write-Host '[2/4] Окреме середовище й усі бібліотеки Core V2...'
     $prepared = Invoke-YeboyBootstrap -Python $python -Repair:$Repair
     if ($prepared -ne 0) { return $prepared }
-    Write-Host '[3/3] Перевірка середовища та критичних бібліотек...'
+    Write-Host '[3/4] Локальні FFmpeg і Deno: перевірка та підготовка...'
+    $media = Invoke-YeboyMedia
+    if ($media -ne 0) { return $media }
+    Write-Host '[4/4] Перевірка середовища та критичних бібліотек...'
     if (-not (Test-YeboyEnvironment)) {
-        Write-Host 'Перевірка бібліотек не пройдена. Встановлення не позначено завершеним; повторіть [1].'
+        Write-Host 'Перевірка бібліотек не пройдена. Для відновлення виконайте в папці бота:'
+        Write-Host 'powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows_setup.ps1 -Mode Repair'
         return 1
     }
-    Write-Host 'ГОТОВО: Python і бібліотеки Core V2 перевірені.'
+    Write-Host 'ГОТОВО: Python, бібліотеки Core V2, FFmpeg і Deno перевірені.'
     Write-Host 'Далі у панелі: [12] налаштування Discord, потім [1] запуск бота.'
     return 0
 }
@@ -171,25 +190,32 @@ function Install-YeboyCore {
 function Show-YeboySetup {
     while ($true) {
         Write-Host ''
-        Write-Host '========================================================='
-        Write-Host '         YEBOYBot — ПОЧАТКОВЕ ВСТАНОВЛЕННЯ'
-        Write-Host '========================================================='
-        Write-Host '[1] Встановити все для Core V2 / відновити бібліотеки'
-        Write-Host '[0] Вихід'
+        Write-Host '════════════════════════════════════════════════════════════════════════'
+        Write-Host '  YEBOYBot  /  ПОЧАТКОВЕ ВСТАНОВЛЕННЯ'
+        Write-Host '  Підготуємо все необхідне для першого запуску.'
+        Write-Host '════════════════════════════════════════════════════════════════════════'
+        Write-Host '[0] Закрити вікно без встановлення'
+        Write-Host '[1] Перевірити й встановити потрібне для Core V2'
         Write-Host ''
         Write-Host '[1] дозволяє встановити Python 3.12 x64 для цього користувача,'
         Write-Host 'якщо його немає, через WinGet з погодженням умов Python і каталогу.'
-        Write-Host 'Потім буде підготовлено .venv-v2 з бібліотеками бота.'
+        Write-Host 'Наявний сумісний Python і перевірені бібліотеки буде використано повторно.'
+        Write-Host 'Далі: бібліотеки бота, FFmpeg і Deno у папці bin (без зміни PATH).'
+        Write-Host 'Архіви програм завантажуються через HTTPS із перевіркою SHA-256.'
         Write-Host 'Потрібні інтернет і дозвіл Windows на встановлення програм.'
-        $choice = Read-Host 'Виберіть дію (Enter — вихід)'
+        $choice = Read-Host 'Номер дії (Enter — вихід)'
         if ([string]::IsNullOrWhiteSpace($choice) -or $choice.Trim() -eq '0') { return 0 }
         if ($choice.Trim() -ne '1') {
             Write-Host 'Оберіть [1] для встановлення або [0] для виходу.'
             continue
         }
-        $result = Install-YeboyCore -AllowPythonInstall -Repair
+        $result = Install-YeboyCore -AllowPythonInstall
         if ($result -eq 0) { return 0 }
-        Write-Host 'Встановлення не завершено. Можна повторити [1] або вийти [0].'
+        Write-Host ''
+        Write-Host ('Встановлення зупинено (код {0}). Причина наведена вище.' -f $result)
+        Write-Host 'Усуньте вказану причину й відкрийте YEBOYBot.cmd знову.'
+        Write-Host 'Повторення без змін не допоможе; конфігурація та дані бота збережені.'
+        return $result
     }
 }
 
