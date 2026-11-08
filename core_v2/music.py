@@ -220,16 +220,25 @@ class FFmpegVoiceBackend:
             if source is not None:
                 source.after = None
                 source.finished = True
-                self.voice.stop()
-                self._schedule_cleanup(source)
+                try:
+                    self.voice.stop()
+                except Exception as error:
+                    log.warning("Music voice stop failed during play cleanup type=%s",
+                                type(error).__name__)
+                finally:
+                    self._schedule_cleanup(source)
             raise MusicError("Не вдалося почати відтворення. Перевірте FFmpeg і voice-бібліотеки.") from None
 
     def stop(self):
-        self.voice.stop()
         source = self._source
-        if source is not None:
-            source.finished = True
-            self._schedule_cleanup(source)
+        try:
+            self.voice.stop()
+        finally:
+            # A failed Discord stop must not strand our owned FFmpeg process.
+            # Keep the failure observable; teardown must not claim success.
+            if source is not None:
+                source.finished = True
+                self._schedule_cleanup(source)
 
     def set_paused(self, paused):
         self._set_pause_flags(manual=self._manual_paused, automatic=paused)
@@ -578,6 +587,11 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
                     if session:
                         if session.closing or session.close_failed:
                             raise UserError(CLOSE_PENDING)
+                        worker = getattr(session.player, "_task", None)
+                        if (session.player is None or getattr(session.player, "_closed", False)
+                                or (worker is not None and worker.done())):
+                            raise UserError("Музичний плеєр завершився. Використайте /music stop "
+                                            "перед новим підключенням.")
                         if session.backend.voice.channel.id != channel.id:
                             raise UserError("Бот уже працює в іншому голосовому каналі цього сервера.")
                         if not session.backend.is_connected():

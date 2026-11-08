@@ -457,6 +457,28 @@ async def test_backend_reaps_source_if_voice_play_raises_and_hides_raw_error(bac
     assert backend.backend._source is None
 
 
+async def test_voice_stop_exception_still_reaps_owned_ffmpeg(backend):
+    backend.backend.play(track(), MagicMock())
+    backend.voice.stop.side_effect = RuntimeError("private-stream-url")
+    with pytest.raises(RuntimeError):
+        backend.backend.stop()
+    assert await backend.backend.wait_stopped()
+    backend.wrapped.cleanup.assert_called_once()
+    assert backend.backend._source is None
+
+
+async def test_voice_play_and_stop_exceptions_still_reap_and_sanitize(backend, caplog):
+    backend.voice.play.side_effect = RuntimeError("private-play-url")
+    backend.voice.stop.side_effect = RuntimeError("private-stop-url")
+    with pytest.raises(MusicError) as error:
+        backend.backend.play(track(), MagicMock())
+    assert "private" not in str(error.value)
+    assert await backend.backend.wait_stopped()
+    backend.wrapped.cleanup.assert_called_once()
+    assert backend.backend._source is None
+    assert "private" not in caplog.text
+
+
 async def test_backend_reaps_raw_source_if_transformer_raises(backend):
     backend.transformer.side_effect = RuntimeError("bad transformer")
     with pytest.raises(MusicError):
@@ -584,3 +606,12 @@ async def test_remove_queue_rejects_private_service_failure(invocation):
     with pytest.raises(UserError, match="власне замовлення"):
         await invoke(fixture, "remove", 1)
     fixture.interaction.followup.send.assert_not_awaited()
+
+async def test_finished_worker_cannot_accept_new_play_requests(invocation):
+    fixture = invocation
+    await fixture.cog._ensure(fixture.guild, fixture.channel)
+    fixture.player._task = SimpleNamespace(done=lambda: True)
+    with pytest.raises(UserError, match="завершився"):
+        await invoke(fixture, "play", "назва треку")
+    fixture.player.enqueue.assert_not_awaited()
+    fixture.channel.connect.assert_awaited_once()

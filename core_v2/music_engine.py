@@ -363,8 +363,8 @@ class GuildPlayer:
 
     async def enqueue(self, source, requester_id):
         validate_source(source)
-        if self._closed or not self.backend.is_connected():
-            raise MusicError("Спочатку підключіть бота до голосового каналу.")
+        if self._closed or self._task.done() or not self.backend.is_connected():
+            raise MusicError("Музичний плеєр недоступний. Використайте /music stop перед новим підключенням.")
         if type(requester_id) is not int or not 0 < requester_id < 2**63:
             raise MusicError("Не вдалося визначити автора замовлення.")
         if len(self.queue) >= self.options.max_queue:
@@ -405,6 +405,8 @@ class GuildPlayer:
     async def set_autoplay(self, enabled):
         if type(enabled) is not bool:
             raise MusicError("Виберіть увімкнення або вимкнення автоплейлиста.")
+        if self._closed or self._task.done():
+            raise MusicError("Музичний плеєр недоступний. Використайте /music stop перед новим підключенням.")
         self.autoplay_enabled = enabled
         if not enabled and self.request and self.request.requester_id is None:
             self._interrupted = True
@@ -639,7 +641,12 @@ class GuildPlayer:
         except asyncio.CancelledError:
             raise
         finally:
-            self.backend.stop()
+            try:
+                self.backend.stop()
+            except Exception as error:
+                # A failed adapter stop must not hide the worker's terminal state.
+                log.warning("Music final stop failed guild=%s type=%s",
+                            self.guild_id, type(error).__name__)
             self.current = self.request = None
             self.state = "closed" if self._closed else "disconnected"
 

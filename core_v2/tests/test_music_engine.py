@@ -541,3 +541,27 @@ async def test_remove_rejects_invalid_indices_and_cannot_remove_active_track(mus
     with pytest.raises(MusicError, match="позиції"):
         await player.remove(1, 11, manage_guild=True)
     assert player.current.title == "first"
+
+async def test_failed_backend_stop_quarantines_worker_and_queue(caplog):
+    class BrokenStop(Backend):
+        def stop(self):
+            self.stops += 1
+            raise RuntimeError("private-voice-url")
+
+    backend = BrokenStop()
+    manager = MusicManager(MusicOptions(autoplay_random=False), [], Resolver())
+    try:
+        player = manager.attach(7, backend)
+        await player.enqueue("song", 11)
+        await eventually(lambda: player.current is not None)
+        backend.callbacks[-1](None)
+        await eventually(player._task.done)
+        assert player.state == "disconnected"
+        assert player._task.exception() is None
+        with pytest.raises(MusicError, match="недоступний"):
+            await player.enqueue("another", 11)
+        with pytest.raises(MusicError, match="недоступний"):
+            await player.set_autoplay(True)
+        assert "private-voice-url" not in caplog.text
+    finally:
+        await manager.close()
