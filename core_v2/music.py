@@ -192,15 +192,25 @@ class FFmpegVoiceBackend:
         if self.voice.is_playing() or self.voice.is_paused():
             raise MusicError("Попередній аудіопотік ще завершується.")
         stream = _stream_url(track.stream_url)
+        if type(getattr(track, "is_live", False)) is not bool:
+            raise MusicError("Не вдалося визначити тип аудіопотоку.")
+        is_live = getattr(track, "is_live", False)
         loop = asyncio.get_running_loop()
         source = None
         try:
+            # Only verified live streams may retry EOF as an endless feed.
+            # Bounded FFmpeg retries are followed by fresh yt-dlp resolution
+            # in GuildPlayer, instead of retrying an expired signed CDN URL.
+            before = ("-nostdin -protocol_whitelist https,tls,tcp,crypto "
+                      "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
+                      "-rw_timeout 15000000")
+            if is_live:
+                before += (" -reconnect_at_eof 1 -reconnect_on_network_error 1 "
+                           "-reconnect_on_http_error 500,502,503,504 "
+                           "-reconnect_max_retries 6 -reconnect_delay_total_max 45")
             raw = discord.FFmpegPCMAudio(
                 stream, executable=self.executable, stderr=subprocess.DEVNULL,
-                before_options=("-nostdin -protocol_whitelist https,tls,tcp,crypto "
-                                "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
-                                "-rw_timeout 15000000"),
-                options="-vn -sn -dn -loglevel error")
+                before_options=before, options="-vn -sn -dn -loglevel error")
             try:
                 wrapped = discord.PCMVolumeTransformer(raw, volume=self.volume)
             except Exception:
@@ -789,6 +799,8 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         snapshot = session.player.snapshot()
         current = snapshot["current"]
         title = discord.utils.escape_mentions(discord.utils.escape_markdown(current.title[:180])) if current else "Немає"
+        if current and getattr(current, "is_live", False) is True:
+            title = "🔴 LIVE · " + title
         kind = "автоплейлист" if snapshot["autoplay"] else "замовлення"
         states = {"idle": "Очікування замовлень", "resolving": "Отримання треку",
                   "playing": "Відтворення", "reconnecting": "Відновлення з'єднання",

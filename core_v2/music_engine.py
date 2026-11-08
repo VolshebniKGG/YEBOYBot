@@ -29,6 +29,8 @@ log = logging.getLogger(__name__)
 CLEANUP_RETRY_INTERVAL = 1
 MAX_WORKER_INPUT = 16_384
 MAX_WORKER_OUTPUT = 64_000
+MAX_LIVE_RETRIES = 6
+LIVE_STABLE_SECONDS = 60
 
 FAILURE_MESSAGES = {
     "network": "Мережа не дала отримати трек. Перевірте інтернет, DNS і налаштований proxy; спробуйте пізніше.",
@@ -39,7 +41,8 @@ FAILURE_MESSAGES = {
     "format_unavailable": "Джерело не надало підтримуваний аудіоформат. Зупиніть бот, оновіть бібліотеки через [5] або виберіть інший трек.",
     "runtime_missing": "Для YouTube не підтверджено JS runtime. Перевірте Deno або Node.js ≥20; Windows: [25] → [4], бібліотеки: [5].",
     "extractor_timeout": "Джерело не відповіло вчасно. Перевірте мережу або спробуйте інший трек.",
-    "playback_error": "Відтворення перервано. Перевірте голосове з’єднання та FFmpeg через [25]; наступна спроба матиме паузу.",
+    "playback_error": "Відтворення перервано. Перевірте голосове з’єднання та FFmpeg через [20]; наступна спроба матиме паузу.",
+    "live_unavailable": "Прямий ефір недоступний після кількох спроб. Перевірте, чи трансляція триває, або оберіть інший ефір.",
 }
 
 
@@ -165,6 +168,7 @@ class Track:
     stream_url: str
     page_url: str
     duration: float | None = None
+    is_live: bool = False
 
 
 @dataclass(frozen=True)
@@ -244,6 +248,32 @@ def validate_stream_url(value: str) -> str:
     return value
 
 
+def extractor_payload(info):
+    """Normalize one yt-dlp result without trusting its duration or live flags.
+
+    A live broadcast has no fixed duration. Former livestream recordings
+    remain ordinary bounded tracks; upcoming and post-live feeds are not audio.
+    """
+    if not isinstance(info, dict):
+        raise ValueError
+    state = info.get("live_status")
+    flag = info.get("is_live")
+    if (flag is not None and type(flag) is not bool or
+            state not in (None, "is_live", "is_upcoming", "was_live",
+                          "not_live", "post_live") or
+            state in {"is_upcoming", "post_live"}):
+        raise ValueError
+    is_live = flag is True or state == "is_live"
+    duration = info.get("duration")
+    if is_live:
+        duration = None
+    elif type(duration) not in (int, float) or not 0 < duration <= 14_400:
+        raise ValueError
+    stream = validate_stream_url(info["url"])
+    return {"title": str(info.get("title") or "Трек")[:500],
+            "stream_url": stream, "duration": duration, "is_live": is_live}
+
+
 class YTDLPResolver:
     def __init__(self, *, timeout=35, spotify=None):
         self.timeout = timeout
@@ -281,10 +311,16 @@ class YTDLPResolver:
                 stream_url = validate_stream_url(payload["stream_url"])
                 title = payload["title"]
                 duration = payload["duration"]
-                if (not isinstance(title, str) or not title or len(title) > 500 or
-                        type(duration) not in (int, float) or not 0 < duration <= 14_400):
+                is_live = payload.get("is_live", False)
+                if not isinstance(title, str) or not title or len(title) > 500 or type(is_live) is not bool:
                     raise ValueError
-                return Track(title, stream_url, source, float(duration))
+                if is_live:
+                    if duration is not None:
+                        raise ValueError
+                    return Track(title, stream_url, source, None, True)
+                if type(duration) not in (int, float) or not 0 < duration <= 14_400:
+                    raise ValueError
+                return Track(title, stream_url, source, float(duration), False)
         except asyncio.CancelledError:
             raise
         except MusicError as error:
@@ -803,12 +839,7 @@ def _extractor_worker():
                 info = extractor.extract_info(query, download=False)
                 if "entries" in info:
                     info = next(entry for entry in info["entries"] if entry)
-                stream = validate_stream_url(info["url"])
-                duration = info.get("duration")
-                if info.get("is_live") or type(duration) not in (int, float) or not 0 < duration <= 14_400:
-                    raise ValueError
-                result = json.dumps({"title": str(info.get("title") or "Трек")[:500],
-                                     "stream_url": stream, "duration": duration})
+                result = json.dumps(extractor_payload(info))
         print(result)
     except Exception as error:
         print(json.dumps({"error": normalize_failure_code(logger.failure(error))}))
