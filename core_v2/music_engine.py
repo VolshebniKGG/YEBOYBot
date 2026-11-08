@@ -452,13 +452,19 @@ class GuildPlayer:
                 "manual_paused": self.manual_paused}
 
     async def close(self):
+        """Release player state even when the voice adapter fails to stop."""
         self._closed = True
+        self._changed.set()
         self._task.cancel()
         await asyncio.gather(self._task, return_exceptions=True)
-        self.backend.stop()
-        self.queue.clear()
-        self.current = self.request = None
-        self.state = "closed"
+        try:
+            self.backend.stop()
+        except Exception:
+            log.warning("Music backend stop failed during close guild=%s", self.guild_id)
+        finally:
+            self.queue.clear()
+            self.current = self.request = None
+            self.state = "closed"
 
     def _next(self):
         if self.queue:
