@@ -728,3 +728,100 @@ async def test_repeat_rejects_invalid_values_and_stopped_player(music):
     await player.close()
     with pytest.raises(MusicError, match="зупинено"):
         await player.set_repeat("one")
+
+
+async def test_enqueue_next_preserves_active_audio_and_waiting_order(music):
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.enqueue("active", 11)
+    await eventually(lambda: player.current is not None and player.current.title == "active")
+    for name in ("a", "b"):
+        await player.enqueue(name, 22)
+    before = (backend.stops, len(backend.played))
+    assert await player.enqueue_next("next-track", 44) == 1
+    assert [item.source for item in player.queue] == ["next-track", "a", "b"]
+    assert player.current.title == "active"
+    assert (backend.stops, len(backend.played)) == before
+
+
+async def test_clear_queue_does_not_stop_active_stream_or_voice(music):
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.enqueue("active", 11)
+    await eventually(lambda: player.current is not None)
+    for name in ("a", "b", "c"):
+        await player.enqueue(name, 22)
+    before = (backend.stops, len(backend.played))
+    assert await player.clear_queue() == 3
+    assert await player.clear_queue() == 0
+    assert tuple(player.queue) == ()
+    assert player.current.title == "active"
+    assert (backend.stops, len(backend.played)) == before
+    assert await player.enqueue("new", 33) == 1
+
+
+async def test_jump_places_selected_waiting_track_next_without_discarding_others(music):
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.enqueue("active", 11)
+    await eventually(lambda: player.current is not None and player.current.title == "active")
+    for name in ("first", "second", "target", "fourth"):
+        await player.enqueue(name, 22)
+    assert await player.jump(3) == 22
+    assert [item.source for item in player.queue] == ["target", "first", "second", "fourth"]
+    await eventually(lambda: len(backend.played) >= 2)
+    assert backend.played[-1].title == "target"
+    assert [item.source for item in player.queue] == ["first", "second", "fourth"]
+
+
+async def test_jump_preempts_repeat_one_without_replaying_skipped_audio(music):
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.set_repeat("one")
+    await player.enqueue("active", 11)
+    await eventually(lambda: player.current is not None and player.current.title == "active")
+    await player.enqueue("target", 22)
+    await player.enqueue("remaining", 33)
+    assert await player.jump(1) == 22
+    await eventually(lambda: len(backend.played) == 2)
+    assert [track.title for track in backend.played] == ["active", "target"]
+    assert [item.source for item in player.queue] == ["remaining"]
+
+
+async def test_jump_clear_next_validation_and_closed_state(music):
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.enqueue("active", 11)
+    await eventually(lambda: player.current is not None and player.current.title == "active")
+    await player.enqueue("waiting", 22)
+    for position in (0, -1, 2, 50, True, False, 1.0, "1"):
+        with pytest.raises(MusicError, match="позиції|позиція"):
+            await player.jump(position)
+    for value in (None, True, "yes", 1):
+        with pytest.raises(MusicError, match="порядок"):
+            await player.enqueue("other", 22, next_up=value)
+    assert [item.source for item in player.queue] == ["waiting"]
+    await player.close()
+    with pytest.raises(MusicError, match="зупинено"):
+        await player.clear_queue()
+    with pytest.raises(MusicError, match="зупинено"):
+        await player.jump(1)
+    with pytest.raises(MusicError, match="недоступний"):
+        await player.enqueue_next("after-close", 22)
+
+
+async def test_next_clear_jump_are_isolated_by_guild(music):
+    left, right = music.attach(1, Backend()), music.attach(2, Backend())
+    await left.enqueue("active-L", 11)
+    await right.enqueue("active-R", 22)
+    await eventually(lambda: left.current is not None and right.current is not None)
+    for name in ("a", "b", "c"):
+        await left.enqueue(name, 11)
+        await right.enqueue(name, 22)
+    before = tuple(right.queue)
+    await left.enqueue_next("new-first", 11)
+    assert tuple(right.queue) == before
+    assert await left.clear_queue() == 4
+    assert tuple(right.queue) == before
+    assert await right.jump(2) == 22
+    assert tuple(left.queue) == ()
