@@ -163,7 +163,7 @@ def test_worker_success_still_has_no_provider_noise(monkeypatch, capsys):
     worker(monkeypatch, {"query": "title"})
     module._extractor_worker()
     output = capsys.readouterr()
-    assert json.loads(output.out) == {"title": "Пісня", "stream_url": "https://x.googlevideo.com/a", "duration": 180}
+    assert json.loads(output.out) == {"title": "Пісня", "stream_url": "https://x.googlevideo.com/a", "duration": 180, "is_live": False}
     assert output.err == "" and "synthetic-secret" not in output.out
 
 
