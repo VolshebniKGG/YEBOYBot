@@ -530,6 +530,10 @@ async def test_real_music_tree_has_eleven_commands_with_optional_integer_volume_
         assert len(field.value.encode("utf-16-le")) // 2 <= 1024
         parts.extend([field.name, field.value])
     assert sum(len(part.encode("utf-16-le")) // 2 for part in parts) <= 6000
-    assert "volume" in str(embed.to_dict())
+    # Music help is paginated: the eleventh command moves volume to page 2.
+    assert "volume" not in {field.name for field in embed.fields}
+    final_page = render_help(entries, "music", 2)
+    assert any(field.name == "/music volume" for field in final_page.fields)
+    assert all(field.name.startswith("/music ") for field in final_page.fields)
     tree.sync.assert_not_awaited()
     tree.fetch_commands.assert_not_awaited()
