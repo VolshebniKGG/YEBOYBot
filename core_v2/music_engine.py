@@ -405,7 +405,9 @@ class GuildPlayer:
     async def set_autoplay(self, enabled):
         if type(enabled) is not bool:
             raise MusicError("Виберіть увімкнення або вимкнення автоплейлиста.")
-        if self._closed or self._task.done():
+        if self._closed:
+            return  # Keep the established no-op behavior after a clean close.
+        if self._task.done():
             raise MusicError("Музичний плеєр недоступний. Використайте /music stop перед новим підключенням.")
         self.autoplay_enabled = enabled
         if not enabled and self.request and self.request.requester_id is None:
@@ -640,6 +642,12 @@ class GuildPlayer:
                     self._failures = 0
         except asyncio.CancelledError:
             raise
+        except Exception as error:
+            # An unexpected worker failure must be observable but never leave
+            # a task exception carrying an untrusted URL or extractor detail.
+            # New commands are rejected because this task is now finished.
+            log.warning("Music worker exited guild=%s type=%s",
+                        self.guild_id, type(error).__name__)
         finally:
             try:
                 self.backend.stop()
