@@ -382,6 +382,9 @@ class GuildPlayer:
         self.autoplay_enabled = self.options.use_autoplay
         self.repeat_mode = "off"
         self._repeat_one = None
+        self._live_retry = None
+        self._live_retry_count = 0
+        self._resuming_live = False
         self.queue = deque()
         self.current = None
         self.request = None
@@ -432,9 +435,11 @@ class GuildPlayer:
         """Remove waiting requests, never the current track or voice client."""
         if self._closed or self._task.done():
             raise MusicError("Музичний плеєр уже зупинено.")
-        count = len(self.queue)
+        count = len(self.queue) + (1 if self._live_retry is not None else 0)
         if count:
             self.queue.clear()
+            self._live_retry = None
+            self._live_retry_count = 0
             self._changed.set()
         return count
 
@@ -516,10 +521,13 @@ class GuildPlayer:
         return len(shuffled)
 
     async def skip(self):
-        if self._closed or self.request is None:
+        if self._closed or (self.request is None and self._live_retry is None):
             return False
         self._repeat_one = None
-        self._interrupted = True
+        self._live_retry = None
+        self._live_retry_count = 0
+        if self.request is not None:
+            self._interrupted = True
         self._changed.set()
         return True
 
@@ -622,17 +630,25 @@ class GuildPlayer:
         finally:
             self.queue.clear()
             self._repeat_one = None
+            self._live_retry = None
+            self._live_retry_count = 0
             self.repeat_mode = "off"
             self.current = self.request = None
             self.state = "closed"
 
     def _next(self):
+        self._resuming_live = False
         if self.repeat_mode == "one" and self._repeat_one is not None:
             request = self._repeat_one
             self._repeat_one = None
             return request
         if self.queue:
             return self.queue.popleft()
+        if self._live_retry is not None:
+            request = self._live_retry
+            self._live_retry = None
+            self._resuming_live = True
+            return request
         items = self.manager.autoplaylist
         if self.autoplay_enabled and items:
             if self.options.autoplay_random:
@@ -763,9 +779,23 @@ class GuildPlayer:
                     if failed:
                         self.error_code = "playback_error"
                         self.error = failure_message(self.error_code)
-                    elif not self._interrupted and self.request.requester_id is not None:
-                        # Repeat only completed user requests, not auto tracks,
-                        # skips or failed streams. Never store signed media URLs.
+                    if not self._interrupted and getattr(track, "is_live", False) is True:
+                        # A live endpoint may close after a CDN URL expires.
+                        # Resolve the original public page again after backoff;
+                        # a temporary signed stream URL must never be reused.
+                        if elapsed >= LIVE_STABLE_SECONDS:
+                            self._live_retry_count = 0
+                        self._live_retry_count += 1
+                        if self._live_retry_count <= MAX_LIVE_RETRIES:
+                            self._live_retry = self.request
+                        else:
+                            self.error_code = "live_unavailable"
+                            self.error = failure_message(self.error_code)
+                        failed = True
+                    elif (not failed and not self._interrupted
+                          and self.request.requester_id is not None):
+                        # Repeat only completed bounded user requests, not live,
+                        # skipped or failed streams. No cached signed media URLs.
                         if self.repeat_mode == "one":
                             self._repeat_one = self.request
                         elif self.repeat_mode == "all" and len(self.queue) < self.options.max_queue:
@@ -779,6 +809,15 @@ class GuildPlayer:
                                        else "playback_error")
                     self.error = failure_message(self.error_code)
                     failed = True
+                    if self._resuming_live and not self._interrupted and not self._closed:
+                        # Failed live URL refresh also counts toward the bounded
+                        # retry budget. Never loop forever on an offline channel.
+                        self._live_retry_count += 1
+                        if self._live_retry_count <= MAX_LIVE_RETRIES:
+                            self._live_retry = self.request
+                        else:
+                            self.error_code = "live_unavailable"
+                            self.error = failure_message(self.error_code)
                     log.warning("Music track failed guild=%s code=%s", self.guild_id, self.error_code)
                 finally:
                     await self._stop()
@@ -803,6 +842,7 @@ class GuildPlayer:
                 log.warning("Music final stop failed guild=%s type=%s",
                             self.guild_id, type(error).__name__)
             self._repeat_one = None
+            self._live_retry = None
             self.current = self.request = None
             self.state = "closed" if self._closed else "disconnected"
 
