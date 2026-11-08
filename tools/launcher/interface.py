@@ -16,13 +16,21 @@ def show_menu(actions, status, version=None):
     content = width - 4
 
     def line(value=""):
-        # Python counts common box-drawing and Ukrainian symbols as one column.
-        value = str(value)
-        while value:
-            part, value = value[:content], value[content:]
+        # Keep full words on one line when possible, while still bounding
+        # extremely long branch names to the current terminal width.
+        remaining = str(value)
+        if not remaining:
+            print("║ " + " " * content + " ║")
+        while remaining:
+            if len(remaining) <= content:
+                part, remaining = remaining, ""
+            else:
+                space = remaining.rfind(" ", 0, content + 1)
+                if space > 0:
+                    part, remaining = remaining[:space], remaining[space + 1:].lstrip()
+                else:
+                    part, remaining = remaining[:content], remaining[content:]
             print("║ " + part.ljust(content) + " ║")
-        if not value and not str(value):
-            pass
 
     print("\n" + "╔" + "═" * (width - 2) + "╗")
     line("YEBOYBot   /   ПАНЕЛЬ КЕРУВАННЯ")
