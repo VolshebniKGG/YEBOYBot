@@ -508,3 +508,28 @@ async def test_all_current_community_modules_have_no_empty_missing_prefix(sample
     sample.cogs.update(LevelRewards=object(), RolePanels=object(), Community=object(), AutoMod=object())
     result = await collect_module_status(sample.bot, sample.guild)
     assert field(result, "Ще не підключено").startswith("Тікети й вебпанель")
+
+async def test_finished_music_worker_reported_as_unavailable_not_connected(sample):
+    music = music_cog()
+    backend = SimpleNamespace(is_connected=MagicMock(return_value=True))
+    task = SimpleNamespace(done=MagicMock(return_value=True))
+    music.sessions[101] = SimpleNamespace(
+        backend=backend, closing=False, close_failed=False,
+        player=SimpleNamespace(_task=task))
+    sample.cogs["Music"] = music
+    result = await collect_module_status(sample.bot, sample.guild)
+    text = field(result, "Музика")
+    assert "worker завершився" in text and "/music stop" in text
+    assert "з'єднання підтверджено" not in text
+    backend.is_connected.assert_not_called()
+
+
+async def test_music_attaching_without_worker_never_claims_playback(sample):
+    music = music_cog()
+    backend = SimpleNamespace(is_connected=MagicMock(return_value=True))
+    music.sessions[101] = SimpleNamespace(
+        backend=backend, closing=False, close_failed=False, player=None)
+    sample.cogs["Music"] = music
+    result = await collect_module_status(sample.bot, sample.guild)
+    assert "ініціалізується" in field(result, "Музика")
+    backend.is_connected.assert_not_called()

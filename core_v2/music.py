@@ -760,6 +760,8 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
             return (CLOSE_PENDING if session.close_failed else
                     "Музичний плеєр завершує роботу. Нові треки заблоковано; "
                     "повторіть /music queue або /music stop після завершення.")
+        if session.player is None:
+            return "Музичний плеєр підключається. Перевірте /music queue пізніше."
         snapshot = session.player.snapshot()
         current = snapshot["current"]
         title = discord.utils.escape_mentions(discord.utils.escape_markdown(current.title[:180])) if current else "Немає"

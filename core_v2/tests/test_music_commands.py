@@ -615,3 +615,11 @@ async def test_finished_worker_cannot_accept_new_play_requests(invocation):
         await invoke(fixture, "play", "назва треку")
     fixture.player.enqueue.assert_not_awaited()
     fixture.channel.connect.assert_awaited_once()
+
+async def test_queue_with_session_without_worker_is_private_and_safe(invocation):
+    fixture = invocation
+    await fixture.cog._ensure(fixture.guild, fixture.channel)
+    fixture.cog.sessions[10].player = None
+    await invoke(fixture, "queue")
+    assert "підключається" in output(fixture)
+    assert fixture.channel.connect.await_count == 1

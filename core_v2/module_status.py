@@ -116,6 +116,20 @@ def _music(bot, guild_id, cog, available, ready):
         return "Завершує роботу. Нове підключення заблоковано до підтвердженого від'єднання й очищення аудіо."
     if failed is _UNKNOWN or stopping is _UNKNOWN:
         return "Невідомо: завершення музичної сесії не підтверджено."
+    player = _read(lambda: session.player)
+    if player is None:
+        return "Плеєр ще ініціалізується. Перевірте /music queue пізніше."
+    if player is not _UNKNOWN:
+        worker = _read(lambda: getattr(player, "_task", _UNKNOWN))
+        if worker is _UNKNOWN:
+            return "Невідомо: стан музичного worker недоступний."
+        if worker is not None:
+            done = _boolean(_read(lambda: worker.done()))
+            if done is True:
+                return ("Музичний worker завершився. Нові замовлення заблоковано. "
+                        "Скористайтеся /music stop і повторіть підключення.")
+            if done is _UNKNOWN:
+                return "Невідомо: стан музичного worker не підтверджено."
     connected = _boolean(_read(lambda: session.backend.is_connected()))
     if connected is True:
         return "Голосове з'єднання підтверджено. Черга та стан: `/music queue`. Саме звучання цей звіт не перевіряє."
