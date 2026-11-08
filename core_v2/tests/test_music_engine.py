@@ -479,3 +479,25 @@ async def test_actual_private_worker_rejects_file_before_importing_extractor():
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     out, error = await process.communicate(b'{"query":"file:///private"}')
     assert process.returncode == 1 and out == error == b""
+
+
+async def test_close_clears_state_even_if_backend_stop_raises():
+    class BrokenStop(Backend):
+        def stop(self):
+            self.stops += 1
+            raise RuntimeError("simulated voice adapter failure")
+
+    backend = BrokenStop()
+    manager = MusicManager(MusicOptions(autoplay_random=False), [], Resolver())
+    try:
+        player = manager.attach(123, backend)
+        await player.enqueue("queued track", 11)
+        await player.close()
+        assert player.state == "closed"
+        assert player.current is None
+        assert player.request is None
+        assert not player.queue
+        assert player._task.done()
+        await player.close()  # Repeated shutdown must remain safe.
+    finally:
+        await manager.close()
