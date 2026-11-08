@@ -115,11 +115,12 @@ def apply(update, root=ROOT):
 
 
 def menu(root=ROOT):
-    """Select a GitHub branch, then delegate code replacement to PowerShell.
+    """Select a GitHub branch; Windows PowerShell performs the replacement.
 
-    Keep legacy plan/apply helpers for historical Git-only compatibility tests;
-    the interactive path supports safe ZIP and Git installations.
+    Legacy plan/apply remain for older fast-forward compatibility tests.
     """
+    if sys.platform != "win32":
+        raise UpdateError("Автоматичний GitHub-updater із вибором гілки підтримується у Windows.")
     from .github_update import menu as github_menu
     from tools.update_worker import UpdateFailure
     try:
