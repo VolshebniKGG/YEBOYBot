@@ -42,13 +42,13 @@ def test_windows_setup_requests_outer_launcher_handoff_instead_of_child_process(
     monkeypatch.delenv("SystemRoot", raising=False)
     assert launcher.full_setup() == 24
     no_children.assert_not_called()
-    assert "головному вікні YEBOYBot.cmd" in capsys.readouterr().out
+    assert "в цьому ж вікні" in capsys.readouterr().out
 
 
 def test_windows_menu_returns_handoff_code_immediately_after_selection(
         menu, monkeypatch, no_children):
     monkeypatch.setattr(launcher.sys, "platform", "win32")
-    read = menu("24")
+    read = menu("19")
     assert launcher.main() == 24
     read.assert_called_once()
     no_children.assert_not_called()
@@ -57,7 +57,7 @@ def test_windows_menu_returns_handoff_code_immediately_after_selection(
 def test_non_windows_menu_keeps_running_after_rejected_setup(
         menu, monkeypatch, no_children, capsys):
     monkeypatch.setattr(launcher.sys, "platform", "linux")
-    read = menu("24", "0")
+    read = menu("19", "0")
     assert launcher.main() == 0
     assert read.call_count == 2
     no_children.assert_not_called()
@@ -73,7 +73,7 @@ def test_cancel_menu_does_not_request_setup_and_preserves_existing_actions(
     setup.assert_not_called()
     no_children.assert_not_called()
     output = " ".join(capsys.readouterr().out.split())
-    assert "[24] Повне встановлення / відновлення Core V2" in output
+    assert "[19] Повне встановлення / відновлення Core V2" in output
     assert "[5] Оновити Python-залежності" in output
     assert "[12] Початкове налаштування" in output
 
@@ -81,7 +81,7 @@ def test_cancel_menu_does_not_request_setup_and_preserves_existing_actions(
 def test_rejected_setup_result_does_not_end_the_menu(menu, monkeypatch, no_children):
     setup = Mock(return_value=1)
     monkeypatch.setattr(launcher, "full_setup", setup)
-    read = menu("24", "0")
+    read = menu("19", "0")
     assert launcher.main() == 0
     assert read.call_count == 2
     setup.assert_called_once_with()
@@ -102,7 +102,7 @@ def test_windows_repair_requests_handoff_without_launching_pip(monkeypatch, no_c
     monkeypatch.setattr(launcher.sys, "platform", "win32")
     assert launcher.repair_dependencies() == 25
     no_children.assert_not_called()
-    assert "головному вікні YEBOYBot.cmd" in capsys.readouterr().out
+    assert "в цьому ж вікні" in capsys.readouterr().out
 
 
 def test_windows_menu_returns_repair_handoff_before_next_input(menu, monkeypatch, no_children):
