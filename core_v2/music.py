@@ -978,6 +978,7 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         snapshot = session.player.snapshot()
         request = snapshot.get("request") or snapshot.get("live_retry")
         if (request is not None and request.requester_id is not None
+                and not (snapshot.get("request") is request and snapshot.get("autoplay") is True)
                 and request.requester_id != actor.id
                 and not actor.guild_permissions.manage_guild):
             raise UserError("Можна пропустити власний трек; інші — з дозволом «Керувати сервером».")
