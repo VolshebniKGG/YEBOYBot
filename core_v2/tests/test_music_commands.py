@@ -44,7 +44,9 @@ def invocation():
 
     voice.disconnect.side_effect = disconnect
     channel.connect = AsyncMock(side_effect=connect)
-    player = SimpleNamespace(enqueue=AsyncMock(return_value=1), remove=AsyncMock(return_value=0),
+    player = SimpleNamespace(enqueue=AsyncMock(return_value=1), enqueue_next=AsyncMock(return_value=1),
+        remove=AsyncMock(return_value=0), clear_queue=AsyncMock(return_value=3),
+        jump=AsyncMock(return_value=20),
         shuffle_queue=AsyncMock(return_value=3), move=AsyncMock(return_value=True), set_repeat=AsyncMock(return_value=True),
         skip=AsyncMock(return_value=True),
         set_autoplay=AsyncMock(), snapshot=MagicMock(return_value={
@@ -580,10 +582,10 @@ async def test_disconnect_error_is_sanitized_and_cleanup_still_happens(backend, 
 def test_music_group_metadata_and_management_defaults(invocation):
     group = invocation.cog.__cog_app_commands_group__
     assert group.name == "music"
-    assert {command.name for command in group.commands} == {"play", "join", "queue", "panel", "remove", "move", "shuffle", "repeat", "skip", "stop", "autoplay", "pause", "resume", "volume"}
+    assert {command.name for command in group.commands} == {"play", "playnext", "join", "queue", "panel", "remove", "move", "shuffle", "clear", "jump", "repeat", "skip", "stop", "autoplay", "pause", "resume", "volume"}
     for command in group.commands:
         assert command.guild_only is True
-        if command.name in {"join", "stop", "move", "shuffle", "repeat", "autoplay", "pause", "resume", "volume"}:
+        if command.name in {"join", "stop", "move", "shuffle", "clear", "jump", "repeat", "autoplay", "pause", "resume", "volume"}:
             assert command.default_permissions.manage_guild is True
 
 async def test_remove_queue_uses_fresh_member_rights_and_private_reply(invocation):
@@ -688,3 +690,51 @@ async def test_repeat_uses_slash_choice_private_manager_rights(invocation):
     assert "вся черга" in output(f)
     with pytest.raises(UserError, match="виберіть"):
         await invoke(f, "repeat", "invalid")
+
+async def test_playnext_private_and_available_to_regular_member(invocation):
+    f = invocation
+    f.actor.guild_permissions = discord.Permissions.none()
+    await invoke(f, "playnext", "some artist")
+    f.player.enqueue_next.assert_awaited_once_with("some artist", f.actor.id)
+    f.player.enqueue.assert_not_awaited()
+    assert "наступним" in output(f)
+    assert f.channel.connect.await_count == 1
+
+async def test_playnext_invalid_source_rejected_without_connection(invocation):
+    f = invocation
+    with pytest.raises(UserError):
+        await invoke(f, "playnext", "file:///local/secret")
+    f.channel.connect.assert_not_awaited()
+    f.player.enqueue_next.assert_not_awaited()
+
+async def test_clear_waiting_private_and_manager_only(invocation):
+    f = invocation
+    await f.cog._ensure(f.guild, f.channel)
+    f.actor.guild_permissions = discord.Permissions.none()
+    with pytest.raises(UserError, match="Керувати сервером"):
+        await invoke(f, "clear")
+    f.player.clear_queue.assert_not_awaited()
+    f.actor.guild_permissions = discord.Permissions(manage_guild=True)
+    await invoke(f, "clear")
+    f.player.clear_queue.assert_awaited_once()
+    assert "видалено 3" in output(f)
+    f.player.skip.assert_not_awaited()
+    f.player.clear_queue.return_value = 0
+    await invoke(f, "clear")
+    assert "вже порожня" in output(f)
+
+async def test_jump_private_and_manager_only(invocation):
+    f = invocation
+    await f.cog._ensure(f.guild, f.channel)
+    f.actor.guild_permissions = discord.Permissions.none()
+    with pytest.raises(UserError, match="Керувати сервером"):
+        await invoke(f, "jump", 3)
+    f.player.jump.assert_not_awaited()
+    f.actor.guild_permissions = discord.Permissions(manage_guild=True)
+    await invoke(f, "jump", 3)
+    f.player.jump.assert_awaited_once_with(3)
+    assert "№3" in output(f)
+    f.channel.connect.assert_awaited_once()
+    f.player.jump.side_effect = MusicError("Такої позиції немає в черзі.")
+    with pytest.raises(UserError, match="Такої позиції"):
+        await invoke(f, "jump", 50)
