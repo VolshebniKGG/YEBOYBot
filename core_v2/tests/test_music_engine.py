@@ -565,3 +565,52 @@ async def test_failed_backend_stop_quarantines_worker_and_queue(caplog):
         assert "private-voice-url" not in caplog.text
     finally:
         await manager.close()
+
+async def test_shuffle_only_waiting_requests_and_forces_nonidentity(music, monkeypatch):
+    from core_v2 import music_engine as engine
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.enqueue("playing-now", 11)
+    await eventually(lambda: player.current is not None and player.current.title == "playing-now")
+    for index in range(5):
+        await player.enqueue(f"waiting-{index}", index + 20)
+    original = tuple(player.queue)
+    before_stops, before_plays = backend.stops, len(backend.played)
+    monkeypatch.setattr(engine.random, "shuffle", lambda items: None)
+    assert await player.shuffle_queue() == 5
+    after = tuple(player.queue)
+    assert len(after) == len(original) and {id(x) for x in after} == {id(x) for x in original}
+    assert any(a is not b for a, b in zip(after, original))
+    assert player.current.title == "playing-now"
+    assert backend.stops == before_stops and len(backend.played) == before_plays
+
+
+async def test_shuffle_no_op_small_queue_and_closed_player(music):
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.enqueue("playing", 11)
+    await eventually(lambda: player.current is not None and player.current.title == "playing")
+    assert await player.shuffle_queue() == 0
+    await player.enqueue("only-waiting", 22)
+    first = player.queue[0]
+    assert await player.shuffle_queue() == 0
+    assert player.queue[0] is first
+    await player.close()
+    with pytest.raises(MusicError, match="зупинено"):
+        await player.shuffle_queue()
+
+
+async def test_shuffle_isolated_across_guild_queues(music):
+    a, b = Backend(), Backend()
+    left = music.attach(1, a)
+    right = music.attach(2, b)
+    await left.enqueue("left-active", 11)
+    await right.enqueue("right-active", 22)
+    await eventually(lambda: left.current is not None and right.current is not None)
+    for index in range(3):
+        await left.enqueue(f"L-{index}", 11)
+        await right.enqueue(f"R-{index}", 22)
+    before_right = tuple(right.queue)
+    assert await left.shuffle_queue() == 3
+    assert tuple(right.queue) == before_right
+    assert right.current.title == "right-active"

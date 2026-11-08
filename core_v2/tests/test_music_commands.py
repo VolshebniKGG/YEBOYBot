@@ -45,7 +45,7 @@ def invocation():
     voice.disconnect.side_effect = disconnect
     channel.connect = AsyncMock(side_effect=connect)
     player = SimpleNamespace(enqueue=AsyncMock(return_value=1), remove=AsyncMock(return_value=0),
-        skip=AsyncMock(return_value=True),
+        shuffle_queue=AsyncMock(return_value=3), skip=AsyncMock(return_value=True),
         set_autoplay=AsyncMock(), snapshot=MagicMock(return_value={
             "current": None, "request": None, "queue": (), "state": "idle", "autoplay": False,
             "autoplay_enabled": True, "error": None}))
@@ -579,10 +579,10 @@ async def test_disconnect_error_is_sanitized_and_cleanup_still_happens(backend, 
 def test_music_group_metadata_and_management_defaults(invocation):
     group = invocation.cog.__cog_app_commands_group__
     assert group.name == "music"
-    assert {command.name for command in group.commands} == {"play", "join", "queue", "remove", "skip", "stop", "autoplay", "pause", "resume", "volume"}
+    assert {command.name for command in group.commands} == {"play", "join", "queue", "remove", "shuffle", "skip", "stop", "autoplay", "pause", "resume", "volume"}
     for command in group.commands:
         assert command.guild_only is True
-        if command.name in {"join", "stop", "autoplay", "pause", "resume", "volume"}:
+        if command.name in {"join", "stop", "shuffle", "autoplay", "pause", "resume", "volume"}:
             assert command.default_permissions.manage_guild is True
 
 async def test_remove_queue_uses_fresh_member_rights_and_private_reply(invocation):
@@ -623,3 +623,28 @@ async def test_queue_with_session_without_worker_is_private_and_safe(invocation)
     await invoke(fixture, "queue")
     assert "підключається" in output(fixture)
     assert fixture.channel.connect.await_count == 1
+
+async def test_shuffle_requires_manager_and_preserves_private_reply(invocation):
+    f = invocation
+    await f.cog._ensure(f.guild, f.channel)
+    f.actor.guild_permissions = discord.Permissions.none()
+    with pytest.raises(UserError, match="Керувати сервером"):
+        await invoke(f, "shuffle")
+    f.player.shuffle_queue.assert_not_awaited()
+    f.actor.guild_permissions = discord.Permissions(manage_guild=True)
+    await invoke(f, "shuffle")
+    f.player.shuffle_queue.assert_awaited_once_with()
+    assert "Перемішано 3" in output(f)
+    f.player.shuffle_queue.reset_mock(return_value=True)
+    f.player.shuffle_queue.return_value = 0
+    await invoke(f, "shuffle")
+    assert "щонайменше два" in output(f)
+
+
+async def test_shuffle_failure_does_not_leak_private_audio_error(invocation):
+    f = invocation
+    await f.cog._ensure(f.guild, f.channel)
+    f.player.shuffle_queue.side_effect = MusicError("Музичний плеєр уже зупинено.")
+    with pytest.raises(UserError, match="зупинено"):
+        await invoke(f, "shuffle")
+    f.interaction.followup.send.assert_not_awaited()

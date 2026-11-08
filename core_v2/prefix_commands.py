@@ -28,7 +28,7 @@ MAX_PENDING = 256
 MAX_PER_GUILD = 16
 LIFETIME = 120
 ALIASES = {name: ('music', name) for name in
-           ('play', 'queue', 'remove', 'skip', 'stop', 'join', 'pause', 'resume', 'volume', 'autoplay')}
+           ('play', 'queue', 'remove', 'shuffle', 'skip', 'stop', 'join', 'pause', 'resume', 'volume', 'autoplay')}
 ALIASES['top'] = ('leaderboard',)
 
 

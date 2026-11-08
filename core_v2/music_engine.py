@@ -395,6 +395,28 @@ class GuildPlayer:
         self._changed.set()
         return len(self.queue)
 
+    async def shuffle_queue(self):
+        """Randomize only waiting requests, never the active track.
+
+        Queue mutation has no await points: concurrent guild commands see
+        either the entire old order or the entire new order.
+        """
+        if self._closed or self._task.done():
+            raise MusicError("Музичний плеєр уже зупинено.")
+        if len(self.queue) < 2:
+            return 0
+        original = list(self.queue)
+        shuffled = original.copy()
+        random.shuffle(shuffled)
+        # A random identity permutation would be a confusing successful
+        # command. Use an identity-based fallback even for duplicate titles.
+        if all(left is right for left, right in zip(original, shuffled)):
+            shuffled = shuffled[1:] + shuffled[:1]
+        self.queue.clear()
+        self.queue.extend(shuffled)
+        self._changed.set()
+        return len(shuffled)
+
     async def skip(self):
         if self._closed or self.request is None:
             return False
