@@ -58,6 +58,19 @@ def logs():
         print("Журнал поки не створено.")
 
 
+def installed_version_label(root=ROOT):
+    """Small offline branch/commit label; status remains available on Git errors."""
+    try:
+        from .github_update import installed_version
+        sha, branch = installed_version(root)
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return "не визначено"
+    name = branch if isinstance(branch, str) else "невідома"
+    if sha:
+        return f"{name} · {sha[:10]}"
+    return name
+
+
 def main():
     os.chdir(ROOT)
     from . import process, storage, update, configuration, autostart, migrations, pg_workflow
@@ -90,7 +103,7 @@ def main():
     }
 
     while True:
-        show_menu(actions, process.state()["status"])
+        show_menu(actions, process.state()["status"], installed_version_label(ROOT))
         try:
             choice = input("  Номер дії › ").strip()
         except (EOFError, KeyboardInterrupt):

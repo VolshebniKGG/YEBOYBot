@@ -11,7 +11,7 @@ def _lines(text, width, *, continuation=""):
                          break_long_words=False, break_on_hyphens=False)
 
 
-def show_menu(actions, status):
+def show_menu(actions, status, version=None):
     width = min(100, max(40, shutil.get_terminal_size(fallback=(80, 24)).columns))
     content = width - 4
 
@@ -29,6 +29,8 @@ def show_menu(actions, status):
     line("Discord  •  Музика  •  Спільнота  •  GitHub")
     print("╠" + "═" * (width - 2) + "╣")
     line("Стан: " + STATUS_LABELS.get(status, str(status)).replace("\n", " ")[:content - 7])
+    if version is not None:
+        line("Версія: " + str(version).replace("\n", " ")[:160])
     line("Запуск, оновлення та відновлення в одному меню.")
     print("╚" + "═" * (width - 2) + "╝")
     print()
