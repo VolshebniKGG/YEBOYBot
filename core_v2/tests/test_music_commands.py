@@ -738,3 +738,35 @@ async def test_jump_private_and_manager_only(invocation):
     f.player.jump.side_effect = MusicError("Такої позиції немає в черзі.")
     with pytest.raises(UserError, match="Такої позиції"):
         await invoke(f, "jump", 50)
+
+
+async def test_queue_pages_cover_all_fifty_slots_without_leaking_sources(invocation):
+    f = invocation
+    await f.cog._ensure(f.guild, f.channel)
+    requests = tuple(SimpleNamespace(requester_id=100 + n,
+                                     source=f"https://hidden.local/{n}") for n in range(23))
+    f.player.snapshot.return_value = {
+        "current": None, "request": None, "queue": requests,
+        "state": "idle", "autoplay": False, "autoplay_enabled": False,
+        "error": None, "repeat_mode": "off"}
+    await invoke(f, "queue", 3)
+    page_three = output(f)
+    assert "Сторінка черги: 3/3" in page_three
+    assert "21. Замовлення користувача" in page_three
+    assert "23. Замовлення користувача" in page_three
+    assert "20. Замовлення користувача" not in page_three
+    assert "hidden.local" not in page_three
+
+    await invoke(f, "queue", 2)
+    page_two = output(f)
+    assert "Сторінка черги: 2/3" in page_two
+    assert "11. Замовлення користувача" in page_two
+    assert "20. Замовлення користувача" in page_two
+    assert "21. Замовлення користувача" not in page_two
+
+    await invoke(f, "queue", 5)
+    assert "Сторінка черги: 3/3" in output(f)
+    with pytest.raises(UserError, match="від 1 до 5"):
+        f.cog.queue_text(f.guild, page=0)
+    with pytest.raises(UserError, match="від 1 до 5"):
+        f.cog.queue_text(f.guild, page=True)

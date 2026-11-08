@@ -772,8 +772,10 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         await self._ensure(guild, channel)
         await self._reply(interaction, "Музичний плеєр підключено. Автоплейлист працює відповідно до налаштувань.")
 
-    def queue_text(self, guild):
-        """Bounded private status from one guild's current music session."""
+    def queue_text(self, guild, page=1):
+        """Private, paginated queue status; never disclose signed audio URLs."""
+        if type(page) is not int or not 1 <= page <= 5:
+            raise UserError("Сторінка черги має бути числом від 1 до 5.")
         session = self.sessions.get(guild.id)
         if not session:
             return "Музичний плеєр не підключений. Використайте /music play."
@@ -813,7 +815,12 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
             lines.append(f"Причина паузи: {reasons}.")
         if actual is None:
             lines.append("Стан паузи SDK: невідомо.")
-        for index, request in enumerate(snapshot["queue"][:10], 1):
+        requests = snapshot["queue"]
+        pages = max(1, (len(requests) + 9) // 10)
+        page = min(page, pages)
+        lines.append(f"Сторінка черги: {page}/{pages}.")
+        start = (page - 1) * 10
+        for index, request in enumerate(requests[start:start + 10], start + 1):
             lines.append(f"{index}. Замовлення користувача `{request.requester_id}`")
         if snapshot.get("error"):
             code = normalize_failure_code(snapshot.get("error_code"))
@@ -824,11 +831,12 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
             message = message.encode("utf-16-le")[:3998].decode("utf-16-le", errors="ignore") + "…"
         return message
 
-    @app_commands.command(name="queue", description="Поточний трек і до 10 наступних замовлень")
+    @app_commands.command(name="queue", description="Поточний трек і сторінка черги (1–5)")
     @app_commands.guild_only()
-    async def queue(self, interaction: discord.Interaction):
+    async def queue(self, interaction: discord.Interaction,
+                    page: app_commands.Range[int, 1, 5] = 1):
         guild, _, _, _ = await self._context(interaction, allow_closing=True)
-        await self._reply(interaction, self.queue_text(guild))
+        await self._reply(interaction, self.queue_text(guild, page=page))
 
     @app_commands.command(name="panel", description="Приватна інтерактивна панель музичного плеєра")
     @app_commands.guild_only()

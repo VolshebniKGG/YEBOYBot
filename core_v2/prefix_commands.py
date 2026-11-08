@@ -295,7 +295,7 @@ class PrefixCommands(commands.Cog):
                 # private queue renderer; never create a fake Interaction.
                 async with asyncio.timeout(12):
                     await music.voice_context(guild, message.author.id, allow_closing=True)
-                    payload = {'content': music.queue_text(guild)}
+                    payload = {'content': music.queue_text(guild, page=values.get('page', 1))}
             except Exception as error:
                 log.warning('Prefix queue read unavailable type=%s', type(error).__name__)
                 return False
