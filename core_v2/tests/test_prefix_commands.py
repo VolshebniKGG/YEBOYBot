@@ -342,7 +342,8 @@ async def test_queue_direct_dm_reuses_music_voice_checks_and_renderer(fixture, m
     voice = AsyncMock()
     status = 'Приватна черга сервера'
     monkeypatch.setattr(player, 'voice_context', voice)
-    monkeypatch.setattr(player, 'queue_text', lambda guild: status if guild is f.cached else 'wrong guild')
+    monkeypatch.setattr(player, 'queue_text',
+                        lambda guild, page=1: status if guild is f.cached and page == 1 else 'wrong guild')
     dm = AsyncMock()
     monkeypatch.setattr(discord.Member, 'send', dm)
     monkeypatch.setattr(discord.TextChannel, 'permissions_for',
@@ -355,6 +356,35 @@ async def test_queue_direct_dm_reuses_music_voice_checks_and_renderer(fixture, m
         voice.assert_awaited_once_with(f.cached, ADMIN, allow_closing=True)
         assert dm.await_args.kwargs['content'] == status
         assert dm.await_args.kwargs['allowed_mentions'].to_dict()['parse'] == []
+        assert not f.prefix.pending
+        f.send.assert_not_awaited()
+    finally:
+        await f.bot.remove_cog('Music')
+
+
+
+async def test_prefix_queue_page_is_forwarded_to_private_renderer(fixture, monkeypatch):
+    f = fixture
+    player = Music(f.bot, options=MusicOptions(), manager=SimpleNamespace(close=AsyncMock()))
+    await f.bot.add_cog(player)
+    voice = AsyncMock()
+    monkeypatch.setattr(player, 'voice_context', voice)
+    pages = []
+    def queue_text(guild, page=1):
+        pages.append((guild, page))
+        return f'Приватна черга. Сторінка {page}.'
+    monkeypatch.setattr(player, 'queue_text', queue_text)
+    dm = AsyncMock()
+    monkeypatch.setattr(discord.Member, 'send', dm)
+    monkeypatch.setattr(discord.TextChannel, 'permissions_for',
+                        lambda self, member: discord.Permissions(
+                            view_channel=True, send_messages=True, use_application_commands=True))
+    request_message = message(f, '!queue 2')
+    request_message.channel = discord.TextChannel(state=f.bot._connection, guild=f.cached, data=f.room)
+    try:
+        assert await f.prefix.handle_message(request_message)
+        assert pages == [(f.cached, 2)]
+        assert dm.await_args.kwargs['content'] == 'Приватна черга. Сторінка 2.'
         assert not f.prefix.pending
         f.send.assert_not_awaited()
     finally:
