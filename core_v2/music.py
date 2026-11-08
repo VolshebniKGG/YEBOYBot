@@ -20,6 +20,7 @@ from .media_environment import ffmpeg_path
 from .music_engine import (MusicError, MusicManager, YTDLPResolver, spotify_track_id,
                            validate_source, failure_message, normalize_failure_code)
 from .music_options import load_autoplaylist, load_music_options
+from .music_panel import MAX_PANELS, MusicPanel
 from .security import UserError, guild_context
 from .spotify import SpotifyMetadata
 
@@ -404,6 +405,7 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         self._stopped_guilds = set()
         self._closing = False
         self._teardowns = {}
+        self.panels = set()
 
     async def cog_load(self):
         if not self._closing and self.bot.is_ready():
@@ -416,6 +418,8 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
 
     async def cog_unload(self):
         self._closing = True
+        await asyncio.gather(*(panel.expire() for panel in tuple(self.panels)),
+                             return_exceptions=True)
         self.autojoin.cancel()
         task = self.autojoin.get_task()
         if task:
@@ -808,6 +812,26 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
     async def queue(self, interaction: discord.Interaction):
         guild, _, _, _ = await self._context(interaction, allow_closing=True)
         await self._reply(interaction, self.queue_text(guild))
+
+    @app_commands.command(name="panel", description="Приватна інтерактивна панель музичного плеєра")
+    @app_commands.guild_only()
+    async def panel(self, interaction: discord.Interaction):
+        guild, _, actor, _ = await self._context(interaction)
+        session = self._control_session(guild)
+        if len(self.panels) >= MAX_PANELS:
+            raise UserError("Ліміт активних панелей. Спробуйте пізніше.")
+        view = MusicPanel(self, guild.id, actor.id, interaction.channel_id, session)
+        self.panels.add(view)
+        try:
+            message = await interaction.followup.send(
+                embed=view.render(), view=view, ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(), wait=True)
+            view.message = message
+            if self._closing or self.sessions.get(guild.id) is not session:
+                await view.expire()
+        except BaseException:
+            view.close_locally()
+            raise
 
     @app_commands.command(name="remove", description="Видалити замовлення з черги за номером")
     @app_commands.guild_only()
