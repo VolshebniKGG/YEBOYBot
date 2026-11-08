@@ -10,6 +10,7 @@ import pytest
 from core_v2.prefix_commands import PrefixCommands, parse_arguments, resolve_command, namespace_for
 from core_v2.security import UserError
 from core_v2.commands import Core
+from core_v2.guide import Guide
 import test_role_panels as panels
 from test_role_panels import request, ADMIN, USER, GUILD, CHANNEL, ROLE
 
@@ -246,3 +247,88 @@ async def test_real_component_interaction_is_passed_to_slash_handler(fixture, mo
     assert seen == [click]
     delivered.assert_awaited_once_with('private', ephemeral=True)
     f.bot.tree.on_error.assert_not_awaited()
+
+async def test_read_only_help_goes_to_private_dm_without_click(fixture, monkeypatch):
+    f = fixture
+    await f.bot.add_cog(Guide(f.bot))
+    dm = AsyncMock()
+    monkeypatch.setattr(discord.Member, 'send', dm)
+    monkeypatch.setattr(discord.TextChannel, 'permissions_for',
+                        lambda self, member: discord.Permissions(
+                            view_channel=True, send_messages=True, use_application_commands=True))
+    request_message = message(f, '!help music')
+    request_message.channel = discord.TextChannel(state=f.bot._connection, guild=f.cached, data=f.room)
+    try:
+        assert await f.prefix.handle_message(request_message)
+        dm.assert_awaited_once()
+        kwargs = dm.await_args.kwargs
+        assert 'embed' in kwargs and 'Музика' in str(kwargs['embed'].to_dict())
+        assert kwargs['allowed_mentions'].to_dict()['parse'] == []
+        f.send.assert_not_awaited()
+        assert not f.prefix.pending
+    finally:
+        await f.bot.remove_cog('Guide')
+
+
+async def test_modules_direct_dm_preserves_private_status(fixture, monkeypatch):
+    from core_v2 import prefix_commands as module
+    f = fixture
+    await f.bot.add_cog(Guide(f.bot))
+    dm = AsyncMock()
+    monkeypatch.setattr(discord.Member, 'send', dm)
+    monkeypatch.setattr(discord.TextChannel, 'permissions_for',
+                        lambda self, member: discord.Permissions(
+                            view_channel=True, send_messages=True, use_application_commands=True))
+    report = AsyncMock(return_value=discord.Embed(title='Private modules'))
+    monkeypatch.setattr(module, 'collect_module_status', report)
+    request_message = message(f, '!modules')
+    request_message.channel = discord.TextChannel(state=f.bot._connection, guild=f.cached, data=f.room)
+    try:
+        assert await f.prefix.handle_message(request_message)
+        report.assert_awaited_once_with(f.bot, f.cached)
+        assert dm.await_args.kwargs['embed'].title == 'Private modules'
+        assert not f.prefix.pending
+        f.send.assert_not_awaited()
+    finally:
+        await f.bot.remove_cog('Guide')
+
+
+async def test_blocked_dm_falls_back_to_private_button(fixture, monkeypatch):
+    f = fixture
+    await f.bot.add_cog(Guide(f.bot))
+    dm = AsyncMock(side_effect=discord.Forbidden(
+        SimpleNamespace(status=403, reason='DM blocked'), 'DM blocked'))
+    monkeypatch.setattr(discord.Member, 'send', dm)
+    monkeypatch.setattr(discord.TextChannel, 'permissions_for',
+                        lambda self, member: discord.Permissions(
+                            view_channel=True, send_messages=True, use_application_commands=True))
+    request_message = message(f, '!help')
+    request_message.channel = discord.TextChannel(state=f.bot._connection, guild=f.cached, data=f.room)
+    try:
+        assert await f.prefix.handle_message(request_message)
+        dm.assert_awaited_once()
+        assert len(f.prefix.pending) == 1
+        assert f.send.await_args.kwargs.get('view') is next(iter(f.prefix.pending))
+        assert 'embed' not in f.send.await_args.kwargs
+        assert f.send.await_args.kwargs['allowed_mentions'].to_dict()['parse'] == []
+    finally:
+        await f.bot.remove_cog('Guide')
+
+
+async def test_direct_private_rejects_missing_channel_rights_before_dm(fixture, monkeypatch):
+    f = fixture
+    await f.bot.add_cog(Guide(f.bot))
+    dm = AsyncMock()
+    monkeypatch.setattr(discord.Member, 'send', dm)
+    monkeypatch.setattr(discord.TextChannel, 'permissions_for',
+                        lambda self, member: discord.Permissions(view_channel=True, send_messages=True))
+    request_message = message(f, '!help')
+    request_message.channel = discord.TextChannel(state=f.bot._connection, guild=f.cached, data=f.room)
+    try:
+        assert await f.prefix.handle_message(request_message)
+        dm.assert_not_awaited()
+        assert 'view' not in f.send.await_args.kwargs
+        assert 'Use Application Commands' in f.send.await_args.args[0]
+        assert not f.prefix.pending
+    finally:
+        await f.bot.remove_cog('Guide')

@@ -187,7 +187,7 @@ async def collect_module_status(bot, guild):
     prefix_enabled = _boolean(_read(lambda: bot.intents.message_content))
     prefix_status = ("Вимкнено. Для ! увімкніть Message Content Intent у Portal і команди ! через [11]/[12] лаунчера."
                      if prefix is None else
-                     "Підключено: !команда → кнопка виконання. Приватні відповіді збережено."
+                     "Підключено: !help та !modules → приватне DM; якщо DM недоступне — кнопка. Інші !команди → кнопка виконання."
                      if prefix is not _UNKNOWN and prefix_enabled is True else
                      "Невідомо: модуль або Message Content Intent не підтверджено.")
     embed.add_field(name="Префікс !", value=prefix_status, inline=False)

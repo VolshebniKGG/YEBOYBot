@@ -7,6 +7,7 @@ import asyncio
 from collections import OrderedDict
 from contextlib import suppress
 from dataclasses import dataclass
+import logging
 import re
 import shlex
 import time
@@ -16,8 +17,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from .help_catalog import CATEGORY_LABELS, collect_commands, page_count, render_help
+from .module_status import collect_module_status
 from .security import UserError
 
+log = logging.getLogger(__name__)
+DIRECT_PRIVATE = frozenset({'help', 'modules'})
+MENTIONS = discord.AllowedMentions.none()
 MAX_PENDING = 256
 MAX_PER_GUILD = 16
 LIFETIME = 120
@@ -226,6 +232,72 @@ class PrefixCommands(commands.Cog):
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def _direct_private(self, message, command, values):
+        """Send select read-only commands by DM; do not manufacture interactions.
+
+        If DM delivery is unavailable, keep the existing author-only button
+        so slash handlers can still return ephemeral responses safely.
+        """
+        name = command.qualified_name
+        if name not in DIRECT_PRIVATE or command.parent is not None:
+            return False
+        guide = self.bot.get_cog('Guide')
+        if guide is None or guide.closing:
+            return False
+        guild = message.guild
+        if (guild.unavailable or self.bot.get_guild(guild.id) is not guild
+                or getattr(message.channel, 'guild', None) is not guild
+                or not isinstance(message.channel, (discord.TextChannel, discord.Thread))):
+            raise UserError('Сервер або канал недоступний для цієї команди.')
+
+        async def member_with_access():
+            async with asyncio.timeout(5):
+                member = await guild.fetch_member(message.author.id)
+            if (not isinstance(member, discord.Member) or member.bot or member.pending
+                    or member.guild is not guild or member.id != message.author.id
+                    or guild.unavailable or self.bot.get_guild(guild.id) is not guild):
+                raise UserError('Не вдалося підтвердити доступ учасника до сервера.')
+            permissions = message.channel.permissions_for(member)
+            if not (permissions.view_channel and permissions.send_messages
+                    and permissions.use_application_commands):
+                raise UserError('Потрібні View Channel, Send Messages і Use Application Commands.')
+            permission_check(command, permissions)
+            return member
+
+        try:
+            await member_with_access()
+        except (discord.HTTPException, TimeoutError):
+            return False
+
+        if name == 'help':
+            category, page = values.get('topic', 'general'), values.get('page', 1)
+            if category not in CATEGORY_LABELS or type(page) is not int or not 1 <= page <= 10:
+                raise UserError('Оберіть доступний розділ і сторінку довідки.')
+            entries = collect_commands(self.bot.tree, guild.id)
+            maximum = page_count(entries, category)
+            if page > maximum:
+                raise UserError(f'У цьому розділі сторінок: {maximum}.')
+            embed = render_help(entries, category, page)
+        else:
+            try:
+                async with asyncio.timeout(5):
+                    embed = await collect_module_status(self.bot, guild)
+            except (TimeoutError, Exception) as error:
+                # Provider or database detail must never reach a public channel.
+                log.warning('Prefix module read failed type=%s', type(error).__name__)
+                return False
+
+        if self.closing or guide.closing:
+            return False
+        try:
+            # Fresh server membership and channel rights immediately before DM.
+            member = await member_with_access()
+            async with asyncio.timeout(10):
+                await member.send(embed=embed, allowed_mentions=MENTIONS)
+            return True
+        except (discord.HTTPException, TimeoutError):
+            return False
+
     async def handle_message(self, message):
         content = message.content
         if (not content.startswith('!') or not message.guild or message.author.bot or message.webhook_id):
@@ -259,6 +331,8 @@ class PrefixCommands(commands.Cog):
             command, words = resolve_command(self.bot.tree, words, message.guild.id)
             values = parse_arguments(command, words)
             permission_check(command, message.author.guild_permissions)
+            if await self._direct_private(message, command, values):
+                return True
             view = PrefixView(self, message, command, values)
             self.pending.add(view)  # Reserve before the channel send can yield.
             async with asyncio.timeout(10):
