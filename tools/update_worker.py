@@ -18,7 +18,6 @@ import sqlite3
 import stat
 import subprocess
 import sys
-import tempfile
 import uuid
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
