@@ -33,7 +33,17 @@ MAX_CONTENT = 300 * 1024 * 1024
 MAX_ONE_FILE = 40 * 1024 * 1024
 MAX_FILES = 5000
 REQUIRED = {"YEBOYBot.cmd", "tools/windows_setup.ps1", "tools/update_worker.py",
-            "tools/launcher/__main__.py", "core_v2/__main__.py"}
+            "tools/launcher/__main__.py", "tools/launcher/github_update.py",
+            "tools/launcher/verify_update.py", "core_v2/__main__.py"}
+# Prevent switching to an older branch that cannot recover an interrupted
+# self-update on the next boot. These minimal entry points must be present
+# inside the *selected* immutable commit, before any replacement happens.
+COMPATIBILITY_MARKERS = {
+    "tools/windows_setup.ps1": ("function Invoke-YeboyGitHubUpdate",
+                                "function Restore-YeboyInterruptedUpdate"),
+    "tools/update_worker.py": ("def rollback(", "def confirm("),
+    "tools/launcher/__main__.py": ("UPDATE_EXIT_CODE = 26",),
+}
 PROTECTED_TOP = {".git", ".venv-v2", ".venv-legacy", "bin", "data", "backups",
                  "logs", "media", "project", "audio_cache", "dectalk", "__pycache__"}
 PROTECTED_NAMES = {".env", ".env.v2", "docker-compose.yml", "discord.log"}
@@ -121,6 +131,27 @@ def download_archive(sha, destination, *, opener=None):
         raise
 
 
+def check_compatibility(reader):
+    """Validate target release can still launch and recover its own updater.
+
+    The reader loads a required file's contents from an extracted ZIP or a
+    specific fetched Git object; never inspect the currently running code.
+    """
+    for name, markers in COMPATIBILITY_MARKERS.items():
+        content = reader(name)
+        if isinstance(content, bytes):
+            if len(content) > 1_000_000:
+                raise UpdateFailure("Файл лаунчера в гілці занадто великий.")
+            content = content.decode("utf-8-sig", errors="replace")
+        if not isinstance(content, str) or len(content) > 1_000_000:
+            raise UpdateFailure("Некоректний формат лаунчера в обраній гілці.")
+        if not all(marker in content for marker in markers):
+            raise UpdateFailure(
+                "Обрана гілка містить застарілий механізм оновлення або recovery. "
+                "Оберіть сумісну Core V2 гілку."
+            )
+
+
 def extract_archive(archive, destination):
     destination = Path(destination)
     directory = {}
@@ -169,6 +200,7 @@ def extract_archive(archive, destination):
             directory[rel] = digest.hexdigest()
     if not REQUIRED <= directory.keys():
         raise UpdateFailure("Гілка не містить повного комплекту Core V2 для Windows.")
+    check_compatibility(lambda name: (destination / name).read_bytes())
     return directory
 
 
@@ -277,6 +309,7 @@ def git_apply(root, plan, transaction_file):
     names = set(git(root, "ls-tree", "-r", "--name-only", remote_commit).splitlines())
     if not REQUIRED <= names:
         raise UpdateFailure("Гілка не підтримує потрібний Core V2 лаунчер.")
+    check_compatibility(lambda name: git(root, "show", f"{remote_commit}:{name}"))
     changed = set(filter(None, git(root, "diff", "--name-only", previous, remote_commit).splitlines()))
     if any(protected(name) for name in changed):
         raise UpdateFailure("Гілка намагається замінити секрети або локальні дані.")
@@ -411,6 +444,10 @@ def report(root, phase, *, error=None):
     value = {"phase": phase, "utc": datetime.now(timezone.utc).isoformat()}
     if error is not None:
         value["error_type"] = type(error).__name__
+        # Only our own fixed Ukrainian updater errors are safe for local logs;
+        # unexpected system exceptions may include paths, DSNs or secrets.
+        if isinstance(error, UpdateFailure):
+            value["reason"] = str(error)[:240]
     write_json(state_paths(root)[3], value)
 
 
@@ -519,6 +556,8 @@ def main(argv=None):
         return confirm(root)
     except Exception as error:
         print("Оновлення не завершено. Етап:", command, "Тип помилки:", type(error).__name__)
+        if isinstance(error, UpdateFailure):
+            print("Причина:", str(error))
         print("Перегляньте data/v2/update-report.json. Не видаляйте резервні копії.")
         return 1
 

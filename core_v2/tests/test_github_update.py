@@ -19,8 +19,16 @@ BASE = {
     "tools/update_worker.py": "OLD WORKER",
     "tools/launcher/__main__.py": "OLD MENU",
     "core_v2/__main__.py": "OLD CORE",
+    "tools/launcher/github_update.py": "OLD GITHUB MENU",
+    "tools/launcher/verify_update.py": "OLD VERIFIER",
 }
 NEW = {key: "NEW " + key for key in BASE}
+NEW["tools/windows_setup.ps1"] += (
+    "\\nfunction Invoke-YeboyGitHubUpdate {}"
+    "\\nfunction Restore-YeboyInterruptedUpdate {}"
+)
+NEW["tools/update_worker.py"] += "\\ndef rollback(root): pass\\ndef confirm(root): pass"
+NEW["tools/launcher/__main__.py"] += "\\nUPDATE_EXIT_CODE = 26"
 
 
 @pytest.fixture
@@ -322,3 +330,45 @@ def test_git_branch_switch_is_pinned_and_rollback_restores_original_branch(
     assert command("branch", "--show-current") == "feature/core-v2"
     assert command("rev-parse", "HEAD") == previous
     assert (root / "YEBOYBot.cmd").read_text(encoding="utf-8") == BASE["YEBOYBot.cmd"]
+
+
+def test_incompatible_zip_branch_rejected_before_replacing_code(
+        installation, monkeypatch, tmp_path):
+    package = tmp_path / "outdated.zip"
+    legacy_files = dict(NEW)
+    legacy_files["tools/windows_setup.ps1"] = "OUTDATED WINDOWS LAUNCHER"
+    archive(package, legacy_files)
+    patch_archive(monkeypatch, package)
+    prepare(installation)
+    with pytest.raises(worker.UpdateFailure, match="застарілий"):
+        worker.apply(installation)
+    assert (installation / "YEBOYBot.cmd").read_text() == BASE["YEBOYBot.cmd"]
+    assert not (installation / "data/v2/update-transaction.json").exists()
+    assert worker.rollback(installation) == 0
+
+
+def test_release_requires_updater_and_verifier_not_only_discord_core(
+        installation, monkeypatch, tmp_path):
+    package = tmp_path / "partial.zip"
+    partial = dict(NEW)
+    del partial["tools/launcher/github_update.py"]
+    archive(package, partial)
+    patch_archive(monkeypatch, package)
+    prepare(installation)
+    with pytest.raises(worker.UpdateFailure, match="повного комплекту"):
+        worker.apply(installation)
+    assert (installation / "YEBOYBot.cmd").read_text() == BASE["YEBOYBot.cmd"]
+    assert worker.rollback(installation) == 0
+
+
+def test_worker_reports_own_errors_but_never_unexpected_secret_details(
+        installation):
+    worker.report(installation, "failed", error=worker.UpdateFailure(
+        "Ця гілка не підтримується."))
+    data = worker.read_json(installation / "data/v2/update-report.json")
+    assert data["reason"] == "Ця гілка не підтримується."
+    worker.report(installation, "failed",
+                  error=OSError("private database token=never-report-this"))
+    data = worker.read_json(installation / "data/v2/update-report.json")
+    assert "reason" not in data
+    assert "never-report-this" not in json.dumps(data)
