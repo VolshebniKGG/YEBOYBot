@@ -2,11 +2,13 @@ import asyncio
 import json
 from pathlib import Path
 import sys
+from unittest.mock import AsyncMock
 
 import pytest
 
-from core_v2.music_engine import (MusicError, MusicManager, Track, YTDLPResolver,
-                                  spotify_track_id, validate_source, validate_stream_url)
+from core_v2.music_engine import (MAX_LIVE_RETRIES, MusicError, MusicManager, Track,
+                                  YTDLPResolver, extractor_payload, spotify_track_id,
+                                  validate_source, validate_stream_url)
 from core_v2.music_options import MusicOptions
 
 
@@ -825,3 +827,172 @@ async def test_next_clear_jump_are_isolated_by_guild(music):
     assert tuple(right.queue) == before
     assert await right.jump(2) == 22
     assert tuple(left.queue) == ()
+
+
+def test_extractor_accepts_live_without_duration_but_not_upcoming():
+    url = "https://manifest.googlevideo.com/api/manifest/hls_playlist/abc.m3u8"
+    payload = extractor_payload({"title": "24/7 Chill Radio", "url": url,
+                                 "live_status": "is_live", "is_live": True,
+                                 "duration": None})
+    assert payload == {"title": "24/7 Chill Radio", "stream_url": url,
+                       "duration": None, "is_live": True}
+    assert extractor_payload({"title": "Radio", "url": url, "is_live": True,
+                              "duration": 999999})["duration"] is None
+    recording = extractor_payload({"title": "Recorded stream", "url": url,
+                                   "is_live": False, "live_status": "was_live",
+                                   "duration": 300})
+    assert recording["is_live"] is False and recording["duration"] == 300
+    for state in ("is_upcoming", "post_live"):
+        with pytest.raises(ValueError):
+            extractor_payload({"title": "Offline", "url": url, "live_status": state})
+    with pytest.raises(ValueError):
+        extractor_payload({"url": url, "duration": None, "is_live": False})
+    with pytest.raises(ValueError):
+        extractor_payload({"url": "file:///private/file", "is_live": True})
+    with pytest.raises(ValueError):
+        extractor_payload({"url": url, "is_live": "true"})
+
+
+async def test_resolver_accepts_live_worker_contract_without_duration(monkeypatch):
+    process = Process({"title": "Live Radio",
+                       "stream_url": "https://manifest.googlevideo.com/playlist.m3u8",
+                       "duration": None, "is_live": True})
+    async def create(*args, **kwargs):
+        return process
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+    track = await YTDLPResolver().resolve("https://youtube.com/watch?v=LIVEVIDEO01")
+    assert track.is_live is True and track.duration is None
+    assert track.page_url.startswith("https://youtube.com")
+    assert track.stream_url.startswith("https://manifest.googlevideo.com")
+    assert process.waited
+
+
+@pytest.mark.parametrize("payload", [
+    {"title": "Fake LIVE", "stream_url": "https://x.googlevideo.com/a",
+     "duration": None, "is_live": "true"},
+    {"title": "Bad LIVE duration", "stream_url": "https://x.googlevideo.com/a",
+     "duration": 2, "is_live": True},
+    {"title": "No LIVE metadata", "stream_url": "https://x.googlevideo.com/a",
+     "duration": None, "is_live": False},
+])
+async def test_resolver_rejects_malformed_live_worker_payload(monkeypatch, payload):
+    async def create(*args, **kwargs):
+        return Process(payload)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+    with pytest.raises(MusicError, match="Не вдалося"):
+        await YTDLPResolver().resolve("Radio")
+
+
+async def test_live_stream_resolves_fresh_signed_cdn_url_after_eof():
+    clock = [0]
+    class LiveResolver:
+        def __init__(self):
+            self.calls = []
+        async def resolve(self, source):
+            self.calls.append(source)
+            return Track("24/7 Radio",
+                         f"https://manifest.googlevideo.com/playlist?id={len(self.calls)}",
+                         source, None, True)
+    resolver = LiveResolver()
+    manager = MusicManager(MusicOptions(use_autoplay=False), [], resolver,
+                           clock=lambda: clock[0])
+    backend = Backend()
+    try:
+        player = manager.attach(1, backend)
+        player._backoff = AsyncMock()
+        await player.enqueue("https://youtube.com/watch?v=LIVEVIDEO01", 21)
+        await eventually(lambda: len(backend.played) == 1)
+        assert backend.played[0].duration is None and backend.played[0].is_live
+        # A live feed continues without any four-hour duration cut-off.
+        clock[0] += 26 * 60 * 60
+        assert player.state == "playing" and len(backend.played) == 1
+        backend.callbacks[-1](None)
+        await eventually(lambda: len(backend.played) == 2)
+        assert resolver.calls == ["https://youtube.com/watch?v=LIVEVIDEO01"] * 2
+        assert backend.played[0].stream_url != backend.played[1].stream_url
+        assert backend.played[1].is_live
+        assert await player.skip() is True
+        await eventually(lambda: player.state == "idle")
+        assert len(backend.played) == 2
+    finally:
+        await manager.close()
+
+
+async def test_live_recovery_yields_to_ordinary_waiting_queue():
+    clock = [0]
+    class Mixed:
+        async def resolve(self, source):
+            if source == "radio":
+                return Track("radio", "https://a.googlevideo.com/live", source,
+                             None, True)
+            return Track(source, "https://a.googlevideo.com/vod", source, 180)
+    manager = MusicManager(MusicOptions(use_autoplay=False), [], Mixed(),
+                           clock=lambda: clock[0])
+    backend = Backend()
+    try:
+        player = manager.attach(1, backend)
+        player._backoff = AsyncMock()
+        await player.enqueue("radio", 11)
+        await eventually(lambda: len(backend.played) == 1)
+        await player.enqueue("listener-song", 22)
+        clock[0] += 100
+        backend.callbacks[-1](RuntimeError("private network url"))
+        await eventually(lambda: len(backend.played) == 2)
+        assert [track.title for track in backend.played] == ["radio", "listener-song"]
+        assert player._live_retry is not None
+        clock[0] += 180
+        backend.callbacks[-1](None)
+        await eventually(lambda: len(backend.played) == 3)
+        assert backend.played[-1].title == "radio"
+        assert player._live_retry is None
+    finally:
+        await manager.close()
+
+
+async def test_live_stream_restart_budget_prevents_unbounded_failure_loop():
+    class Live:
+        async def resolve(self, source):
+            return Track("always fails", "https://a.googlevideo.com/live",
+                         source, None, True)
+    class ImmediateFailure(Backend):
+        def play(self, track, after):
+            super().play(track, after)
+            after(RuntimeError("private cdn URL"))
+    manager = MusicManager(MusicOptions(use_autoplay=False), [], Live())
+    backend = ImmediateFailure()
+    try:
+        player = manager.attach(1, backend)
+        player._backoff = AsyncMock()
+        await player.enqueue("radio", 11)
+        await eventually(lambda: len(backend.played) == MAX_LIVE_RETRIES + 1
+                         and player.state == "idle")
+        assert player.error_code == "live_unavailable"
+        assert player._live_retry is None and not player.queue
+        await asyncio.sleep(.02)
+        assert len(backend.played) == MAX_LIVE_RETRIES + 1
+        assert "private" not in player.error
+    finally:
+        await manager.close()
+
+
+async def test_live_retry_can_be_cancelled_by_clear_or_skip():
+    class Live:
+        async def resolve(self, source):
+            return Track("radio", "https://a.googlevideo.com/live", source, None, True)
+    for command in ("clear_queue", "skip"):
+        manager = MusicManager(MusicOptions(use_autoplay=False), [], Live())
+        backend = Backend()
+        try:
+            player = manager.attach(1, backend)
+            await player.enqueue("radio", 11)
+            await eventually(lambda: len(backend.played) == 1)
+            backend.callbacks[-1](RuntimeError("private failure"))
+            await eventually(lambda: player.state == "backoff" and
+                             player._live_retry is not None)
+            result = await getattr(player, command)()
+            assert result == (1 if command == "clear_queue" else True)
+            await eventually(lambda: player.state == "idle")
+            assert player._live_retry is None
+            assert len(backend.played) == 1
+        finally:
+            await manager.close()

@@ -775,3 +775,41 @@ async def test_queue_pages_cover_all_fifty_slots_without_leaking_sources(invocat
         f.cog.queue_text(f.guild, page=0)
     with pytest.raises(UserError, match="від 1 до 5"):
         f.cog.queue_text(f.guild, page=True)
+
+
+async def test_ffmpeg_live_only_uses_bounded_http_reconnect(backend):
+    source = SimpleNamespace(
+        stream_url="https://manifest.googlevideo.com/playlist.m3u8",
+        duration=None, is_live=True)
+    backend.backend.play(source, MagicMock())
+    opts = backend.factory.call_args.kwargs["before_options"]
+    assert "-protocol_whitelist https,tls,tcp,crypto" in opts
+    assert "-reconnect_at_eof 1" in opts
+    assert "-reconnect_on_network_error 1" in opts
+    assert "-reconnect_max_retries 6" in opts
+    assert "-reconnect_delay_total_max 45" in opts
+    assert "-reconnect_on_http_error 500,502,503,504" in opts
+    assert "manifest.googlevideo.com" in backend.factory.call_args.args[0]
+
+
+async def test_ffmpeg_vod_never_reconnects_on_normal_eof(backend):
+    backend.backend.play(track(), MagicMock())
+    opts = backend.factory.call_args.kwargs["before_options"]
+    assert "-reconnect_at_eof" not in opts
+    assert "-reconnect_max_retries" not in opts
+
+
+async def test_queue_identifies_live_audio_without_exposing_signed_url(invocation):
+    f = invocation
+    await f.cog._ensure(f.guild, f.channel)
+    f.player.snapshot.return_value = {
+        "current": SimpleNamespace(title="My *24/7* Music Radio",
+                                   stream_url="https://a.googlevideo.com?secret=private",
+                                   is_live=True),
+        "request": SimpleNamespace(requester_id=20),
+        "queue": (), "state": "playing", "autoplay": False,
+        "autoplay_enabled": False, "error": None, "repeat_mode": "off"}
+    await invoke(f, "queue")
+    view = output(f)
+    assert "🔴 LIVE" in view and "24/7" in view
+    assert "secret=private" not in view
