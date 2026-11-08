@@ -731,9 +731,7 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
             return True
         return await asyncio.shield(task)
 
-    @app_commands.command(name="play", description="YouTube, YouTube Music, Spotify-трек через пошук, SoundCloud або назва")
-    @app_commands.guild_only()
-    async def play(self, interaction: discord.Interaction, query: app_commands.Range[str, 1, 500]):
+    async def _request_music(self, interaction, query, *, next_up=False):
         guild_context(interaction)
         try:
             validate_source(query)
@@ -742,13 +740,29 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         guild, channel, actor, _ = await self._context(interaction)
         session = await self._ensure(guild, channel)
         try:
-            position = await session.player.enqueue(query, actor.id)
+            if next_up:
+                position = await session.player.enqueue_next(query, actor.id)
+            else:
+                position = await session.player.enqueue(query, actor.id)
         except MusicError as error:
             raise UserError(str(error)) from None
-        message = f"Запит додано до черги: {position}. Автоплейлист поступається замовленням."
+        if next_up:
+            message = "Трек поставлено наступним (позиція 1). Поточне замовлення не перервано."
+        else:
+            message = f"Запит додано до черги: {position}. Автоплейлист поступається замовленням."
         if spotify_track_id(query.strip()):
             message += " Spotify надає метадані; аудіо буде відповідним результатом YouTube."
         await self._reply(interaction, message)
+
+    @app_commands.command(name="play", description="YouTube, YouTube Music, Spotify-трек через пошук, SoundCloud або назва")
+    @app_commands.guild_only()
+    async def play(self, interaction: discord.Interaction, query: app_commands.Range[str, 1, 500]):
+        await self._request_music(interaction, query)
+
+    @app_commands.command(name="playnext", description="Поставити власний трек наступним, не перериваючи поточний")
+    @app_commands.guild_only()
+    async def playnext(self, interaction: discord.Interaction, query: app_commands.Range[str, 1, 500]):
+        await self._request_music(interaction, query, next_up=True)
 
     @app_commands.command(name="join", description="Підключити музику й автоплейлист; Керувати сервером")
     @app_commands.default_permissions(manage_guild=True)
@@ -885,6 +899,35 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         message = f"Режим повтору: {label}. " + ("Застосовано." if changed else "Уже встановлено.")
         message += " Помилкові, пропущені й автоматичні треки не повторюються."
         await self._reply(interaction, message)
+
+    @app_commands.command(name="clear", description="Очистити лише очікування; залишити активний трек; Керувати сервером")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.guild_only()
+    async def clear(self, interaction: discord.Interaction):
+        guild, _, _, _ = await self._context(interaction, manager=True)
+        session = self._control_session(guild)
+        try:
+            count = await session.player.clear_queue()
+        except MusicError as error:
+            raise UserError(str(error)) from None
+        message = (f"Чергу очищено: видалено {count} замовлень. Поточний трек не змінено."
+                   if count else "Черга вже порожня. Поточний трек не змінено.")
+        await self._reply(interaction, message)
+
+    @app_commands.command(name="jump", description="Відтворити обрану позицію наступною; Керувати сервером")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.guild_only()
+    async def jump(self, interaction: discord.Interaction, position: app_commands.Range[int, 1, 50]):
+        guild, _, _, _ = await self._context(interaction, manager=True)
+        session = self._control_session(guild)
+        try:
+            await session.player.jump(position)
+        except MusicError as error:
+            raise UserError(str(error)) from None
+        await self._reply(interaction, (
+            f"Замовлення №{position} переміщено на початок і обрано для відтворення. "
+            "Поточний трек буде пропущено, решта черги збереже порядок."
+        ))
 
     @app_commands.command(name="shuffle", description="Перемішати лише чергу очікування; Керувати сервером")
     @app_commands.default_permissions(manage_guild=True)

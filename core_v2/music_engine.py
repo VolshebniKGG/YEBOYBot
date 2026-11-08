@@ -363,19 +363,63 @@ class GuildPlayer:
         self._pause_seconds = 0.0
         self._task = asyncio.create_task(self._run(), name=f"music-{guild_id}")
 
-    async def enqueue(self, source, requester_id):
+    async def enqueue(self, source, requester_id, *, next_up=False):
+        """Append a request normally, or queue it as the next user track.
+
+        Enqueuing and ordering contain no await points, so an in-flight player
+        cannot take half of a move or race with another guild command.
+        """
         validate_source(source)
         if self._closed or self._task.done() or not self.backend.is_connected():
             raise MusicError("Музичний плеєр недоступний. Використайте /music stop перед новим підключенням.")
         if type(requester_id) is not int or not 0 < requester_id < 2**63:
             raise MusicError("Не вдалося визначити автора замовлення.")
+        if type(next_up) is not bool:
+            raise MusicError("Не вдалося визначити порядок замовлення.")
         if len(self.queue) >= self.options.max_queue:
             raise MusicError("Черга заповнена: максимум 50 замовлень на сервер.")
-        self.queue.append(TrackRequest(source.strip(), requester_id))
+        request = TrackRequest(source.strip(), requester_id)
+        if next_up:
+            self.queue.appendleft(request)
+        else:
+            self.queue.append(request)
         if self.request and self.request.requester_id is None and self.options.autoplay_auto_skip:
             self._interrupted = True
         self._changed.set()
-        return len(self.queue)
+        return 1 if next_up else len(self.queue)
+
+    async def enqueue_next(self, source, requester_id):
+        """Request the very next slot without interrupting a user track."""
+        return await self.enqueue(source, requester_id, next_up=True)
+
+    async def clear_queue(self):
+        """Remove waiting requests, never the current track or voice client."""
+        if self._closed or self._task.done():
+            raise MusicError("Музичний плеєр уже зупинено.")
+        count = len(self.queue)
+        if count:
+            self.queue.clear()
+            self._changed.set()
+        return count
+
+    async def jump(self, position):
+        """Play a chosen waiting request next, safely preempting current audio.
+
+        Remaining waiting requests keep their relative order. A skipped active
+        track is not looped again. No await occurs between validation and move.
+        """
+        if self._closed or self._task.done():
+            raise MusicError("Музичний плеєр уже зупинено.")
+        if type(position) is not int or not 1 <= position <= len(self.queue):
+            raise MusicError("Такої позиції немає в черзі. Перевірте /music queue.")
+        item = self.queue[position - 1]
+        del self.queue[position - 1]
+        self.queue.appendleft(item)
+        self._repeat_one = None
+        if self.request is not None:
+            self._interrupted = True
+        self._changed.set()
+        return item.requester_id
 
     async def remove(self, position, requester_id, *, manage_guild=False):
         """Remove one queued request, never the currently resolving/playing track.
