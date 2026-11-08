@@ -11,6 +11,8 @@ from core_v2.prefix_commands import PrefixCommands, parse_arguments, resolve_com
 from core_v2.security import UserError
 from core_v2.commands import Core
 from core_v2.guide import Guide
+from core_v2.music import Music
+from core_v2.music_options import MusicOptions
 import test_role_panels as panels
 from test_role_panels import request, ADMIN, USER, GUILD, CHANNEL, ROLE
 
@@ -332,3 +334,53 @@ async def test_direct_private_rejects_missing_channel_rights_before_dm(fixture, 
         assert not f.prefix.pending
     finally:
         await f.bot.remove_cog('Guide')
+
+async def test_queue_direct_dm_reuses_music_voice_checks_and_renderer(fixture, monkeypatch):
+    f = fixture
+    player = Music(f.bot, options=MusicOptions(), manager=SimpleNamespace(close=AsyncMock()))
+    await f.bot.add_cog(player)
+    voice = AsyncMock()
+    status = 'Приватна черга сервера'
+    monkeypatch.setattr(player, 'voice_context', voice)
+    monkeypatch.setattr(player, 'queue_text', lambda guild: status if guild is f.cached else 'wrong guild')
+    dm = AsyncMock()
+    monkeypatch.setattr(discord.Member, 'send', dm)
+    monkeypatch.setattr(discord.TextChannel, 'permissions_for',
+                        lambda self, member: discord.Permissions(
+                            view_channel=True, send_messages=True, use_application_commands=True))
+    request_message = message(f, '!queue')
+    request_message.channel = discord.TextChannel(state=f.bot._connection, guild=f.cached, data=f.room)
+    try:
+        assert await f.prefix.handle_message(request_message)
+        voice.assert_awaited_once_with(f.cached, ADMIN, allow_closing=True)
+        assert dm.await_args.kwargs['content'] == status
+        assert dm.await_args.kwargs['allowed_mentions'].to_dict()['parse'] == []
+        assert not f.prefix.pending
+        f.send.assert_not_awaited()
+    finally:
+        await f.bot.remove_cog('Music')
+
+
+async def test_queue_direct_failure_falls_back_without_public_queue_data(fixture, monkeypatch):
+    from core_v2.security import UserError
+    f = fixture
+    player = Music(f.bot, options=MusicOptions(), manager=SimpleNamespace(close=AsyncMock()))
+    await f.bot.add_cog(player)
+    voice = AsyncMock(side_effect=UserError('Приєднайтеся до того самого голосового каналу.'))
+    monkeypatch.setattr(player, 'voice_context', voice)
+    dm = AsyncMock()
+    monkeypatch.setattr(discord.Member, 'send', dm)
+    monkeypatch.setattr(discord.TextChannel, 'permissions_for',
+                        lambda self, member: discord.Permissions(
+                            view_channel=True, send_messages=True, use_application_commands=True))
+    request_message = message(f, '!queue')
+    request_message.channel = discord.TextChannel(state=f.bot._connection, guild=f.cached, data=f.room)
+    try:
+        assert await f.prefix.handle_message(request_message)
+        voice.assert_awaited_once()
+        dm.assert_not_awaited()
+        assert len(f.prefix.pending) == 1
+        assert 'view' in f.send.await_args.kwargs
+        assert 'черга' not in f.send.await_args.args[0].lower()
+    finally:
+        await f.bot.remove_cog('Music')

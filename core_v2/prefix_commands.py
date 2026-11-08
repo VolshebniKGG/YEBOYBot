@@ -22,7 +22,7 @@ from .module_status import collect_module_status
 from .security import UserError
 
 log = logging.getLogger(__name__)
-DIRECT_PRIVATE = frozenset({'help', 'modules'})
+DIRECT_PRIVATE = frozenset({'help', 'modules', 'music queue'})
 MENTIONS = discord.AllowedMentions.none()
 MAX_PENDING = 256
 MAX_PER_GUILD = 16
@@ -239,10 +239,13 @@ class PrefixCommands(commands.Cog):
         so slash handlers can still return ephemeral responses safely.
         """
         name = command.qualified_name
-        if name not in DIRECT_PRIVATE or command.parent is not None:
+        if name not in DIRECT_PRIVATE:
             return False
-        guide = self.bot.get_cog('Guide')
-        if guide is None or guide.closing:
+        guide = self.bot.get_cog('Guide') if name in {'help', 'modules'} else None
+        music = self.bot.get_cog('Music') if name == 'music queue' else None
+        if ((name in {'help', 'modules'} and (command.parent is not None
+                or guide is None or guide.closing))
+                or (name == 'music queue' and (music is None or music._closing))):
             return False
         guild = message.guild
         if (guild.unavailable or self.bot.get_guild(guild.id) is not guild
@@ -277,23 +280,33 @@ class PrefixCommands(commands.Cog):
             maximum = page_count(entries, category)
             if page > maximum:
                 raise UserError(f'У цьому розділі сторінок: {maximum}.')
-            embed = render_help(entries, category, page)
-        else:
+            payload = {'embed': render_help(entries, category, page)}
+        elif name == 'modules':
             try:
                 async with asyncio.timeout(5):
-                    embed = await collect_module_status(self.bot, guild)
-            except (TimeoutError, Exception) as error:
+                    payload = {'embed': await collect_module_status(self.bot, guild)}
+            except Exception as error:
                 # Provider or database detail must never reach a public channel.
                 log.warning('Prefix module read failed type=%s', type(error).__name__)
                 return False
+        else:
+            try:
+                # Reuse the slash command's actual voice membership checks and
+                # private queue renderer; never create a fake Interaction.
+                async with asyncio.timeout(12):
+                    await music.voice_context(guild, message.author.id, allow_closing=True)
+                    payload = {'content': music.queue_text(guild)}
+            except Exception as error:
+                log.warning('Prefix queue read unavailable type=%s', type(error).__name__)
+                return False
 
-        if self.closing or guide.closing:
+        if self.closing or (guide is not None and guide.closing) or (music is not None and music._closing):
             return False
         try:
             # Fresh server membership and channel rights immediately before DM.
             member = await member_with_access()
             async with asyncio.timeout(10):
-                await member.send(embed=embed, allowed_mentions=MENTIONS)
+                await member.send(**payload, allowed_mentions=MENTIONS)
             return True
         except (discord.HTTPException, TimeoutError):
             return False

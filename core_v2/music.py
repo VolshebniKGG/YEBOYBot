@@ -527,15 +527,21 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
     async def _context(self, interaction, *, manager=False, allow_closing=False, cleanup=False):
         guild = guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
+        return await self.voice_context(
+            guild, interaction.user.id, manager=manager,
+            allow_closing=allow_closing, cleanup=cleanup)
+
+    async def voice_context(self, guild, actor_id, *, manager=False, allow_closing=False, cleanup=False):
+        """Shared fresh voice membership and permission checks for slash and read-only prefix."""
         if self.bot.user is None:
             raise UserError("Discord-клієнт ще не готовий.")
         try:
             async with asyncio.timeout(10):
                 actor, bot_member = await asyncio.gather(
-                    guild.fetch_member(interaction.user.id), guild.fetch_member(self.bot.user.id))
+                    guild.fetch_member(actor_id), guild.fetch_member(self.bot.user.id))
         except (discord.HTTPException, TimeoutError):
             raise UserError("Не вдалося перевірити доступ до голосового каналу. Повторіть пізніше.") from None
-        if (actor.id != interaction.user.id or bot_member.id != self.bot.user.id
+        if (actor.id != actor_id or bot_member.id != self.bot.user.id
                 or actor.guild.id != guild.id or bot_member.guild.id != guild.id or actor.bot):
             raise UserError("Не вдалося підтвердити учасника цього сервера.")
         if manager and not actor.guild_permissions.manage_guild:
@@ -745,19 +751,15 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         await self._ensure(guild, channel)
         await self._reply(interaction, "Музичний плеєр підключено. Автоплейлист працює відповідно до налаштувань.")
 
-    @app_commands.command(name="queue", description="Поточний трек і до 10 наступних замовлень")
-    @app_commands.guild_only()
-    async def queue(self, interaction: discord.Interaction):
-        guild, _, _, _ = await self._context(interaction, allow_closing=True)
+    def queue_text(self, guild):
+        """Bounded private status from one guild's current music session."""
         session = self.sessions.get(guild.id)
         if not session:
-            await self._reply(interaction, "Музичний плеєр не підключений. Використайте /music play.")
-            return
+            return "Музичний плеєр не підключений. Використайте /music play."
         if session.closing or session.close_failed:
-            await self._reply(interaction, CLOSE_PENDING if session.close_failed else
-                              "Музичний плеєр завершує роботу. Нові треки заблоковано; "
-                              "повторіть /music queue або /music stop після завершення.")
-            return
+            return (CLOSE_PENDING if session.close_failed else
+                    "Музичний плеєр завершує роботу. Нові треки заблоковано; "
+                    "повторіть /music queue або /music stop після завершення.")
         snapshot = session.player.snapshot()
         current = snapshot["current"]
         title = discord.utils.escape_mentions(discord.utils.escape_markdown(current.title[:180])) if current else "Немає"
@@ -795,7 +797,13 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         message = "\n".join(lines)
         if len(message.encode("utf-16-le")) > 4000:
             message = message.encode("utf-16-le")[:3998].decode("utf-16-le", errors="ignore") + "…"
-        await self._reply(interaction, message)
+        return message
+
+    @app_commands.command(name="queue", description="Поточний трек і до 10 наступних замовлень")
+    @app_commands.guild_only()
+    async def queue(self, interaction: discord.Interaction):
+        guild, _, _, _ = await self._context(interaction, allow_closing=True)
+        await self._reply(interaction, self.queue_text(guild))
 
     @app_commands.command(name="remove", description="Видалити замовлення з черги за номером")
     @app_commands.guild_only()
