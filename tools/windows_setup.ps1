@@ -344,11 +344,66 @@ function Show-YeboySetup {
     }
 }
 
+function Restore-YeboyInterruptedUpdate {
+    $directory = Join-Path $script:YeboyRoot 'data\v2'
+    $plan = Join-Path $directory 'update-plan.json'
+    $transaction = Join-Path $directory 'update-transaction.json'
+    if (-not (Test-Path -LiteralPath $plan -PathType Leaf) -and
+        -not (Test-Path -LiteralPath $transaction -PathType Leaf)) {
+        return 0
+    }
+    Write-Host ''
+    Write-Host '════════════════════════════════════════════════════════════════════════'
+    Write-Host '  YEBOYBot / ВИЯВЛЕНО НЕЗАВЕРШЕНЕ ОНОВЛЕННЯ'
+    Write-Host '════════════════════════════════════════════════════════════════════════'
+    Write-Host 'Можлива причина: вимкнення ПК або закриття вікна під час оновлення.'
+    Write-Host 'Не видаляйте data, backups, .env.v2 та збережений зовнішній worker.'
+    if ((Read-Host 'Для повернення попередньої версії введіть ВІДНОВИТИ').Trim() -ne 'ВІДНОВИТИ') {
+        Write-Host 'Оновлення не продовжено. Спершу відновіть незавершену транзакцію.'
+        return 1
+    }
+    if (-not (Test-Path -LiteralPath $transaction -PathType Leaf)) {
+        # Neither ZIP nor Git has changed code if no transaction was recorded.
+        if (Test-Path -LiteralPath $plan -PathType Leaf) {
+            Remove-Item -LiteralPath $plan -Force -ErrorAction Stop
+        }
+        Write-Host 'Незастосований план скасовано; програмні файли не змінювалися.'
+        return 0
+    }
+    $snapshot = Get-ChildItem -LiteralPath $directory -Filter 'updater-worker-*.py' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    if (-not $snapshot) {
+        Write-Host 'Не знайдено збереженого updater-worker. Автоматичний rollback небезпечний.'
+        return 1
+    }
+    $python = Join-Path $script:YeboyRoot '.venv-v2\Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+        $python = Find-YeboyPython
+    }
+    if (-not $python) {
+        Write-Host 'Python 3.12 недоступний. Відновіть його перед повторенням.'
+        return 1
+    }
+    if ((Invoke-YeboyUpdateWorker -Python $python -Snapshot $snapshot.FullName -Action 'rollback') -ne 0) {
+        Write-Host 'Rollback не підтверджений. Код та дані залишено для діагностики.'
+        return 1
+    }
+    if ((Install-YeboyCore -Repair) -ne 0) {
+        Write-Host 'Код відновлено, але перевірка бібліотек не пройдена.'
+        return 1
+    }
+    Remove-Item -LiteralPath $snapshot.FullName -Force -ErrorAction SilentlyContinue
+    Write-Host 'Попередню версію відновлено. Можна повернутися до головного меню.'
+    return 0
+}
+
 function Invoke-YeboyEntry {
     param([ValidateSet('Launcher', 'Setup', 'Ensure', 'Repair')][string]$Mode)
     if ($Mode -eq 'Ensure') { return (Install-YeboyCore) }
     if ($Mode -eq 'Repair') { return (Install-YeboyCore -Repair) }
     if ($Mode -eq 'Setup') { return (Show-YeboySetup) }
+    $recovery = Restore-YeboyInterruptedUpdate
+    if ($recovery -ne 0) { return $recovery }
     if (-not (Test-YeboyEnvironment)) {
         $setup = Show-YeboySetup
         if ($setup -ne 0) { return $setup }
