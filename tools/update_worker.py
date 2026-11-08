@@ -63,6 +63,11 @@ def valid_sha(value):
 def safe_path(name):
     if not isinstance(name, str) or "\\" in name or "\x00" in name or ":" in name:
         raise UpdateFailure("Некоректний шлях у пакеті оновлення.")
+    if len(name) > 240 or any(ord(char) < 32 for char in name):
+        raise UpdateFailure("Недозволене ім'я файла в архіві.")
+    raw_parts = name.split("/")
+    if any(not part or part in {".", ".."} or len(part) > 120 for part in raw_parts):
+        raise UpdateFailure("Некоректні сегменти шляху в архіві.")
     path = PurePosixPath(name)
     parts = path.parts
     if (not parts or name.startswith("/") or any(
@@ -260,13 +265,10 @@ def check_git(root):
         raise UpdateFailure("У Git-клоні є локальні зміни. Збережіть їх перед оновленням.")
 
 
-def git_apply(root, plan):
+def git_apply(root, plan, transaction_file):
     check_git(root)
     previous = git(root, "rev-parse", "HEAD")
-    original_branch = git(root, "symbolic-ref", "--quiet", "--short", "HEAD") if not (
-        subprocess.run(["git", "symbolic-ref", "-q", "HEAD"], cwd=root,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
-    ) else git(root, "branch", "--show-current")
+    original_branch = git(root, "branch", "--show-current")
     git(root, "fetch", "--no-tags", REMOTE, "refs/heads/" + plan["branch"])
     remote_commit = git(root, "rev-parse", "FETCH_HEAD")
     if remote_commit.lower() != plan["sha"].lower():
@@ -282,11 +284,15 @@ def git_apply(root, plan):
     if any((root / name).exists() and name not in
            set(git(root, "ls-tree", "-r", "--name-only", previous).splitlines()) for name in added):
         raise UpdateFailure("Нові Git-файли конфліктують з локальними.")
+    transaction = {"mode": "git", "previous": previous, "previous_branch": original_branch,
+                   "new_commit": remote_commit, "changed": sorted(changed),
+                   "branch": plan["branch"], "was_running": bool(plan.get("was_running"))}
+    # Record recovery information before Git modifies the working tree.
+    write_json(transaction_file, transaction)
     if previous != remote_commit:
-        # Detached HEAD preserves the prior named branch and history; no reset/force.
+        # Detached HEAD preserves the previous named branch and history.
         git(root, "switch", "--detach", remote_commit)
-    return {"mode": "git", "previous": previous, "previous_branch": original_branch,
-            "new_commit": remote_commit, "changed": sorted(changed)}
+    return transaction
 
 
 def restore_git(root, transaction):
@@ -424,17 +430,16 @@ def apply(root):
         work = root / "data/v2" / (".update-work-" + plan["id"])
         work.mkdir(parents=True, exist_ok=False)
         try:
+            # The Discord process has stopped. Snapshot SQLite before any code change.
+            backup_sqlite(root, plan)
             if plan["mode"] == "git":
-                # Fetch and inspect BEFORE touching the worktree.
-                transaction = git_apply(root, plan)
-                write_json(txn_path, transaction)
+                transaction = git_apply(root, plan, txn_path)
             else:
                 # Download/extract and validate BEFORE changing application files.
                 transaction = zip_apply(root, plan, work, old_manifest)
             transaction["branch"] = plan["branch"]
             transaction["was_running"] = bool(plan.get("was_running"))
-            if plan["mode"] == "git":
-                write_json(txn_path, transaction)
+            write_json(txn_path, transaction)
             report(root, "code_updated")
             return 0
         except Exception as error:
@@ -448,6 +453,9 @@ def rollback(root):
     root = Path(root).resolve()
     plan_path, txn_path, installed_path, _ = state_paths(root)
     if not txn_path.exists():
+        # An unsuccessful download or preflight did not modify installed code.
+        plan_path.unlink(missing_ok=True)
+        report(root, "cancelled_before_apply")
         return 0
     transaction = read_json(txn_path)
     with os_lock(root / "data/v2/launch.lock"), os_lock(root / "data/v2/bot.lock"):

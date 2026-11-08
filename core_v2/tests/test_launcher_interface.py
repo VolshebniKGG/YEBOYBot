@@ -22,6 +22,6 @@ class MenuTests(unittest.TestCase):
                 text = output.getvalue()
                 self.assertEqual(re.findall(r"^\s*\[(\d+)\]", text, re.MULTILINE),
                                  ["0", "1", "2", "12", "21"])
-                self.assertIn("running", text)
+                self.assertIn("ПРАЦЮЄ", text)
                 self.assertNotIn("\x1b", text)
                 self.assertTrue(all(len(line) <= width for line in text.splitlines()))

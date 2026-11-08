@@ -2,6 +2,9 @@
 import shutil
 import textwrap
 
+STATUS_LABELS = {"running": "ПРАЦЮЄ", "stopped": "ЗУПИНЕНО",
+                 "starting": "ЗАПУСКАЄТЬСЯ", "unknown": "СТАН НЕ ВИЗНАЧЕНО"}
+
 
 def _lines(text, width, *, continuation=""):
     return textwrap.wrap(text, width=width, subsequent_indent=continuation,
@@ -9,7 +12,7 @@ def _lines(text, width, *, continuation=""):
 
 
 def show_menu(actions, status):
-    width = min(100, max(44, shutil.get_terminal_size(fallback=(80, 24)).columns))
+    width = min(100, max(40, shutil.get_terminal_size(fallback=(80, 24)).columns))
     content = width - 4
 
     def line(value=""):
@@ -25,7 +28,7 @@ def show_menu(actions, status):
     line("YEBOYBot   /   ПАНЕЛЬ КЕРУВАННЯ")
     line("Discord  •  Музика  •  Спільнота  •  GitHub")
     print("╠" + "═" * (width - 2) + "╣")
-    line("Стан: " + str(status).replace("\n", " ")[:content - 7])
+    line("Стан: " + STATUS_LABELS.get(status, str(status)).replace("\n", " ")[:content - 7])
     line("Запуск, оновлення та відновлення в одному меню.")
     print("╚" + "═" * (width - 2) + "╝")
     print()
@@ -45,12 +48,16 @@ def show_menu(actions, status):
             print("  " + "─" * content)
             print("  " + group)
             previous = group
-        row = f"[{number:>2}]  " + actions[key][0]
+        row = f"[{number}]".ljust(6) + actions[key][0]
         for segment in _lines(row, content, continuation="      "):
             print("  " + segment)
     print()
     print("  " + "─" * content)
-    print("  ПЕРШИЙ ЗАПУСК  ·  Discord → музика → перевірка → запуск.")
-    print("  Оновлення GitHub: [6] → вибір гілки → підтвердження.")
-    print("  [0] закриває лише меню. Для зупинки бота — [3].")
+    for tip in (
+        "ПЕРШИЙ ЗАПУСК · Discord → музика → перевірка → запуск.",
+        "Оновлення GitHub: [6] → вибір гілки → підтвердження.",
+        "[0] закриває лише меню. Для зупинки бота — [3].",
+    ):
+        for segment in _lines(tip, content):
+            print("  " + segment)
     print("  " + "─" * content)
