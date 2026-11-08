@@ -152,7 +152,7 @@ async def test_cog_loaded_after_login_starts_autojoin(invocation):
     assert task.done()
 
 
-@pytest.mark.parametrize("command,args", [("play", ("музика",)), ("join", ()), ("queue", ()),
+@pytest.mark.parametrize("command,args", [("play", ("музика",)), ("join", ()), ("queue", ()), ("panel", ()),
                                            ("skip", ()), ("stop", ()), ("autoplay", (True,))])
 async def test_all_commands_reject_dm_before_defer_or_connect(invocation, command, args):
     invocation.interaction.guild = None
@@ -580,7 +580,7 @@ async def test_disconnect_error_is_sanitized_and_cleanup_still_happens(backend, 
 def test_music_group_metadata_and_management_defaults(invocation):
     group = invocation.cog.__cog_app_commands_group__
     assert group.name == "music"
-    assert {command.name for command in group.commands} == {"play", "join", "queue", "remove", "move", "shuffle", "repeat", "skip", "stop", "autoplay", "pause", "resume", "volume"}
+    assert {command.name for command in group.commands} == {"play", "join", "queue", "panel", "remove", "move", "shuffle", "repeat", "skip", "stop", "autoplay", "pause", "resume", "volume"}
     for command in group.commands:
         assert command.guild_only is True
         if command.name in {"join", "stop", "move", "shuffle", "repeat", "autoplay", "pause", "resume", "volume"}:
