@@ -1,4 +1,4 @@
-"""Windows console menu for the existing Core V2 runtime."""
+"""Windows console control center for the existing Core V2 runtime."""
 import os
 import sqlite3
 import subprocess
@@ -7,9 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PY = sys.executable
-CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 SETUP_EXIT_CODE = 24
 REPAIR_EXIT_CODE = 25
+UPDATE_EXIT_CODE = 26
 
 
 def run(*args):
@@ -22,18 +22,17 @@ def setup():
 
 
 def full_setup():
-    """Release loaded Python libraries before the outer CMD starts setup."""
+    """Unload native Python packages before the parent PowerShell installer."""
     if sys.platform != "win32":
         print("Повне встановлення через цей пункт доступне лише у Windows.")
         return 1
-    print("Меню завершується; встановлення продовжиться в головному вікні YEBOYBot.cmd.")
+    print("Меню завершується; встановлення продовжиться в цьому ж вікні.")
     return SETUP_EXIT_CODE
 
 
 def repair_dependencies():
-    """Windows pip must run after this menu releases imported native modules."""
     if sys.platform == "win32":
-        print("Меню завершується; залежності оновляться в головному вікні YEBOYBot.cmd.")
+        print("Меню завершується; бібліотеки оновляться в цьому ж вікні.")
         return REPAIR_EXIT_CODE
     return run("-m", "tools.launcher.bootstrap", "--repair")
 
@@ -64,48 +63,58 @@ def main():
     from . import process, storage, update, configuration, autostart, migrations, pg_workflow
     from . import media, rank_import
     from .interface import show_menu
+
+    # Keep every existing capability, but present exactly 1..21 without gaps.
     actions = {
+        "1": ("Запустити Discord-бота", start),
         "2": ("Перезапустити бота", lambda: print(process.restart()["status"])),
         "3": ("Зупинити бота", lambda: print("Зупинено" if process.stop() else "Не зупинено")),
-        "1": ("Запустити Discord-бота", start),
         "4": ("Перевірити конфігурацію та БД", lambda: run("-m", "tools.launcher.diagnostics")),
-        "24": ("Повне встановлення / відновлення Core V2", full_setup),
-        "25": ("Музика: автоматична підготовка й увімкнення", media.menu),
-        "26": ("Перенести старий XP у Core V2 (SQLite)", rank_import.menu),
         "5": ("Оновити Python-залежності", repair_dependencies),
-        "6": ("Оновити YEBOYBot із GitHub", update.menu),
+        "6": ("Оновити YEBOYBot із GitHub (вибір гілки)", update.menu),
         "7": ("Створити резервну копію SQLite", backup),
         "8": ("Відновити SQLite з резервної копії", storage.restore_menu),
-        "10": ("Перевірити SQLite", storage.check),
         "9": ("Переглянути журнал", logs),
+        "10": ("Перевірити SQLite", storage.check),
         "11": ("Налаштувати Discord (приховане введення токена)", setup),
-        "15": ("Автозапуск Windows", autostart.menu),
-        "21": ("План і застосування міграцій SQLite", migrations.menu),
-        "22": ("Старі функції (окреме legacy-середовище)", lambda: run("-I", str(ROOT / "tools/legacy_launcher.py"))),
-        "23": ("PostgreSQL: резервування, міграція, recovery", pg_workflow.menu),
-        "20": ("Резервні копії: перевірка й політика зберігання", storage.catalog_menu),
-        "18": ("Експортувати звіт діагностики", lambda: run("-m", "tools.launcher.diagnostics", "--export")),
         "12": ("Початкове налаштування", lambda: (setup(), run("-m", "core_v2.doctor"))),
+        "13": ("Автозапуск Windows", autostart.menu),
+        "14": ("Експортувати звіт діагностики", lambda: run("-m", "tools.launcher.diagnostics", "--export")),
+        "15": ("Резервні копії: перевірка й політика зберігання", storage.catalog_menu),
+        "16": ("План і застосування міграцій SQLite", migrations.menu),
+        "17": ("Старі функції (окреме legacy-середовище)", lambda: run("-I", str(ROOT / "tools/legacy_launcher.py"))),
+        "18": ("PostgreSQL: резервування, міграція, recovery", pg_workflow.menu),
+        "19": ("Повне встановлення / відновлення Core V2", full_setup),
+        "20": ("Музика: автоматична підготовка й увімкнення", media.menu),
+        "21": ("Перенести старий XP у Core V2 (SQLite)", rank_import.menu),
     }
+
     while True:
         show_menu(actions, process.state()["status"])
-        choice = input("  Номер дії › ").strip()
+        try:
+            choice = input("  Номер дії › ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nЗавершення меню без зупинки бота.")
+            return 0
         if choice == "0":
             return 0
         if choice not in actions:
-            print("Номер не знайдено. Виберіть дію з меню або [0], щоб закрити панель.")
+            print("Номер не знайдено. Оберіть 1–21 або [0], щоб закрити панель.")
             continue
         try:
             print(f"\n  › {actions[choice][0]}\n")
             result = actions[choice][1]()
-            if choice == "24" and result == SETUP_EXIT_CODE:
+            if choice == "19" and result == SETUP_EXIT_CODE:
                 return SETUP_EXIT_CODE
             if choice == "5" and result == REPAIR_EXIT_CODE and sys.platform == "win32":
                 return REPAIR_EXIT_CODE
-            if choice == "6" and result:
-                return 0
-        except (storage.StorageError, update.UpdateError, configuration.ConfigurationError, migrations.MigrationError,
-                rank_import.RankImportError) as exc:
+            if choice == "6" and result == UPDATE_EXIT_CODE and sys.platform == "win32":
+                return UPDATE_EXIT_CODE
+            if choice == "6" and result == UPDATE_EXIT_CODE:
+                print("Автоматичне оновлення через зовнішній worker працює у Windows.")
+                return 1
+        except (storage.StorageError, update.UpdateError, configuration.ConfigurationError,
+                migrations.MigrationError, rank_import.RankImportError) as exc:
             print(str(exc))
         except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
             print(f"Помилка операції: {type(exc).__name__}")
@@ -114,4 +123,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

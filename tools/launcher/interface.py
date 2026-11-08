@@ -1,13 +1,6 @@
-"""Ordered, readable console presentation without terminal-specific controls."""
+"""Readable, grouped and sequential console UI without third-party packages."""
 import shutil
 import textwrap
-
-STATUS_LABELS = {
-    "running": "ПРАЦЮЄ",
-    "stopped": "ЗУПИНЕНО",
-    "starting": "ЗАПУСКАЄТЬСЯ",
-    "unknown": "СТАН НЕ ВИЗНАЧЕНО",
-}
 
 
 def _lines(text, width, *, continuation=""):
@@ -16,41 +9,48 @@ def _lines(text, width, *, continuation=""):
 
 
 def show_menu(actions, status):
-    width = min(100, max(40, shutil.get_terminal_size(fallback=(80, 24)).columns))
-    content_width = width - 4
+    width = min(100, max(44, shutil.get_terminal_size(fallback=(80, 24)).columns))
+    content = width - 4
 
-    def paragraph(text):
-        for line in _lines(text, content_width):
-            print("  " + line)
+    def line(value=""):
+        # Python counts common box-drawing and Ukrainian symbols as one column.
+        value = str(value)
+        while value:
+            part, value = value[:content], value[content:]
+            print("║ " + part.ljust(content) + " ║")
+        if not value and not str(value):
+            pass
 
-    print("\n" + "═" * width)
-    paragraph("YEBOYBot  /  ПАНЕЛЬ КЕРУВАННЯ")
-    paragraph("Discord · Музика · Спільнота")
-    print("─" * width)
-    paragraph("Стан бота: " + STATUS_LABELS.get(status, str(status)))
-    print("═" * width)
-    paragraph("Оберіть дію. Номери впорядковано за зростанням.")
+    print("\n" + "╔" + "═" * (width - 2) + "╗")
+    line("YEBOYBot   /   ПАНЕЛЬ КЕРУВАННЯ")
+    line("Discord  •  Музика  •  Спільнота  •  GitHub")
+    print("╠" + "═" * (width - 2) + "╣")
+    line("Стан: " + str(status).replace("\n", " ")[:content - 7])
+    line("Запуск, оновлення та відновлення в одному меню.")
+    print("╚" + "═" * (width - 2) + "╝")
     print()
-    paragraph("[0]  Закрити панель (бот продовжить працювати)")
-    # Display original routing IDs, including gaps, to preserve documented
-    # commands and existing launcher integrations. Never renumber actions.
-    previous_group = None
+    print("  [0]  Закрити панель (Discord-бот продовжить працювати)")
+    previous = None
+    groups = {
+        "ОСНОВНІ ДІЇ": range(1, 7),
+        "ДАНІ ТА ЖУРНАЛ": range(7, 11),
+        "НАЛАШТУВАННЯ ТА ДІАГНОСТИКА": range(11, 15),
+        "ДОДАТКОВІ ІНСТРУМЕНТИ": range(15, 1000),
+    }
     for key in sorted(actions, key=int):
         number = int(key)
-        group = ("ОСНОВНІ ДІЇ" if number <= 6 else
-                 "ДАНІ ТА ЖУРНАЛ" if number <= 10 else
-                 "НАЛАШТУВАННЯ ТА ДІАГНОСТИКА" if number <= 18 else
-                 "ДОДАТКОВІ ІНСТРУМЕНТИ")
-        if group != previous_group:
+        group = next((title for title, ids in groups.items() if number in ids), "ІНШІ ДІЇ")
+        if group != previous:
             print()
-            paragraph(group)
-            print("  " + "─" * content_width)
-            previous_group = group
-        for line in _lines(f"[{key}]".ljust(5) + actions[key][0], content_width,
-                           continuation="     "):
-            print("  " + line)
-    print("\n" + "─" * width)
-    paragraph("ПЕРШИЙ ЗАПУСК")
-    paragraph("Налаштуйте Discord → підготуйте музику → перевірте конфігурацію → запустіть бота.")
-    paragraph("Закриття панелі не зупиняє бота. Для цього виберіть «Зупинити бота».")
-    print("─" * width)
+            print("  " + "─" * content)
+            print("  " + group)
+            previous = group
+        row = f"[{number:>2}]  " + actions[key][0]
+        for segment in _lines(row, content, continuation="      "):
+            print("  " + segment)
+    print()
+    print("  " + "─" * content)
+    print("  ПЕРШИЙ ЗАПУСК  ·  Discord → музика → перевірка → запуск.")
+    print("  Оновлення GitHub: [6] → вибір гілки → підтвердження.")
+    print("  [0] закриває лише меню. Для зупинки бота — [3].")
+    print("  " + "─" * content)

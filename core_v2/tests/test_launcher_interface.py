@@ -11,7 +11,7 @@ from tools.launcher.interface import show_menu
 
 class MenuTests(unittest.TestCase):
     def test_numeric_order_and_ids_at_each_width(self):
-        actions = {"25": ("Музика", None), "2": ("Перезапустити", None),
+        actions = {"21": ("Музика", None), "2": ("Перезапустити", None),
                    "12": ("Налаштування", None), "1": ("Запустити", None)}
         for width in (40, 80, 120):
             with self.subTest(width=width):
@@ -21,7 +21,7 @@ class MenuTests(unittest.TestCase):
                     show_menu(actions, "running")
                 text = output.getvalue()
                 self.assertEqual(re.findall(r"^\s*\[(\d+)\]", text, re.MULTILINE),
-                                 ["0", "1", "2", "12", "25"])
-                self.assertIn("ПРАЦЮЄ", text)
+                                 ["0", "1", "2", "12", "21"])
+                self.assertIn("running", text)
                 self.assertNotIn("\x1b", text)
                 self.assertTrue(all(len(line) <= width for line in text.splitlines()))

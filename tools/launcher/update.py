@@ -115,16 +115,14 @@ def apply(update, root=ROOT):
 
 
 def menu(root=ROOT):
-    if sys.prefix == sys.base_prefix:
-        raise UpdateError("Оновлення запускайте з .venv-v2 через YEBOYBot.cmd.")
-    update = plan(root)
-    if update["old"] == update["target"]:
-        print("Оновлень немає.")
-        return False
-    print(update["summary"])
-    print("Бот буде зупинено; перед оновленням створиться SQLite backup.")
-    if input("Застосувати оновлення? Введіть ОНОВИТИ: ").strip() != "ОНОВИТИ":
-        return False
-    apply(update, root)
-    print("Оновлення перевірено. Відкрийте YEBOYBot.cmd знову для нового меню.")
-    return True
+    """Select a GitHub branch, then delegate code replacement to PowerShell.
+
+    Keep legacy plan/apply helpers for historical Git-only compatibility tests;
+    the interactive path supports safe ZIP and Git installations.
+    """
+    from .github_update import menu as github_menu
+    from tools.update_worker import UpdateFailure
+    try:
+        return github_menu(root)
+    except UpdateFailure as error:
+        raise UpdateError(str(error)) from None
