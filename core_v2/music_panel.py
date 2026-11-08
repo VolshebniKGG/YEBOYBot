@@ -109,6 +109,10 @@ class MusicPanel(discord.ui.View):
                 if (guild is None or guild.unavailable
                         or self.cog.bot.get_guild(self.guild_id) is not guild):
                     raise UserError("Сервер більше не доступний.")
+                # Reject stale session *before* inspecting another voice client,
+                # then recheck again after the REST member lookup can yield.
+                if self.cog.sessions.get(self.guild_id) is not self.session:
+                    raise UserError("Панель застаріла. Відкрийте /music panel знову.")
                 manager = action in {"pause", "resume", "repeat", "shuffle", "stop"}
                 async with asyncio.timeout(12):
                     guild, _, actor, _ = await self.cog.voice_context(

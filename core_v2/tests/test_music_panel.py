@@ -137,7 +137,7 @@ async def test_panel_skip_respects_current_track_ownership(music_invocation):
     await view.expire()
 
 
-async def test_panel_stop_closes_view_only_after_manager_permission(invocation, monkeypatch):
+async def test_panel_stop_closes_view_only_after_manager_permission(music_invocation, monkeypatch):
     f = music_invocation
     await f.cog._ensure(f.guild, f.channel)
     view = await opened(f)
@@ -155,7 +155,7 @@ async def test_panel_stop_closes_view_only_after_manager_permission(invocation, 
     caller.edit_original_response.assert_awaited_once()
 
 
-async def test_too_many_panels_prevents_new_instance(invocation, monkeypatch):
+async def test_too_many_panels_prevents_new_instance(music_invocation, monkeypatch):
     f = music_invocation
     await f.cog._ensure(f.guild, f.channel)
     monkeypatch.setattr(music_module, "MAX_PANELS", 1)
