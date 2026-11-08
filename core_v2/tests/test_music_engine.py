@@ -501,3 +501,43 @@ async def test_close_clears_state_even_if_backend_stop_raises():
         await player.close()  # Repeated shutdown must remain safe.
     finally:
         await manager.close()
+
+async def test_remove_queued_track_checks_owner_without_interrupting_playback(music):
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.enqueue("first", 11)
+    await eventually(lambda: player.current is not None and player.current.title == "first")
+    await player.enqueue("second", 22)
+    await player.enqueue("third", 11)
+    stops, tracks = backend.stops, len(backend.played)
+
+    with pytest.raises(MusicError, match="власне замовлення"):
+        await player.remove(1, 11)
+    assert [item.source for item in player.snapshot()["queue"]] == ["second", "third"]
+
+    assert await player.remove(2, 11) == 1
+    assert await player.remove(1, 11, manage_guild=True) == 0
+    assert player.snapshot()["queue"] == ()
+    assert player.current.title == "first"
+    assert backend.stops == stops and len(backend.played) == tracks
+
+
+async def test_remove_rejects_invalid_indices_and_cannot_remove_active_track(music):
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.enqueue("first", 11)
+    await eventually(lambda: player.current is not None and player.current.title == "first")
+    await player.enqueue("queued", 22)
+
+    for position in (0, -1, 2, 51, True, 1.5):
+        with pytest.raises(MusicError, match="позиції"):
+            await player.remove(position, 22)
+    for actor, manager in ((True, False), (0, False), (22, 1)):
+        with pytest.raises(MusicError, match="права"):
+            await player.remove(1, actor, manage_guild=manager)
+    assert [item.source for item in player.snapshot()["queue"]] == ["queued"]
+
+    assert await player.remove(1, 22) == 0
+    with pytest.raises(MusicError, match="позиції"):
+        await player.remove(1, 11, manage_guild=True)
+    assert player.current.title == "first"

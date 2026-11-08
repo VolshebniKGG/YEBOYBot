@@ -783,6 +783,18 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
             message = message.encode("utf-16-le")[:3998].decode("utf-16-le", errors="ignore") + "…"
         await self._reply(interaction, message)
 
+    @app_commands.command(name="remove", description="Видалити замовлення з черги за номером")
+    @app_commands.guild_only()
+    async def remove(self, interaction: discord.Interaction, position: app_commands.Range[int, 1, 50]):
+        guild, _, actor, _ = await self._context(interaction)
+        session = self._control_session(guild)
+        try:
+            remaining = await session.player.remove(
+                position, actor.id, manage_guild=actor.guild_permissions.manage_guild)
+        except MusicError as error:
+            raise UserError(str(error)) from None
+        await self._reply(interaction, f"Замовлення №{position} видалено з черги. Залишилося: {remaining}.")
+
     @app_commands.command(name="skip", description="Пропустити власний трек або автоплейлист")
     @app_commands.guild_only()
     async def skip(self, interaction: discord.Interaction):

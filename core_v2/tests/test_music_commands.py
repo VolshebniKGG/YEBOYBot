@@ -44,7 +44,8 @@ def invocation():
 
     voice.disconnect.side_effect = disconnect
     channel.connect = AsyncMock(side_effect=connect)
-    player = SimpleNamespace(enqueue=AsyncMock(return_value=1), skip=AsyncMock(return_value=True),
+    player = SimpleNamespace(enqueue=AsyncMock(return_value=1), remove=AsyncMock(return_value=0),
+        skip=AsyncMock(return_value=True),
         set_autoplay=AsyncMock(), snapshot=MagicMock(return_value={
             "current": None, "request": None, "queue": (), "state": "idle", "autoplay": False,
             "autoplay_enabled": True, "error": None}))
@@ -561,3 +562,25 @@ def test_music_group_metadata_and_management_defaults(invocation):
         assert command.guild_only is True
         if command.name in {"join", "stop", "autoplay", "pause", "resume", "volume"}:
             assert command.default_permissions.manage_guild is True
+
+async def test_remove_queue_uses_fresh_member_rights_and_private_reply(invocation):
+    fixture = invocation
+    await fixture.cog._ensure(fixture.guild, fixture.channel)
+    fixture.actor.guild_permissions = discord.Permissions.none()
+    await invoke(fixture, "remove", 1)
+    fixture.player.remove.assert_awaited_once_with(1, 20, manage_guild=False)
+    assert "Замовлення №1" in output(fixture)
+
+    fixture.player.remove.reset_mock()
+    fixture.actor.guild_permissions = discord.Permissions(manage_guild=True)
+    await invoke(fixture, "remove", 2)
+    fixture.player.remove.assert_awaited_once_with(2, 20, manage_guild=True)
+
+
+async def test_remove_queue_rejects_private_service_failure(invocation):
+    fixture = invocation
+    await fixture.cog._ensure(fixture.guild, fixture.channel)
+    fixture.player.remove.side_effect = MusicError("Можна видалити лише власне замовлення.")
+    with pytest.raises(UserError, match="власне замовлення"):
+        await invoke(fixture, "remove", 1)
+    fixture.interaction.followup.send.assert_not_awaited()

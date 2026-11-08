@@ -375,6 +375,26 @@ class GuildPlayer:
         self._changed.set()
         return len(self.queue)
 
+    async def remove(self, position, requester_id, *, manage_guild=False):
+        """Remove one queued request, never the currently resolving/playing track.
+
+        Validation and mutation contain no await, making ownership and position
+        checks atomic relative to other commands on the guild event loop.
+        """
+        if self._closed or self._task.done():
+            raise MusicError("Музичний плеєр уже зупинено.")
+        if type(position) is not int or not 1 <= position <= len(self.queue):
+            raise MusicError("Такої позиції немає в черзі. Перевірте /music queue.")
+        if (type(requester_id) is not int or not 0 < requester_id < 2**63
+                or type(manage_guild) is not bool):
+            raise MusicError("Не вдалося перевірити права на видалення замовлення.")
+        item = self.queue[position - 1]
+        if item.requester_id != requester_id and not manage_guild:
+            raise MusicError("Можна видалити лише власне замовлення; інші — з дозволом «Керувати сервером».")
+        del self.queue[position - 1]
+        self._changed.set()
+        return len(self.queue)
+
     async def skip(self):
         if self._closed or self.request is None:
             return False
