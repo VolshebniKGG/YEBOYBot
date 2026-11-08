@@ -669,3 +669,54 @@ $code = Invoke-YeboyMedia
 Assert-True ($code -eq EXPECTED_CODE) 'Preserve successful and failed native media exits'
 """.replace("FIXTURE_ROOT", _literal(root)).replace("EXPECTED_CODE", str(exit_code)))
     assert "YEBOY_MEDIA_BOUNDARY_OK" in result.stdout
+
+
+@WINDOWS
+@pytest.mark.parametrize("scenario, expected_code, expected_order", [
+    ("success", 0, "apply,repair,verify,confirm"),
+    ("rollback", 2, "apply,rollback,repair"),
+    ("unconfirmed", 1, "apply,rollback"),
+])
+def test_github_updater_external_worker_handoff_is_atomic(
+        tmp_path, scenario, expected_code, expected_order):
+    # Run real PowerShell 5.1 orchestration without network or dependency changes.
+    import json
+    root = tmp_path / "YEBOYBot O'Connor"
+    (root / "tools").mkdir(parents=True)
+    (root / "data/v2").mkdir(parents=True)
+    (root / "tools/update_worker.py").write_text("# mocked worker", encoding="utf-8")
+    (root / "data/v2/update-plan.json").write_text(
+        json.dumps({"was_running": False}), encoding="utf-8")
+    body = r"""
+$script:YeboyRoot = ROOT_PLACEHOLDER
+$script:Steps = [System.Collections.Generic.List[string]]::new()
+function Invoke-YeboyUpdateWorker {
+    param($Python, $Snapshot, $Action)
+    $script:Steps.Add([string]$Action)
+    if (SCENARIO_PLACEHOLDER -eq 'success') { return 0 }
+    if ($Action -eq 'apply') { return 1 }
+    if (SCENARIO_PLACEHOLDER -eq 'rollback') { return 0 }
+    return 1
+}
+function Install-YeboyCore {
+    param([switch]$Repair)
+    $script:Steps.Add('repair')
+    return 0
+}
+function Test-YeboyAfterUpdate {
+    $script:Steps.Add('verify')
+    return 0
+}
+function Start-YeboyAfterUpdate { throw 'Must not restart when was_running=False' }
+$result = Invoke-YeboyGitHubUpdate
+Assert-True ($result -eq EXPECTED_PLACEHOLDER) 'Updater return code must reflect recovery status'
+Assert-True (($script:Steps -join ',') -eq ORDER_PLACEHOLDER) 'Correct worker/repair/verify order'
+if (SCENARIO_PLACEHOLDER -eq 'unconfirmed') {
+    $remains = @(Get-ChildItem -LiteralPath (Join-Path $script:YeboyRoot 'data\\v2') -Filter 'updater-worker-*.py' -File)
+    Assert-True ($remains.Count -eq 1) 'Keep updater snapshot after failed recovery'
+}
+""".replace("ROOT_PLACEHOLDER", _literal(root)).replace(
+        "SCENARIO_PLACEHOLDER", _literal(scenario)).replace(
+        "EXPECTED_PLACEHOLDER", str(expected_code)).replace(
+        "ORDER_PLACEHOLDER", _literal(expected_order))
+    _run_ps(tmp_path, body, timeout=90)
