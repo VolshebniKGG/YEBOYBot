@@ -614,3 +614,48 @@ async def test_shuffle_isolated_across_guild_queues(music):
     assert await left.shuffle_queue() == 3
     assert tuple(right.queue) == before_right
     assert right.current.title == "right-active"
+
+async def test_move_reorders_only_waiting_requests_without_playback(music):
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.enqueue("current", 11)
+    await eventually(lambda: player.current is not None and player.current.title == "current")
+    for name in ("a", "b", "c", "d"):
+        await player.enqueue(name, 22)
+    stops, played = backend.stops, len(backend.played)
+    assert await player.move(1, 4) is True
+    assert [item.source for item in player.queue] == ["b", "c", "d", "a"]
+    assert await player.move(4, 2) is True
+    assert [item.source for item in player.queue] == ["b", "a", "c", "d"]
+    assert await player.move(2, 2) is False
+    assert player.current.title == "current"
+    assert backend.stops == stops and len(backend.played) == played
+
+
+async def test_move_rejects_invalid_indices_and_closed_worker(music):
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.enqueue("current", 11)
+    await eventually(lambda: player.current is not None and player.current.title == "current")
+    await player.enqueue("waiting", 22)
+    for from_position, to_position in ((0, 1), (1, 0), (2, 1), (1, 2),
+                                       (True, 1), (1, False), (1.5, 1), (1, "1")):
+        with pytest.raises(MusicError, match="Позиції"):
+            await player.move(from_position, to_position)
+    assert len(player.queue) == 1
+    await player.close()
+    with pytest.raises(MusicError, match="зупинено"):
+        await player.move(1, 1)
+
+
+async def test_move_other_guild_does_not_change_queue(music):
+    left, right = music.attach(1, Backend()), music.attach(2, Backend())
+    await left.enqueue("active-left", 11)
+    await right.enqueue("active-right", 22)
+    await eventually(lambda: left.current is not None and right.current is not None)
+    for name in ("a", "b", "c"):
+        await left.enqueue(name, 11)
+        await right.enqueue(name, 22)
+    before = tuple(right.queue)
+    assert await left.move(3, 1)
+    assert tuple(right.queue) == before

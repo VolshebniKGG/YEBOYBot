@@ -45,7 +45,8 @@ def invocation():
     voice.disconnect.side_effect = disconnect
     channel.connect = AsyncMock(side_effect=connect)
     player = SimpleNamespace(enqueue=AsyncMock(return_value=1), remove=AsyncMock(return_value=0),
-        shuffle_queue=AsyncMock(return_value=3), skip=AsyncMock(return_value=True),
+        shuffle_queue=AsyncMock(return_value=3), move=AsyncMock(return_value=True),
+        skip=AsyncMock(return_value=True),
         set_autoplay=AsyncMock(), snapshot=MagicMock(return_value={
             "current": None, "request": None, "queue": (), "state": "idle", "autoplay": False,
             "autoplay_enabled": True, "error": None}))
@@ -579,10 +580,10 @@ async def test_disconnect_error_is_sanitized_and_cleanup_still_happens(backend, 
 def test_music_group_metadata_and_management_defaults(invocation):
     group = invocation.cog.__cog_app_commands_group__
     assert group.name == "music"
-    assert {command.name for command in group.commands} == {"play", "join", "queue", "remove", "shuffle", "skip", "stop", "autoplay", "pause", "resume", "volume"}
+    assert {command.name for command in group.commands} == {"play", "join", "queue", "remove", "move", "shuffle", "skip", "stop", "autoplay", "pause", "resume", "volume"}
     for command in group.commands:
         assert command.guild_only is True
-        if command.name in {"join", "stop", "shuffle", "autoplay", "pause", "resume", "volume"}:
+        if command.name in {"join", "stop", "move", "shuffle", "autoplay", "pause", "resume", "volume"}:
             assert command.default_permissions.manage_guild is True
 
 async def test_remove_queue_uses_fresh_member_rights_and_private_reply(invocation):
@@ -647,4 +648,28 @@ async def test_shuffle_failure_does_not_leak_private_audio_error(invocation):
     f.player.shuffle_queue.side_effect = MusicError("Музичний плеєр уже зупинено.")
     with pytest.raises(UserError, match="зупинено"):
         await invoke(f, "shuffle")
+    f.interaction.followup.send.assert_not_awaited()
+
+async def test_move_queue_is_private_and_manager_only(invocation):
+    f = invocation
+    await f.cog._ensure(f.guild, f.channel)
+    f.actor.guild_permissions = discord.Permissions.none()
+    with pytest.raises(UserError, match="Керувати сервером"):
+        await invoke(f, "move", 2, 1)
+    f.player.move.assert_not_awaited()
+    f.actor.guild_permissions = discord.Permissions(manage_guild=True)
+    await invoke(f, "move", 2, 1)
+    f.player.move.assert_awaited_once_with(2, 1)
+    assert "з №2 на №1" in output(f)
+    f.player.move.return_value = False
+    await invoke(f, "move", 1, 1)
+    assert "вже перебуває" in output(f)
+
+
+async def test_move_queue_failure_is_private_and_keeps_state(invocation):
+    f = invocation
+    await f.cog._ensure(f.guild, f.channel)
+    f.player.move.side_effect = MusicError("Позиції мають відповідати поточній черзі.")
+    with pytest.raises(UserError, match="Позиції"):
+        await invoke(f, "move", 2, 49)
     f.interaction.followup.send.assert_not_awaited()

@@ -819,6 +819,23 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
             raise UserError(str(error)) from None
         await self._reply(interaction, f"Замовлення №{position} видалено з черги. Залишилося: {remaining}.")
 
+    @app_commands.command(name="move", description="Перемістити замовлення між позиціями черги; Керувати сервером")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.guild_only()
+    async def move(self, interaction: discord.Interaction,
+                   from_position: app_commands.Range[int, 1, 50],
+                   to_position: app_commands.Range[int, 1, 50]):
+        guild, _, _, _ = await self._context(interaction, manager=True)
+        session = self._control_session(guild)
+        try:
+            changed = await session.player.move(from_position, to_position)
+        except MusicError as error:
+            raise UserError(str(error)) from None
+        message = (f"Замовлення переміщено з №{from_position} на №{to_position}. "
+                   "Поточний трек не змінено." if changed else
+                   "Замовлення вже перебуває на вказаній позиції.")
+        await self._reply(interaction, message)
+
     @app_commands.command(name="shuffle", description="Перемішати лише чергу очікування; Керувати сервером")
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.guild_only()

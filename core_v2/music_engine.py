@@ -395,6 +395,22 @@ class GuildPlayer:
         self._changed.set()
         return len(self.queue)
 
+    async def move(self, from_position, to_position):
+        """Relocate one waiting request with no awaits or playback changes."""
+        if self._closed or self._task.done():
+            raise MusicError("Музичний плеєр уже зупинено.")
+        if (type(from_position) is not int or type(to_position) is not int
+                or not 1 <= from_position <= len(self.queue)
+                or not 1 <= to_position <= len(self.queue)):
+            raise MusicError("Позиції мають відповідати поточній черзі. Перевірте /music queue.")
+        if from_position == to_position:
+            return False
+        request = self.queue[from_position - 1]
+        del self.queue[from_position - 1]
+        self.queue.insert(to_position - 1, request)
+        self._changed.set()
+        return True
+
     async def shuffle_queue(self):
         """Randomize only waiting requests, never the active track.
 
