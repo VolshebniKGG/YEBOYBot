@@ -87,13 +87,16 @@ def choose_branch(branches, *, reader=input, printer=print):
 
 def installed_version(root):
     installed = root / "data/v2/install-manifest.json"
-    if installed.exists():
-        info = read_json(installed)
-        if isinstance(info, dict) and valid_sha(info.get("commit")):
-            return info["commit"], info.get("branch", "невідома")
+    info = read_json(installed) if installed.exists() else {}
     if (root / ".git").is_dir():
+        # A local Git checkout may have changed outside this updater; HEAD wins.
         from tools.update_worker import git
-        return git(root, "rev-parse", "HEAD"), "поточний Git HEAD"
+        current = git(root, "rev-parse", "HEAD")
+        if info.get("commit") == current:
+            return current, info.get("branch", "поточний Git HEAD")
+        return current, git(root, "branch", "--show-current") or "Git: detached HEAD"
+    if isinstance(info, dict) and valid_sha(info.get("commit")):
+        return info["commit"], info.get("branch", "невідома")
     return None, "встановлення із ZIP (SHA невідомий)"
 
 

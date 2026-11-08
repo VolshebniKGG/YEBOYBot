@@ -348,6 +348,10 @@ def zip_apply(root, plan, work, old_manifest):
     obsolete = set(previously) - set(fresh)
     for name in set(fresh) | obsolete:
         current = ensure_target(root, name)
+        # Following first adoption, new repository paths must not replace
+        # a user's formerly unmanaged file, even with a backup.
+        if old_manifest is not None and name in fresh and name not in previously and current.exists():
+            raise UpdateFailure("Новий файл релізу конфліктує з локальним файлом.")
         if name in previously and current.is_file():
             if digest_file(current) != previously[name]:
                 raise UpdateFailure("Локально змінено програмний файл; оновлення не перезапише його.")

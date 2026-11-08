@@ -241,3 +241,33 @@ def test_zip_skips_private_files_tracked_in_old_commits(
         assert (installation / protected_name).read_text() == "personal=1"
     else:
         assert not (installation / protected_name).exists()
+
+
+def test_zip_new_path_wont_clobber_unmanaged_file_after_adoption(
+        installation, monkeypatch, tmp_path):
+    first = tmp_path / "first.zip"
+    archive(first, NEW)
+    patch_archive(monkeypatch, first)
+    prepare(installation)
+    assert worker.apply(installation) == 0
+    assert worker.confirm(installation) == 0
+    local = installation / "docs/local-user-notes.md"
+    local.parent.mkdir(parents=True)
+    local.write_text("PERSONAL DOCUMENT", encoding="utf-8")
+    second = tmp_path / "second.zip"
+    archive(second, {**NEW, "docs/local-user-notes.md": "INCOMING DOC"})
+    patch_archive(monkeypatch, second)
+    prepare(installation, sha="b" * 40)
+    with pytest.raises(worker.UpdateFailure, match="конфліктує"):
+        worker.apply(installation)
+    assert local.read_text(encoding="utf-8") == "PERSONAL DOCUMENT"
+    assert worker.rollback(installation) == 0
+
+
+def test_git_installed_version_uses_actual_head_not_stale_manifest(installation, monkeypatch):
+    (installation / ".git").mkdir()
+    worker.write_json(installation / "data/v2/install-manifest.json",
+                      {"commit": "a" * 40, "branch": "old-branch", "files": {}})
+    monkeypatch.setattr(worker, "git", lambda root, *args: "b" * 40
+                        if args == ("rev-parse", "HEAD") else "new-branch")
+    assert github_update.installed_version(installation) == ("b" * 40, "new-branch")
