@@ -75,7 +75,9 @@ $null = [System.Management.Automation.Language.Parser]::ParseFile(
 Assert-True ($parseErrors.Count -eq 0) 'PowerShell 5.1 syntax must parse'
 foreach ($name in @('Find-YeboyPython', 'Find-YeboyWinget', 'Invoke-YeboyWinget',
                     'Invoke-YeboyBootstrap', 'Invoke-YeboyMedia', 'Test-YeboyEnvironment', 'Start-YeboyMenu',
-                    'Install-YeboyCore', 'Show-YeboySetup', 'Invoke-YeboyEntry')) {
+                    'Install-YeboyCore', 'Show-YeboySetup', 'Invoke-YeboyEntry',
+                    'Invoke-YeboyGitHubUpdate', 'Restore-YeboyInterruptedUpdate',
+                    'Invoke-YeboyUpdateWorker')) {
     Assert-True ($null -ne (Get-Command $name -CommandType Function)) ('Missing ' + $name)
 }
 """.replace("$SOURCE_FILE", _literal(SOURCE)), timeout=90)

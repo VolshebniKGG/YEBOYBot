@@ -246,6 +246,8 @@ function Invoke-YeboyGitHubUpdate {
             if ($recovered -and $wasRunning) {
                 [void](Start-YeboyAfterUpdate)
             }
+            # Code/deps restored => safe to return to menu. Otherwise halt.
+            if ($recovered) { return 2 }
             return 1
         }
 
@@ -426,8 +428,12 @@ function Invoke-YeboyEntry {
                 Write-Host 'Середовище не пройшло перевірку після оновлення. Перевірте recovery і журнал.'
                 return 1
             }
-            if ($updated -ne 0) {
-                Write-Host 'Оновлення не завершено. Стан зазначено в data\\v2\\update-report.json.'
+            if ($updated -eq 1) {
+                Write-Host 'Оновлення або rollback не підтверджені. Панель зупинено.'
+                return 1
+            }
+            if ($updated -eq 2) {
+                Write-Host 'Оновлення скасовано; попередню версію відновлено.'
             }
             continue
         }
