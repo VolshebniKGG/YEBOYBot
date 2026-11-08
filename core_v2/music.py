@@ -838,6 +838,8 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         if snapshot.get("error"):
             code = normalize_failure_code(snapshot.get("error_code"))
             lines.append(f"Останній збій: {failure_message(code)}")
+        if snapshot.get("live_retry") is not None:
+            lines.append("🔴 LIVE: очікується повторне отримання адреси ефіру.")
         lines.append(f"У черзі: {len(snapshot['queue'])}. Автоплейлист: {'увімкнено' if snapshot['autoplay_enabled'] else 'вимкнено'}.")
         message = "\n".join(lines)
         if len(message.encode("utf-16-le")) > 4000:
@@ -974,9 +976,10 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         if not session:
             raise UserError("Музичний плеєр не підключений.")
         snapshot = session.player.snapshot()
-        request = snapshot.get("request")
-        if (request is not None and not snapshot["autoplay"]
-                and request.requester_id != actor.id and not actor.guild_permissions.manage_guild):
+        request = snapshot.get("request") or snapshot.get("live_retry")
+        if (request is not None and request.requester_id is not None
+                and request.requester_id != actor.id
+                and not actor.guild_permissions.manage_guild):
             raise UserError("Можна пропустити власний трек; інші — з дозволом «Керувати сервером».")
         skipped = await session.player.skip()
         await self._reply(interaction, "Трек пропущено." if skipped else "Зараз немає активного треку.")

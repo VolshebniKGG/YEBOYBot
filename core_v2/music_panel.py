@@ -141,8 +141,8 @@ class MusicPanel(discord.ui.View):
                     notice = f"Ручну паузу {word}." if changed else f"Ручну паузу вже {word}."
                 elif action == "skip":
                     state = session.player.snapshot()
-                    request = state.get("request")
-                    if (request is not None and not state.get("autoplay")
+                    request = state.get("request") or state.get("live_retry")
+                    if (request is not None and request.requester_id is not None
                             and request.requester_id != actor.id
                             and not actor.guild_permissions.manage_guild):
                         raise UserError("Чужі треки можна пропускати лише з дозволом «Керувати сервером».")

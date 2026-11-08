@@ -229,3 +229,25 @@ async def test_panel_volume_refuses_unverifiable_state(music_invocation):
     assert "не визначено" in caller.followup.send.await_args.args[0]
     f.player.set_volume.assert_not_awaited()
     await view.expire()
+
+
+async def test_panel_skip_guards_pending_live_retry_authorization(music_invocation):
+    f = music_invocation
+    session = await f.cog._ensure(f.guild, f.channel)
+    view = await opened(f)
+    session.player.snapshot = MagicMock(return_value={
+        "request": None, "live_retry": SimpleNamespace(requester_id=123),
+        "repeat_mode": "off", "current": None, "state": "backoff",
+        "queue": (), "autoplay": False, "autoplay_enabled": False})
+    session.player.skip = AsyncMock(return_value=True)
+    f.actor.guild_permissions = discord.Permissions.none()
+    denied = click(f)
+    await view._action(denied, "skip")
+    assert "Чужі треки" in denied.followup.send.await_args.args[0]
+    session.player.skip.assert_not_awaited()
+    f.actor.guild_permissions = discord.Permissions(manage_guild=True)
+    approved = click(f)
+    await view._action(approved, "skip")
+    session.player.skip.assert_awaited_once()
+    assert "пропущено" in approved.followup.send.await_args.args[0]
+    await view.expire()

@@ -615,7 +615,8 @@ class GuildPlayer:
                 "autoplay": bool(self.request and self.request.requester_id is None),
                 "autoplay_enabled": self.autoplay_enabled, "queue": tuple(self.queue),
                 "state": self.state, "error": self.error, "error_code": self.error_code,
-                "manual_paused": self.manual_paused, "repeat_mode": self.repeat_mode}
+                "manual_paused": self.manual_paused, "repeat_mode": self.repeat_mode,
+                "live_retry": self._live_retry}
 
     async def close(self):
         """Release player state even when the voice adapter fails to stop."""
@@ -785,6 +786,7 @@ class GuildPlayer:
                         # a temporary signed stream URL must never be reused.
                         if elapsed >= LIVE_STABLE_SECONDS:
                             self._live_retry_count = 0
+                            self._failures = 0
                         self._live_retry_count += 1
                         if self._live_retry_count <= MAX_LIVE_RETRIES:
                             self._live_retry = self.request
@@ -811,7 +813,8 @@ class GuildPlayer:
                     failed = True
                     if self._resuming_live and not self._interrupted and not self._closed:
                         # Failed live URL refresh also counts toward the bounded
-                        # retry budget. Never loop forever on an offline channel.
+                        # retry budget. The opt-in autoplaylist may still retry
+                        # its entry later, with normal exponential backoff.
                         self._live_retry_count += 1
                         if self._live_retry_count <= MAX_LIVE_RETRIES:
                             self._live_retry = self.request

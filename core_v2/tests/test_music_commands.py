@@ -813,3 +813,20 @@ async def test_queue_identifies_live_audio_without_exposing_signed_url(invocatio
     view = output(f)
     assert "🔴 LIVE" in view and "24/7" in view
     assert "secret=private" not in view
+
+
+async def test_skip_cannot_cancel_another_users_pending_live_recovery(invocation):
+    f = invocation
+    await f.cog._ensure(f.guild, f.channel)
+    f.player.snapshot.return_value = {
+        "request": None, "live_retry": SimpleNamespace(requester_id=123),
+        "autoplay": False, "queue": (), "current": None,
+        "state": "backoff", "autoplay_enabled": False}
+    f.actor.guild_permissions = discord.Permissions.none()
+    with pytest.raises(UserError, match="власний трек"):
+        await invoke(f, "skip")
+    f.player.skip.assert_not_awaited()
+    f.actor.guild_permissions = discord.Permissions(manage_guild=True)
+    await invoke(f, "skip")
+    f.player.skip.assert_awaited_once()
+    assert "пропущено" in output(f)
