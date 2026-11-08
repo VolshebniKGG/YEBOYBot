@@ -181,8 +181,7 @@ def test_zip_second_update_refuses_changed_tracked_source(installation, monkeypa
 
 
 @pytest.mark.parametrize("unsafe", [
-    "../outside.txt", "data/v2/token.txt", ".env.v2", "other/../../outside.txt",
-    "config/options.ini", "bin/ffmpeg/ffmpeg.exe", "a\\b.txt",
+    "../outside.txt", "other/../../outside.txt", "a\\b.txt",
 ])
 def test_zip_rejects_unsafe_members_before_applying(installation, monkeypatch, tmp_path, unsafe):
     package = tmp_path / "unsafe.zip"
@@ -220,3 +219,25 @@ def test_report_never_includes_token(installation, monkeypatch, tmp_path):
     report = (installation / "data/v2/update-report.json").read_text()
     assert "topsecret" not in report
     assert json.loads(report)["phase"] == "verified"
+
+
+@pytest.mark.parametrize("protected_name", [
+    "data/music/cache.json", "logs/bot.log", ".env.v2",
+    "config/options.ini", "bin/ffmpeg/ffmpeg.exe",
+])
+def test_zip_skips_private_files_tracked_in_old_commits(
+        installation, monkeypatch, tmp_path, protected_name):
+    package = tmp_path / "mixed.zip"
+    archive(package, {**NEW, protected_name: "MUST NOT INSTALL"})
+    patch_archive(monkeypatch, package)
+    prepare(installation)
+    assert worker.apply(installation) == 0
+    assert worker.confirm(installation) == 0
+    manifest = worker.read_json(installation / "data/v2/install-manifest.json")
+    assert protected_name not in manifest["files"]
+    if protected_name == ".env.v2":
+        assert (installation / protected_name).read_text() == "DISCORD_TOKEN=topsecret"
+    elif protected_name == "config/options.ini":
+        assert (installation / protected_name).read_text() == "personal=1"
+    else:
+        assert not (installation / protected_name).exists()

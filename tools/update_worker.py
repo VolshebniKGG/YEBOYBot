@@ -138,7 +138,9 @@ def extract_archive(archive, destination):
                 raise UpdateFailure("Некоректна структура архіву GitHub.")
             rel = safe_path(raw.split("/", 1)[1])
             if protected(rel):
-                raise UpdateFailure("У вибраній гілці є захищений локальний шлях.")
+                # Older YEBOYBot commits track a few data/ and logs/ entries.
+                # Never update those files or include them in the manifest.
+                continue
             mode = (entry.external_attr >> 16) & 0o170000
             if mode not in (0, stat.S_IFREG):
                 raise UpdateFailure("Архів містить посилання або спеціальні файли.")
