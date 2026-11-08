@@ -202,9 +202,9 @@ async def test_music_enabled_setup_registers_group_without_connecting_or_startin
         cog = bot.get_cog("Music")
         assert cog is not None and not cog.autojoin.is_running()
         group = bot.tree.get_command("music")
-        assert group is not None and len(group.commands) == 9
+        assert group is not None and len(group.commands) == 10
         assert {command.name for command in group.commands} == {
-            "play", "join", "queue", "skip", "stop", "autoplay", "pause", "resume", "volume"}
+            "play", "join", "queue", "remove", "skip", "stop", "autoplay", "pause", "resume", "volume"}
         assert len(bot.tree.get_commands()) == 26
         assert bot.get_cog("Community") is not None
         assert bot.get_cog("AutoMod") is not None

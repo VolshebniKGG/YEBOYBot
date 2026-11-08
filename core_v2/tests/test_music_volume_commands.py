@@ -504,14 +504,14 @@ async def test_lost_or_cancelled_followup_keeps_volume_and_retry_has_no_playback
     f.cog._ensure.assert_not_awaited()
 
 
-async def test_real_music_tree_has_nine_commands_with_optional_integer_volume_and_bounded_help(volume):
+async def test_real_music_tree_has_ten_commands_with_optional_integer_volume_and_bounded_help(volume):
     client = discord.Client(intents=discord.Intents.none())
     tree = discord.app_commands.CommandTree(client)
     group = volume.cog.__cog_app_commands_group__
     tree.add_command(group)
     tree.sync = AsyncMock(side_effect=AssertionError("must not publish"))
     tree.fetch_commands = AsyncMock(side_effect=AssertionError("must not fetch"))
-    expected = {"play", "join", "queue", "skip", "stop", "autoplay", "pause", "resume", "volume"}
+    expected = {"play", "join", "queue", "remove", "skip", "stop", "autoplay", "pause", "resume", "volume"}
     assert {command.name for command in group.commands} == expected
     command = group.get_command("volume")
     assert command.guild_only is True and command.default_permissions.manage_guild is True
