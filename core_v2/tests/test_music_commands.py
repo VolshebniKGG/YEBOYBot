@@ -45,7 +45,7 @@ def invocation():
     voice.disconnect.side_effect = disconnect
     channel.connect = AsyncMock(side_effect=connect)
     player = SimpleNamespace(enqueue=AsyncMock(return_value=1), remove=AsyncMock(return_value=0),
-        shuffle_queue=AsyncMock(return_value=3), move=AsyncMock(return_value=True),
+        shuffle_queue=AsyncMock(return_value=3), move=AsyncMock(return_value=True), set_repeat=AsyncMock(return_value=True),
         skip=AsyncMock(return_value=True),
         set_autoplay=AsyncMock(), snapshot=MagicMock(return_value={
             "current": None, "request": None, "queue": (), "state": "idle", "autoplay": False,
@@ -580,10 +580,10 @@ async def test_disconnect_error_is_sanitized_and_cleanup_still_happens(backend, 
 def test_music_group_metadata_and_management_defaults(invocation):
     group = invocation.cog.__cog_app_commands_group__
     assert group.name == "music"
-    assert {command.name for command in group.commands} == {"play", "join", "queue", "remove", "move", "shuffle", "skip", "stop", "autoplay", "pause", "resume", "volume"}
+    assert {command.name for command in group.commands} == {"play", "join", "queue", "remove", "move", "shuffle", "repeat", "skip", "stop", "autoplay", "pause", "resume", "volume"}
     for command in group.commands:
         assert command.guild_only is True
-        if command.name in {"join", "stop", "move", "shuffle", "autoplay", "pause", "resume", "volume"}:
+        if command.name in {"join", "stop", "move", "shuffle", "repeat", "autoplay", "pause", "resume", "volume"}:
             assert command.default_permissions.manage_guild is True
 
 async def test_remove_queue_uses_fresh_member_rights_and_private_reply(invocation):
@@ -673,3 +673,18 @@ async def test_move_queue_failure_is_private_and_keeps_state(invocation):
     with pytest.raises(UserError, match="Позиції"):
         await invoke(f, "move", 2, 49)
     f.interaction.followup.send.assert_not_awaited()
+
+async def test_repeat_uses_slash_choice_private_manager_rights(invocation):
+    f = invocation
+    await f.cog._ensure(f.guild, f.channel)
+    option = discord.app_commands.Choice(name="Уся черга", value="all")
+    f.actor.guild_permissions = discord.Permissions.none()
+    with pytest.raises(UserError, match="Керувати сервером"):
+        await invoke(f, "repeat", option)
+    f.player.set_repeat.assert_not_awaited()
+    f.actor.guild_permissions = discord.Permissions(manage_guild=True)
+    await invoke(f, "repeat", option)
+    f.player.set_repeat.assert_awaited_once_with("all")
+    assert "вся черга" in output(f)
+    with pytest.raises(UserError, match="виберіть"):
+        await invoke(f, "repeat", "invalid")

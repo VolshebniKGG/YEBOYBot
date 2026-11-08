@@ -659,3 +659,72 @@ async def test_move_other_guild_does_not_change_queue(music):
     before = tuple(right.queue)
     assert await left.move(3, 1)
     assert tuple(right.queue) == before
+
+async def test_repeat_one_plays_completed_user_track_again_then_skip_advances(music):
+    clock = [0.0]
+    music.clock = lambda: clock[0]
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.set_repeat("one")
+    await player.enqueue("again", 11)
+    await eventually(lambda: player.current is not None and player.current.title == "again")
+    await player.enqueue("next", 22)
+    clock[0] += 10
+    backend.callbacks[-1](None)
+    await eventually(lambda: len(backend.played) == 2)
+    assert backend.played[-1].title == "again"
+    assert [item.source for item in player.queue] == ["next"]
+    assert player.snapshot()["repeat_mode"] == "one"
+    assert await player.skip()
+    await eventually(lambda: len(backend.played) == 3)
+    assert backend.played[-1].title == "next"
+    await player.set_repeat("off")
+    assert player.snapshot()["repeat_mode"] == "off"
+
+
+async def test_repeat_all_cycles_without_growing_queue(music):
+    clock = [0.0]
+    music.clock = lambda: clock[0]
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.set_repeat("all")
+    for name in ("A", "B", "C"):
+        await player.enqueue(name, 11)
+    await eventually(lambda: len(backend.played) == 1)
+    for index, expected in enumerate(("A", "B", "C", "A", "B", "C")):
+        await eventually(lambda: len(backend.played) == index + 1)
+        assert backend.played[-1].title == expected
+        assert len(player.queue) <= 2
+        clock[0] += 10
+        backend.callbacks[-1](None)
+    await player.set_repeat("off")
+    assert player.snapshot()["repeat_mode"] == "off"
+    assert len(player.queue) <= 3
+
+
+async def test_repeat_never_requeues_failed_or_skipped_user_track(music):
+    clock = [0.0]
+    music.clock = lambda: clock[0]
+    backend = Backend()
+    player = music.attach(1, backend)
+    await player.set_repeat("all")
+    await player.enqueue("bad", 11)
+    await eventually(lambda: player.current is not None and player.current.title == "bad")
+    backend.callbacks[-1](RuntimeError("private"))
+    await eventually(lambda: player.state == "backoff")
+    assert not player.queue
+    await player.enqueue("skip-me", 22)
+    await eventually(lambda: player.current is not None and player.current.title == "skip-me")
+    assert await player.skip()
+    await eventually(lambda: player.state in {"idle", "playing", "resolving"})
+    assert not player.queue
+
+
+async def test_repeat_rejects_invalid_values_and_stopped_player(music):
+    player = music.attach(1, Backend())
+    for invalid in (None, True, 0, "forever", "", "all "):
+        with pytest.raises(MusicError, match="Повтор"):
+            await player.set_repeat(invalid)
+    await player.close()
+    with pytest.raises(MusicError, match="зупинено"):
+        await player.set_repeat("one")
