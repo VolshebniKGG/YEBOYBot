@@ -996,3 +996,36 @@ async def test_live_retry_can_be_cancelled_by_clear_or_skip():
             assert len(backend.played) == 1
         finally:
             await manager.close()
+
+
+async def test_autojoin_playlist_radio_can_be_continuous_and_yield_to_song():
+    """24/7 is a supported state, not a literal 24h external voice test."""
+    clock = [0]
+    class MixedResolver:
+        async def resolve(self, source):
+            if source.startswith("https://youtube.com"):
+                return Track("24/7 radio", "https://manifest.googlevideo.com/live",
+                             source, None, True)
+            return Track("Listener song", "https://a.googlevideo.com/vod",
+                         source, 180)
+    manager = MusicManager(
+        MusicOptions(use_autoplay=True, autoplay_random=False,
+                     autoplay_auto_skip=True, auto_pause=False),
+        ["https://youtube.com/watch?v=LIVEVIDEO01"], MixedResolver(),
+        clock=lambda: clock[0])
+    backend = Backend()
+    try:
+        player = manager.attach(1, backend)
+        await eventually(lambda: len(backend.played) == 1)
+        assert player.snapshot()["autoplay"] is True
+        assert player.current.is_live and player.current.duration is None
+        clock[0] += 48 * 60 * 60
+        assert player.current.is_live and player.state == "playing"
+        assert len(backend.played) == 1
+        await player.enqueue("Listener song", 11)
+        await eventually(lambda: len(backend.played) == 2)
+        assert [item.title for item in backend.played] == [
+            "24/7 radio", "Listener song"]
+        assert player._live_retry is None
+    finally:
+        await manager.close()
