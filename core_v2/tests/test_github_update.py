@@ -393,7 +393,7 @@ def test_zip_rejects_case_collisions_before_touching_existing_code(
 def test_git_preflight_rejects_links_submodules_and_special_modes(
         installation, monkeypatch, mode, kind):
     git_oid = "a" * 40
-    raw = f"{mode} {kind} {git_oid}\\ttools/new.py"
+    raw = f"{mode} {kind} {git_oid}\ttools/new.py"
     monkeypatch.setattr(worker, "git", lambda root, *args: raw)
     with pytest.raises(worker.UpdateFailure, match="символічні|субмодулі"):
         worker.git_tree_files(installation, git_oid)
@@ -402,12 +402,12 @@ def test_git_preflight_rejects_links_submodules_and_special_modes(
 def test_git_preflight_rejects_case_collisions_and_bad_paths(
         installation, monkeypatch):
     oid = "a" * 40
-    raw = ("100644 blob " + oid + "\\ttools/Service.py\\n"
-           "100644 blob " + oid + "\\ttools/service.py")
+    raw = ("100644 blob " + oid + "\ttools/Service.py\n"
+           "100644 blob " + oid + "\ttools/service.py")
     monkeypatch.setattr(worker, "git", lambda root, *args: raw)
     with pytest.raises(worker.UpdateFailure, match="Windows-імена"):
         worker.git_tree_files(installation, oid)
     monkeypatch.setattr(worker, "git", lambda root, *args:
-                        "100644 blob " + oid + "\\tcore_v2/../outside.py")
+                        "100644 blob " + oid + "\tcore_v2/../outside.py")
     with pytest.raises(worker.UpdateFailure, match="шлях"):
         worker.git_tree_files(installation, oid)
