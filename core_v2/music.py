@@ -783,7 +783,9 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
                 state = "Очікує застосування паузи"
             elif actual is not False or pause["playing"] is not True:
                 state = "Відтворення не підтверджено"
-        lines = [f"Зараз: {title} ({kind}).", f"Стан: {state}."]
+        repeat = {"off": "вимкнено", "one": "поточний трек", "all": "вся черга"}
+        repeat_mode = repeat.get(snapshot.get("repeat_mode"), "невідомо")
+        lines = [f"Зараз: {title} ({kind}).", f"Стан: {state}.", f"Повтор: {repeat_mode}."]
         lines.append(self._volume_text(session.backend))
         if manual or automatic:
             reasons = ", ".join(reason for active, reason in ((manual, "ручна"), (automatic, "порожній канал")) if active)
@@ -834,6 +836,27 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         message = (f"Замовлення переміщено з №{from_position} на №{to_position}. "
                    "Поточний трек не змінено." if changed else
                    "Замовлення вже перебуває на вказаній позиції.")
+        await self._reply(interaction, message)
+
+    @app_commands.command(name="repeat", description="Повтор поточного треку або всієї черги; Керувати сервером")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.guild_only()
+    @app_commands.choices(mode=[
+        app_commands.Choice(name="Вимкнено", value="off"),
+        app_commands.Choice(name="Повтор поточного треку", value="one"),
+        app_commands.Choice(name="Повтор усієї черги", value="all")])
+    async def repeat(self, interaction: discord.Interaction, mode: app_commands.Choice[str]):
+        guild, _, _, _ = await self._context(interaction, manager=True)
+        if not isinstance(mode, app_commands.Choice) or mode.value not in {"off", "one", "all"}:
+            raise UserError("Повтор: виберіть off, one або all.")
+        session = self._control_session(guild)
+        try:
+            changed = await session.player.set_repeat(mode.value)
+        except MusicError as error:
+            raise UserError(str(error)) from None
+        label = {"off": "вимкнено", "one": "поточний трек", "all": "вся черга"}[mode.value]
+        message = f"Режим повтору: {label}. " + ("Застосовано." if changed else "Уже встановлено.")
+        message += " Помилкові, пропущені й автоматичні треки не повторюються."
         await self._reply(interaction, message)
 
     @app_commands.command(name="shuffle", description="Перемішати лише чергу очікування; Керувати сервером")

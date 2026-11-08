@@ -344,6 +344,8 @@ class GuildPlayer:
         self.manager, self.guild_id, self.backend = manager, guild_id, backend
         self.options = manager.options
         self.autoplay_enabled = self.options.use_autoplay
+        self.repeat_mode = "off"
+        self._repeat_one = None
         self.queue = deque()
         self.current = None
         self.request = None
@@ -436,9 +438,23 @@ class GuildPlayer:
     async def skip(self):
         if self._closed or self.request is None:
             return False
+        self._repeat_one = None
         self._interrupted = True
         self._changed.set()
         return True
+
+    async def set_repeat(self, mode):
+        """Session-local, bounded replay of successfully finished user requests."""
+        if type(mode) is not str or mode not in {"off", "one", "all"}:
+            raise MusicError("Повтор: виберіть off, one або all.")
+        if self._closed or self._task.done():
+            raise MusicError("Музичний плеєр уже зупинено.")
+        changed = self.repeat_mode != mode
+        self.repeat_mode = mode
+        if mode != "one":
+            self._repeat_one = None
+        self._changed.set()
+        return changed
 
     async def set_autoplay(self, enabled):
         if type(enabled) is not bool:
@@ -511,7 +527,7 @@ class GuildPlayer:
                 "autoplay": bool(self.request and self.request.requester_id is None),
                 "autoplay_enabled": self.autoplay_enabled, "queue": tuple(self.queue),
                 "state": self.state, "error": self.error, "error_code": self.error_code,
-                "manual_paused": self.manual_paused}
+                "manual_paused": self.manual_paused, "repeat_mode": self.repeat_mode}
 
     async def close(self):
         """Release player state even when the voice adapter fails to stop."""
@@ -525,10 +541,16 @@ class GuildPlayer:
             log.warning("Music backend stop failed during close guild=%s", self.guild_id)
         finally:
             self.queue.clear()
+            self._repeat_one = None
+            self.repeat_mode = "off"
             self.current = self.request = None
             self.state = "closed"
 
     def _next(self):
+        if self.repeat_mode == "one" and self._repeat_one is not None:
+            request = self._repeat_one
+            self._repeat_one = None
+            return request
         if self.queue:
             return self.queue.popleft()
         items = self.manager.autoplaylist
@@ -661,6 +683,13 @@ class GuildPlayer:
                     if failed:
                         self.error_code = "playback_error"
                         self.error = failure_message(self.error_code)
+                    elif not self._interrupted and self.request.requester_id is not None:
+                        # Repeat only completed user requests, not auto tracks,
+                        # skips or failed streams. Never store signed media URLs.
+                        if self.repeat_mode == "one":
+                            self._repeat_one = self.request
+                        elif self.repeat_mode == "all" and len(self.queue) < self.options.max_queue:
+                            self.queue.append(self.request)
                 except asyncio.CancelledError:
                     raise
                 except Exception as error:
@@ -693,6 +722,7 @@ class GuildPlayer:
                 # A failed adapter stop must not hide the worker's terminal state.
                 log.warning("Music final stop failed guild=%s type=%s",
                             self.guild_id, type(error).__name__)
+            self._repeat_one = None
             self.current = self.request = None
             self.state = "closed" if self._closed else "disconnected"
 
