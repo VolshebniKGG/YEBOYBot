@@ -720,9 +720,12 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         task.add_done_callback(finished)
         return task
 
-    async def _remove(self, guild_id):
+    async def _remove(self, guild_id, *, expected_session=None):
         async with self._connections:
             session = self.sessions.get(guild_id)
+            if expected_session is not None and session is not expected_session:
+                # Stale panel interactions must not close a newer connection.
+                return False
             task = self._schedule_remove(guild_id, session) if session else None
         if task is None:
             return True

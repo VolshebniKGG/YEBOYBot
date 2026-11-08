@@ -156,7 +156,7 @@ async def test_panel_stop_closes_view_only_after_manager_permission(music_invoca
     f.actor.guild_permissions = discord.Permissions(manage_guild=True)
     caller = click(f)
     await view._action(caller, "stop")
-    remove.assert_awaited_once_with(f.guild.id)
+    remove.assert_awaited_once_with(f.guild.id, expected_session=view.session)
     assert view.expired and view not in f.cog.panels
     assert all(child.disabled for child in view.children)
     caller.edit_original_response.assert_awaited_once()
@@ -172,3 +172,12 @@ async def test_too_many_panels_prevents_new_instance(music_invocation, monkeypat
         await invoke(f, "panel")
     f.interaction.followup.send.assert_not_awaited()
     await view.expire()
+
+async def test_stale_panel_stop_does_not_close_replacement_session(music_invocation):
+    f = music_invocation
+    original = await f.cog._ensure(f.guild, f.channel)
+    replacement = SimpleNamespace(player=SimpleNamespace(), backend=SimpleNamespace())
+    f.cog.sessions[f.guild.id] = replacement
+    assert await f.cog._remove(f.guild.id, expected_session=original) is False
+    assert f.cog.sessions[f.guild.id] is replacement
+    f.manager.detach.assert_not_awaited()

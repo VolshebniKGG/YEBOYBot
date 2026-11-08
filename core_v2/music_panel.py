@@ -119,6 +119,8 @@ class MusicPanel(discord.ui.View):
                         guild, interaction.user.id, manager=manager,
                         allow_closing=action in {"refresh", "stop"},
                         cleanup=action == "stop")
+                if self.expired or self.cog._closing:
+                    raise UserError("Панель застаріла. Відкрийте /music panel знову.")
                 if self.cog.sessions.get(self.guild_id) is not self.session:
                     raise UserError("Панель застаріла. Відкрийте /music panel знову.")
                 session = self.session
@@ -151,7 +153,7 @@ class MusicPanel(discord.ui.View):
                                                     "all": "уся черга"}[mode] + "."
                 elif action == "stop":
                     self.cog._stopped_guilds.add(guild.id)
-                    confirmed = await self.cog._remove(guild.id)
+                    confirmed = await self.cog._remove(guild.id, expected_session=session)
                     notice = ("Музичну сесію завершено." if confirmed is True else
                               "Зупинку не підтверджено. Скористайтеся /music stop.")
                     self.close_locally()
