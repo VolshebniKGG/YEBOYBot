@@ -32,7 +32,9 @@ def show_menu(actions, status):
     line("Запуск, оновлення та відновлення в одному меню.")
     print("╚" + "═" * (width - 2) + "╝")
     print()
-    print("  [0]  Закрити панель (Discord-бот продовжить працювати)")
+    for part in _lines("[0]  Закрити панель (Discord-бот продовжить працювати)",
+                       content, continuation="     "):
+        print("  " + part)
     previous = None
     groups = {
         "ОСНОВНІ ДІЇ": range(1, 7),
