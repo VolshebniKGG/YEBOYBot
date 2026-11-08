@@ -55,6 +55,12 @@ class MusicPanel(discord.ui.View):
                                     "all": "Повтор: черга"}.get(mode, "Повтор")
         embed = discord.Embed(title="🎵 YEBOYBot · Плеєр", description=status[:3900],
                               colour=0x6657C8)
+        try:
+            volume = self.session.backend.volume_state().get("configured")
+            if type(volume) in (int, float) and 0 <= volume <= 1:
+                embed.add_field(name="🔊 Гучність", value=f"{round(volume * 100)}%", inline=True)
+        except Exception:
+            pass
         embed.set_footer(text="Приватна панель · 2 хвилини · Повтор: вимк. → трек → черга")
         return embed
 
@@ -113,7 +119,8 @@ class MusicPanel(discord.ui.View):
                 # then recheck again after the REST member lookup can yield.
                 if self.cog.sessions.get(self.guild_id) is not self.session:
                     raise UserError("Панель застаріла. Відкрийте /music panel знову.")
-                manager = action in {"pause", "resume", "repeat", "shuffle", "stop"}
+                manager = action in {"pause", "resume", "repeat", "shuffle", "stop",
+                                     "volume_down", "volume_up"}
                 async with asyncio.timeout(12):
                     guild, _, actor, _ = await self.cog.voice_context(
                         guild, interaction.user.id, manager=manager,
@@ -151,6 +158,17 @@ class MusicPanel(discord.ui.View):
                     await session.player.set_repeat(mode)
                     notice = "Режим повтору: " + {"off": "вимкнено", "one": "трек",
                                                     "all": "уся черга"}[mode] + "."
+                elif action in {"volume_down", "volume_up"}:
+                    state = session.backend.volume_state()
+                    current_gain = state.get("configured") if isinstance(state, dict) else None
+                    if type(current_gain) not in (int, float) or not 0 <= current_gain <= 1:
+                        raise UserError("Поточну гучність не визначено. Скористайтеся /music volume.")
+                    percent = round(current_gain * 100)
+                    step = -10 if action == "volume_down" else 10
+                    target = max(0, min(100, percent + step))
+                    changed = await session.player.set_volume(target)
+                    notice = (f"Гучність: {target}%. " +
+                              ("Змінено." if changed else "Уже на цій межі."))
                 elif action == "stop":
                     self.cog._stopped_guilds.add(guild.id)
                     confirmed = await self.cog._remove(guild.id, expected_session=session)
@@ -194,6 +212,14 @@ class MusicPanel(discord.ui.View):
     @discord.ui.button(label="Повтор: вимк.", emoji="🔁", style=discord.ButtonStyle.secondary, row=1)
     async def repeat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._action(interaction, "repeat")
+
+    @discord.ui.button(label="−10%", emoji="🔉", style=discord.ButtonStyle.secondary, row=1)
+    async def volume_down_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._action(interaction, "volume_down")
+
+    @discord.ui.button(label="+10%", emoji="🔊", style=discord.ButtonStyle.secondary, row=1)
+    async def volume_up_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._action(interaction, "volume_up")
 
     @discord.ui.button(label="Оновити", emoji="🔄", style=discord.ButtonStyle.secondary, row=1)
     async def refresh_button(self, interaction: discord.Interaction, button: discord.ui.Button):

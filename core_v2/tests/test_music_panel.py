@@ -48,7 +48,7 @@ async def test_slash_panel_is_private_session_bound_and_bounded(music_invocation
     assert kwargs["ephemeral"] is True and kwargs["wait"] is True
     assert kwargs["allowed_mentions"].to_dict()["parse"] == []
     assert isinstance(kwargs["embed"], discord.Embed)
-    assert len(view.children) == 7 and view.timeout == 120
+    assert len(view.children) == 9 and view.timeout == 120
     assert all(button.row in (0, 1) for button in view.children)
     assert view.session is f.cog.sessions[f.guild.id]
     assert MAX_PANELS == 64
@@ -181,3 +181,51 @@ async def test_stale_panel_stop_does_not_close_replacement_session(music_invocat
     assert await f.cog._remove(f.guild.id, expected_session=original) is False
     assert f.cog.sessions[f.guild.id] is replacement
     f.manager.detach.assert_not_awaited()
+
+
+async def test_panel_volume_controls_enforce_manager_and_clamp_limits(music_invocation):
+    f = music_invocation
+    session = await f.cog._ensure(f.guild, f.channel)
+    view = await opened(f)
+    session.backend.volume_state = MagicMock(return_value={"configured": 0.5})
+    f.player.set_volume = AsyncMock(return_value=True)
+
+    f.actor.guild_permissions = discord.Permissions.none()
+    denied = click(f)
+    await view._action(denied, "volume_up")
+    assert "Керувати сервером" in denied.followup.send.await_args.args[0]
+    f.player.set_volume.assert_not_awaited()
+
+    f.actor.guild_permissions = discord.Permissions(manage_guild=True)
+    decreased = click(f)
+    await view._action(decreased, "volume_down")
+    f.player.set_volume.assert_awaited_once_with(40)
+    assert "40%" in decreased.followup.send.await_args.args[0]
+
+    session.backend.volume_state.return_value = {"configured": 0.96}
+    increased = click(f)
+    await view._action(increased, "volume_up")
+    assert f.player.set_volume.await_args.args == (100,)
+    assert "100%" in increased.followup.send.await_args.args[0]
+
+    session.backend.volume_state.return_value = {"configured": 0.0}
+    minimum = click(f)
+    await view._action(minimum, "volume_down")
+    assert f.player.set_volume.await_args.args == (0,)
+    assert "0%" in minimum.followup.send.await_args.args[0]
+    assert all(button.row in (0, 1) for button in view.children)
+    assert sum(button.row == 1 for button in view.children) == 5
+    await view.expire()
+
+
+async def test_panel_volume_refuses_unverifiable_state(music_invocation):
+    f = music_invocation
+    session = await f.cog._ensure(f.guild, f.channel)
+    view = await opened(f)
+    session.backend.volume_state = MagicMock(return_value={"configured": float("nan")})
+    f.player.set_volume = AsyncMock(return_value=True)
+    caller = click(f)
+    await view._action(caller, "volume_up")
+    assert "не визначено" in caller.followup.send.await_args.args[0]
+    f.player.set_volume.assert_not_awaited()
+    await view.expire()
