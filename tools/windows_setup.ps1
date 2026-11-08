@@ -138,6 +138,131 @@ function Start-YeboyMenu {
     }
 }
 
+function Invoke-YeboyUpdateWorker {
+    param(
+        [Parameter(Mandatory)][string]$Python,
+        [Parameter(Mandatory)][string]$Snapshot,
+        [Parameter(Mandatory)][ValidateSet('apply', 'rollback', 'confirm')][string]$Action
+    )
+    try {
+        $global:LASTEXITCODE = 1
+        & $Python -I -X utf8 $Snapshot $Action $script:YeboyRoot | Out-Host
+        return [int]$LASTEXITCODE
+    } catch {
+        Write-Host 'Не вдалося запустити зовнішній updater. Перевірте файли в data\\v2.'
+        return 1
+    }
+}
+
+function Test-YeboyAfterUpdate {
+    $python = Join-Path $script:YeboyRoot '.venv-v2\Scripts\python.exe'
+    try {
+        $global:LASTEXITCODE = 1
+        & $python -I -X utf8 -c $script:YeboyModuleCode $script:YeboyRoot 'tools.launcher.verify_update' | Out-Host
+        return [int]$LASTEXITCODE
+    } catch {
+        Write-Host 'Перевірка нової версії не запустилася.'
+        return 1
+    }
+}
+
+function Start-YeboyAfterUpdate {
+    $python = Join-Path $script:YeboyRoot '.venv-v2\Scripts\python.exe'
+    $code = "import sys;sys.path.insert(0,sys.argv[1]);from tools.launcher.process import start;print(start()['status'])"
+    try {
+        $global:LASTEXITCODE = 1
+        & $python -I -X utf8 -c $code $script:YeboyRoot | Out-Host
+        return [int]$LASTEXITCODE
+    } catch {
+        Write-Host 'Нову версію перевірено, але бот не стартував. Скористайтеся [1] меню.'
+        return 1
+    }
+}
+
+function Invoke-YeboyGitHubUpdate {
+    $python = Join-Path $script:YeboyRoot '.venv-v2\Scripts\python.exe'
+    $source = Join-Path $script:YeboyRoot 'tools\update_worker.py'
+    $directory = Join-Path $script:YeboyRoot 'data\v2'
+    $planFile = Join-Path $directory 'update-plan.json'
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $planFile -PathType Leaf)) {
+        Write-Host 'Не знайдено повного комплекту або плану оновлення GitHub.'
+        return 1
+    }
+    $wasRunning = $false
+    try {
+        $plan = Get-Content -LiteralPath $planFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $wasRunning = [bool]$plan.was_running
+    } catch {
+        Write-Host 'План оновлення пошкоджений; автоматична заміна заблокована.'
+        return 1
+    }
+
+    # This saved stdlib-only worker is not overwritten when the GitHub branch
+    # updates tools/, YEBOYBot.cmd or windows_setup.ps1.
+    $snapshot = Join-Path $directory ('updater-worker-' + [guid]::NewGuid().ToString('N') + '.py')
+    try {
+        Copy-Item -LiteralPath $source -Destination $snapshot -ErrorAction Stop
+    } catch {
+        Write-Host 'Неможливо створити захищену копію інструмента оновлення.'
+        return 1
+    }
+
+    $ok = $false
+    $recovered = $false
+    try {
+        Write-Host ''
+        Write-Host '════════════════════════════════════════════════════════════════════════'
+        Write-Host '  YEBOYBot / БЕЗПЕЧНЕ ОНОВЛЕННЯ GITHUB'
+        Write-Host '════════════════════════════════════════════════════════════════════════'
+        Write-Host '[1/4] Перевірка джерела та встановлення коду...'
+        if ((Invoke-YeboyUpdateWorker -Python $python -Snapshot $snapshot -Action 'apply') -eq 0) {
+            Write-Host '[2/4] Перевстановлення або перевірка потрібних залежностей...'
+            if ((Install-YeboyCore -Repair) -eq 0) {
+                Write-Host '[3/4] Перевірка нової конфігурації та схеми без Discord login...'
+                if ((Test-YeboyAfterUpdate) -eq 0) {
+                    Write-Host '[4/4] Підтвердження встановленої версії та коміту...'
+                    if ((Invoke-YeboyUpdateWorker -Python $python -Snapshot $snapshot -Action 'confirm') -eq 0) {
+                        $ok = $true
+                    }
+                }
+            }
+        }
+
+        if (-not $ok) {
+            Write-Host ''
+            Write-Host 'Оновлення не підтверджено. Відновлюємо попередній код...'
+            $rollback = Invoke-YeboyUpdateWorker -Python $python -Snapshot $snapshot -Action 'rollback'
+            if ($rollback -eq 0) {
+                $recovered = $true
+                Write-Host 'Перевірка бібліотек після повернення до попередньої версії...'
+                if ((Install-YeboyCore -Repair) -ne 0) {
+                    $recovered = $false
+                    Write-Host 'Бібліотеки не відновлено. Залиште бот вимкненим і перевірте журнал.'
+                }
+            } else {
+                Write-Host 'Відновлення не підтверджене; копія updater і резерви збережені.'
+            }
+            if ($recovered -and $wasRunning) {
+                [void](Start-YeboyAfterUpdate)
+            }
+            return 1
+        }
+
+        Write-Host 'Оновлення успішне. Програмні файли, залежності та конфігурацію перевірено.'
+        if ($wasRunning) {
+            Write-Host 'Повертаємо бота до стану запуску...'
+            [void](Start-YeboyAfterUpdate)
+        }
+        return 0
+    } finally {
+        # On unconfirmed rollback keep the original worker snapshot for recovery.
+        if ($ok -or $recovered) {
+            Remove-Item -LiteralPath $snapshot -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Install-YeboyCore {
     param([switch]$AllowPythonInstall, [switch]$Repair)
     Write-Host '[1/4] Перевірка Python 3.12 x64...'
@@ -237,6 +362,18 @@ function Invoke-YeboyEntry {
                 Write-Host 'Оновлення бібліотек не завершене. Зупиніть бота через [3] і повторіть [5].'
             }
             if (-not (Test-YeboyEnvironment)) { return 1 }
+            continue
+        }
+        if ($result -eq 26) {
+            # The original menu has exited: GitHub may now update even this script.
+            $updated = Invoke-YeboyGitHubUpdate
+            if (-not (Test-YeboyEnvironment)) {
+                Write-Host 'Середовище не пройшло перевірку після оновлення. Перевірте recovery і журнал.'
+                return 1
+            }
+            if ($updated -ne 0) {
+                Write-Host 'Оновлення не завершено. Стан зазначено в data\\v2\\update-report.json.'
+            }
             continue
         }
         if ($result -ne 24) { return $result }
