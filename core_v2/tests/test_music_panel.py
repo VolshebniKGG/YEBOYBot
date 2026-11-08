@@ -8,7 +8,7 @@ import pytest
 from core_v2 import music as music_module
 from core_v2.music_panel import MAX_PANELS, MusicPanel
 from core_v2.security import UserError
-from test_music_commands import invocation, invoke
+from test_music_commands import invocation as music_invocation, invoke
 
 
 def click(f, *, user=None, guild=None, channel_id=777):
@@ -33,8 +33,8 @@ async def opened(f):
     return view
 
 
-async def test_slash_panel_is_private_session_bound_and_bounded(invocation):
-    f = invocation
+async def test_slash_panel_is_private_session_bound_and_bounded(music_invocation):
+    f = music_invocation
     await f.cog._ensure(f.guild, f.channel)
     view = await opened(f)
     kwargs = f.interaction.followup.send.await_args.kwargs
@@ -51,8 +51,8 @@ async def test_slash_panel_is_private_session_bound_and_bounded(invocation):
     view.message.edit.assert_awaited_once()
 
 
-async def test_foreign_actor_and_text_channel_cannot_control_panel(invocation):
-    f = invocation
+async def test_foreign_actor_and_text_channel_cannot_control_panel(music_invocation):
+    f = music_invocation
     await f.cog._ensure(f.guild, f.channel)
     view = await opened(f)
     forbidden = click(f, user=SimpleNamespace(id=999))
@@ -66,8 +66,8 @@ async def test_foreign_actor_and_text_channel_cannot_control_panel(invocation):
     await view.expire()
 
 
-async def test_manager_buttons_check_fresh_voice_rights_on_every_click(invocation):
-    f = invocation
+async def test_manager_buttons_check_fresh_voice_rights_on_every_click(music_invocation):
+    f = music_invocation
     await f.cog._ensure(f.guild, f.channel)
     view = await opened(f)
     f.player.set_manual_paused = AsyncMock(return_value=True)
@@ -85,8 +85,8 @@ async def test_manager_buttons_check_fresh_voice_rights_on_every_click(invocatio
     await view.expire()
 
 
-async def test_panel_repeat_button_cycles_modes_without_faking_slash(invocation):
-    f = invocation
+async def test_panel_repeat_button_cycles_modes_without_faking_slash(music_invocation):
+    f = music_invocation
     await f.cog._ensure(f.guild, f.channel)
     view = await opened(f)
     state = {"repeat_mode": "off", "autoplay": False, "request": None,
@@ -106,8 +106,8 @@ async def test_panel_repeat_button_cycles_modes_without_faking_slash(invocation)
     await view.expire()
 
 
-async def test_old_session_panel_denied_after_reconnect(invocation):
-    f = invocation
+async def test_old_session_panel_denied_after_reconnect(music_invocation):
+    f = music_invocation
     await f.cog._ensure(f.guild, f.channel)
     view = await opened(f)
     f.cog.sessions[10] = SimpleNamespace(player=f.player)
@@ -118,8 +118,8 @@ async def test_old_session_panel_denied_after_reconnect(invocation):
     await view.expire()
 
 
-async def test_panel_skip_respects_current_track_ownership(invocation):
-    f = invocation
+async def test_panel_skip_respects_current_track_ownership(music_invocation):
+    f = music_invocation
     await f.cog._ensure(f.guild, f.channel)
     view = await opened(f)
     f.player.snapshot.return_value = {"request": SimpleNamespace(requester_id=999),
@@ -138,7 +138,7 @@ async def test_panel_skip_respects_current_track_ownership(invocation):
 
 
 async def test_panel_stop_closes_view_only_after_manager_permission(invocation, monkeypatch):
-    f = invocation
+    f = music_invocation
     await f.cog._ensure(f.guild, f.channel)
     view = await opened(f)
     remove = AsyncMock(return_value=True)
@@ -156,7 +156,7 @@ async def test_panel_stop_closes_view_only_after_manager_permission(invocation, 
 
 
 async def test_too_many_panels_prevents_new_instance(invocation, monkeypatch):
-    f = invocation
+    f = music_invocation
     await f.cog._ensure(f.guild, f.channel)
     monkeypatch.setattr(music_module, "MAX_PANELS", 1)
     view = await opened(f)
