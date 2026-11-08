@@ -126,7 +126,8 @@ def test_zip_menu_writes_selection_without_running_update(installation, monkeypa
     answers = iter(["2", "ОНОВИТИ"])
     printed = []
     result = github_update.menu(installation, reader=lambda _: next(answers),
-                                printer=printed.append, branches=selected)
+                                printer=printed.append, branches=selected,
+                                preflight=lambda sha: len(NEW))
     assert result == github_update.EXIT_TO_EXTERNAL_UPDATER == 26
     plan = worker.read_json(installation / "data/v2/update-plan.json")
     assert plan["branch"] == "improvement/probot-readiness"
@@ -411,3 +412,52 @@ def test_git_preflight_rejects_case_collisions_and_bad_paths(
                         "100644 blob " + oid + "\tcore_v2/../outside.py")
     with pytest.raises(worker.UpdateFailure, match="шлях"):
         worker.git_tree_files(installation, oid)
+
+
+def test_preflight_accepts_pinned_release_with_compatible_tree():
+    class Response:
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def read(self, limit):
+            return json.dumps({"truncated": False, "tree": [
+                {"path": name, "type": "blob", "mode": "100644"}
+                for name in NEW
+            ]}).encode("utf-8")
+    def get(request, timeout):
+        assert request.full_url.endswith("/git/trees/" + "a" * 40 + "?recursive=1")
+        assert timeout == 20
+        return Response()
+    assert github_update.inspect_release("a" * 40, open_url=get) == len(NEW)
+
+
+def test_preflight_rejects_old_branch_before_creating_update_plan(
+        installation, monkeypatch):
+    selected = [{"name": "main", "sha": "b" * 40}]
+    def incompatible(_):
+        raise worker.UpdateFailure("У вибраній гілці бракує файлів.")
+    monkeypatch.setattr(github_update.process, "locked", lambda root: False)
+    with pytest.raises(worker.UpdateFailure, match="бракує"):
+        github_update.menu(
+            installation, reader=lambda _: "1", printer=lambda _: None,
+            branches=selected, preflight=incompatible)
+    assert not (installation / "data/v2/update-plan.json").exists()
+
+
+@pytest.mark.parametrize("entries", [
+    [{"path": "YEBOYBot.cmd", "type": "blob", "mode": "100644"}],
+    [{"path": "tools/link.py", "type": "blob", "mode": "120000"}],
+    [{"path": "tools/Service.py", "type": "blob", "mode": "100644"},
+     {"path": "tools/service.py", "type": "blob", "mode": "100644"}],
+])
+def test_preflight_rejects_missing_self_update_links_and_case_collisions(entries):
+    class Response:
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def read(self, limit):
+            return json.dumps({"truncated": False, "tree": entries}).encode()
+    with pytest.raises(worker.UpdateFailure):
+        github_update.inspect_release("a" * 40, open_url=lambda *_args, **_kwargs: Response())

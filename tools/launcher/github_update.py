@@ -9,8 +9,9 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from . import process, storage
-from tools.update_worker import (API, HEADERS, UpdateFailure, check_git,
-                                 read_json, valid_branch, valid_sha, write_json)
+from tools.update_worker import (API, HEADERS, REQUIRED, UpdateFailure,
+                                 check_git, read_json, safe_path, valid_branch,
+                                 valid_sha, write_json)
 
 ROOT = Path(__file__).resolve().parents[2]
 EXIT_TO_EXTERNAL_UPDATER = 26
@@ -52,6 +53,44 @@ def list_branches(*, open_url=urlopen):
     if not branches or len(branches) > MAX_BRANCHES:
         raise UpdateFailure("Не знайдено сумісних GitHub-гілок.")
     return sorted(branches, key=lambda x: (x["name"] != "improvement/probot-readiness", x["name"]))
+
+
+def inspect_release(sha, *, open_url=urlopen):
+    """Fetch a pinned GitHub tree and fail before stopping a running bot."""
+    if not valid_sha(sha):
+        raise UpdateFailure("GitHub повернув некоректний коміт.")
+    request = Request(API + "/git/trees/" + sha + "?recursive=1", headers=HEADERS)
+    try:
+        with open_url(request, timeout=20) as response:
+            body = response.read(2_000_001)
+        if len(body) > 2_000_000:
+            raise UpdateFailure("Перелік файлів у GitHub-гілці занадто великий.")
+        payload = json.loads(body.decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, OSError, UnicodeError, ValueError) as error:
+        raise UpdateFailure("Не вдалося перевірити склад вибраної гілки на GitHub.") from error
+    if (not isinstance(payload, dict) or payload.get("truncated") is not False
+            or not isinstance(payload.get("tree"), list)):
+        raise UpdateFailure("GitHub повернув неповний опис файлів гілки.")
+    files, windows_names = set(), set()
+    for item in payload["tree"]:
+        if not isinstance(item, dict):
+            raise UpdateFailure("GitHub повернув некоректний опис файла.")
+        kind = item.get("type")
+        if kind == "tree":
+            continue
+        if kind != "blob" or item.get("mode") not in {"100644", "100755"}:
+            raise UpdateFailure("Гілка містить непідтримувані посилання або субмодулі.")
+        filename = safe_path(item.get("path"))
+        folded = filename.casefold()
+        if folded in windows_names:
+            raise UpdateFailure("Гілка містить конфліктні Windows-імена файлів.")
+        windows_names.add(folded)
+        files.add(filename)
+    if not REQUIRED <= files:
+        raise UpdateFailure(
+            "У вибраній гілці бракує файлів сучасного Windows/Core V2 лаунчера."
+        )
+    return len(files)
 
 
 def choose_branch(branches, *, reader=input, printer=print):
@@ -100,7 +139,8 @@ def installed_version(root):
     return None, "встановлення із ZIP (SHA невідомий)"
 
 
-def menu(root=ROOT, *, reader=input, printer=print, branches=None):
+def menu(root=ROOT, *, reader=input, printer=print, branches=None,
+         preflight=inspect_release):
     root = Path(root).resolve()
     plan_path = root / "data/v2/update-plan.json"
     pending_path = root / "data/v2/update-transaction.json"
@@ -131,6 +171,9 @@ def menu(root=ROOT, *, reader=input, printer=print, branches=None):
     if current == selected["sha"]:
         printer("  Уже встановлено той самий коміт. Оновлення коду не потрібне.")
         return False
+    printer("  Перевірка сумісності гілки без зупинки Discord-бота...")
+    total_files = preflight(selected["sha"])
+    printer(f"  Склад гілки: {total_files} програмних файлів; базовий Core V2 — сумісний.")
     try:
         sqlite_path = storage.database_path(root)
     except (storage.StorageError, ValueError) as error:
