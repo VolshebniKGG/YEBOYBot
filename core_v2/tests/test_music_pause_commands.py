@@ -428,7 +428,9 @@ async def test_real_music_tree_exposes_seventeen_leaf_commands_and_safe_private_
         assert len(item.value.encode("utf-16-le")) // 2 <= 1024
         total += len((item.name + item.value).encode("utf-16-le")) // 2
     assert total < 6000
-    assert "pause" in str(embed.to_dict()) and "resume" in str(embed.to_dict())
+    next_page = render_help(entries, "music", 2)
+    listed = {field.name for field in (*embed.fields, *next_page.fields)}
+    assert "/music pause" in listed and "/music resume" in listed
     tree.sync.assert_not_awaited()
     tree.fetch_commands.assert_not_awaited()
 
