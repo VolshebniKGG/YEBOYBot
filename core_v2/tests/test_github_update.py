@@ -372,3 +372,42 @@ def test_worker_reports_own_errors_but_never_unexpected_secret_details(
     data = worker.read_json(installation / "data/v2/update-report.json")
     assert "reason" not in data
     assert "never-report-this" not in json.dumps(data)
+
+
+def test_zip_rejects_case_collisions_before_touching_existing_code(
+        installation, monkeypatch, tmp_path):
+    package = tmp_path / "collision.zip"
+    archive(package, {**NEW, "tools/new_settings.py": "safe",
+                      "tools/NEW_SETTINGS.py": "different"})
+    patch_archive(monkeypatch, package)
+    prepare(installation)
+    with pytest.raises(worker.UpdateFailure, match="Windows-імена"):
+        worker.apply(installation)
+    assert (installation / "YEBOYBot.cmd").read_text() == BASE["YEBOYBot.cmd"]
+    assert worker.rollback(installation) == 0
+
+
+@pytest.mark.parametrize("mode,kind", [
+    ("120000", "blob"), ("160000", "commit"), ("100600", "blob"),
+])
+def test_git_preflight_rejects_links_submodules_and_special_modes(
+        installation, monkeypatch, mode, kind):
+    git_oid = "a" * 40
+    raw = f"{mode} {kind} {git_oid}\\ttools/new.py"
+    monkeypatch.setattr(worker, "git", lambda root, *args: raw)
+    with pytest.raises(worker.UpdateFailure, match="символічні|субмодулі"):
+        worker.git_tree_files(installation, git_oid)
+
+
+def test_git_preflight_rejects_case_collisions_and_bad_paths(
+        installation, monkeypatch):
+    oid = "a" * 40
+    raw = ("100644 blob " + oid + "\\ttools/Service.py\\n"
+           "100644 blob " + oid + "\\ttools/service.py")
+    monkeypatch.setattr(worker, "git", lambda root, *args: raw)
+    with pytest.raises(worker.UpdateFailure, match="Windows-імена"):
+        worker.git_tree_files(installation, oid)
+    monkeypatch.setattr(worker, "git", lambda root, *args:
+                        "100644 blob " + oid + "\\tcore_v2/../outside.py")
+    with pytest.raises(worker.UpdateFailure, match="шлях"):
+        worker.git_tree_files(installation, oid)

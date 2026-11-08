@@ -155,6 +155,7 @@ def check_compatibility(reader):
 def extract_archive(archive, destination):
     destination = Path(destination)
     directory = {}
+    windows_names = set()
     total = 0
     with zipfile.ZipFile(archive) as source:
         files = [entry for entry in source.infolist() if not entry.is_dir()]
@@ -179,8 +180,10 @@ def extract_archive(archive, destination):
             if (entry.file_size > MAX_ONE_FILE or total > MAX_CONTENT or
                     entry.compress_size == 0 and entry.file_size > 0):
                 raise UpdateFailure("Архів перевищує дозволені обсяги.")
-            if rel in directory:
-                raise UpdateFailure("Дублікати шляхів у GitHub-архіві.")
+            folded = rel.casefold()
+            if rel in directory or folded in windows_names:
+                raise UpdateFailure("Дублікати або несумісні Windows-імена файлів у GitHub-архіві.")
+            windows_names.add(folded)
             target = destination / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             digest = hashlib.sha256()
@@ -298,6 +301,29 @@ def check_git(root):
         raise UpdateFailure("У Git-клоні є локальні зміни. Збережіть їх перед оновленням.")
 
 
+def git_tree_files(root, commit):
+    """Reject links, submodules, special paths and Windows filename collisions."""
+    raw = git(root, "-c", "core.quotePath=false", "ls-tree", "-r",
+              "--full-tree", commit)
+    names = set()
+    windows_names = set()
+    for line in raw.splitlines():
+        metadata, separator, filename = line.partition("\t")
+        fields = metadata.split()
+        if not separator or len(fields) != 3 or len(fields[2]) != 40:
+            raise UpdateFailure("Неможливо безпечно прочитати дерево Git-коміту.")
+        mode, kind, _ = fields
+        if mode not in {"100644", "100755"} or kind != "blob":
+            raise UpdateFailure("Git-гілка містить символічні посилання або субмодулі.")
+        name = safe_path(filename)
+        folded = name.casefold()
+        if folded in windows_names:
+            raise UpdateFailure("Git-гілка містить конфліктні Windows-імена файлів.")
+        names.add(name)
+        windows_names.add(folded)
+    return names
+
+
 def git_apply(root, plan, transaction_file):
     check_git(root)
     previous = git(root, "rev-parse", "HEAD")
@@ -306,7 +332,7 @@ def git_apply(root, plan, transaction_file):
     remote_commit = git(root, "rev-parse", "FETCH_HEAD")
     if remote_commit.lower() != plan["sha"].lower():
         raise UpdateFailure("Гілка змінилася з часу вибору. Перегляньте список знову.")
-    names = set(git(root, "ls-tree", "-r", "--name-only", remote_commit).splitlines())
+    names = git_tree_files(root, remote_commit)
     if not REQUIRED <= names:
         raise UpdateFailure("Гілка не підтримує потрібний Core V2 лаунчер.")
     check_compatibility(lambda name: git(root, "show", f"{remote_commit}:{name}"))
