@@ -1,6 +1,7 @@
 """Offline regression tests for branch picker, ZIP safety, rollback and updates."""
 import json
 import shutil
+import subprocess
 import sqlite3
 import stat
 import uuid
@@ -271,3 +272,53 @@ def test_git_installed_version_uses_actual_head_not_stale_manifest(installation,
     monkeypatch.setattr(worker, "git", lambda root, *args: "b" * 40
                         if args == ("rev-parse", "HEAD") else "new-branch")
     assert github_update.installed_version(installation) == ("b" * 40, "new-branch")
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="Git CLI is not installed")
+def test_git_branch_switch_is_pinned_and_rollback_restores_original_branch(
+        tmp_path, monkeypatch):
+    root = tmp_path / "git-install"
+    root.mkdir()
+    def command(*args):
+        completed = subprocess.run(["git", *args], cwd=root, check=True,
+                                   text=True, capture_output=True, timeout=25)
+        return completed.stdout.strip()
+    command("init", "-b", "feature/core-v2")
+    command("config", "user.name", "Offline Updater Tests")
+    command("config", "user.email", "tests@example.invalid")
+    command("remote", "add", "origin", worker.REMOTE)
+    for name, value in BASE.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(value, encoding="utf-8")
+    (root / ".gitignore").write_text("data/\nbackups/\n", encoding="utf-8")
+    command("add", ".")
+    command("commit", "-m", "initial")
+    previous = command("rev-parse", "HEAD")
+    command("checkout", "-b", "improvement/probot-readiness")
+    for name, value in NEW.items():
+        (root / name).write_text(value, encoding="utf-8")
+    command("commit", "-am", "update")
+    target = command("rev-parse", "HEAD")
+    command("checkout", "feature/core-v2")
+    (root / "data/v2").mkdir(parents=True)
+    plan = {"id": uuid.uuid4().hex, "mode": "git",
+            "branch": "improvement/probot-readiness", "sha": target,
+            "sqlite_path": str(root / "data/v2/missing.db"), "was_running": False}
+    worker.write_json(root / "data/v2/update-plan.json", plan)
+    actual_git = worker.git
+    def offline_git(directory, *args):
+        if args[:1] == ("fetch",):
+            return ""
+        if args == ("rev-parse", "FETCH_HEAD"):
+            return target
+        return actual_git(directory, *args)
+    monkeypatch.setattr(worker, "git", offline_git)
+    assert worker.apply(root) == 0
+    assert command("rev-parse", "HEAD") == target
+    assert command("branch", "--show-current") == ""
+    assert (root / "YEBOYBot.cmd").read_text(encoding="utf-8") == NEW["YEBOYBot.cmd"]
+    assert worker.rollback(root) == 0
+    assert command("branch", "--show-current") == "feature/core-v2"
+    assert command("rev-parse", "HEAD") == previous
+    assert (root / "YEBOYBot.cmd").read_text(encoding="utf-8") == BASE["YEBOYBot.cmd"]
