@@ -56,7 +56,7 @@ def show_menu(actions, status):
     for tip in (
         "ПЕРШИЙ ЗАПУСК · Discord → музика → перевірка → запуск.",
         "Оновлення GitHub: [6] → вибір гілки → підтвердження.",
-        "[0] закриває лише меню. Для зупинки бота — [3].",
+        "Вихід — кнопка 0; для зупинки Discord-бота використайте [3].",
     ):
         for segment in _lines(tip, content):
             print("  " + segment)
