@@ -8,7 +8,14 @@ import pytest
 from core_v2 import music as music_module
 from core_v2.music_panel import MAX_PANELS, MusicPanel
 from core_v2.security import UserError
-from test_music_commands import invocation as music_invocation, invoke
+import test_music_commands as music_test_helpers
+from test_music_commands import invoke
+
+
+@pytest.fixture(name="music_invocation")
+def _panel_test_fixture():
+    # Reuse the same lightweight fixture factory without shadowing its name.
+    return music_test_helpers.invocation.__wrapped__()
 
 
 def click(f, *, user=None, guild=None, channel_id=777):
