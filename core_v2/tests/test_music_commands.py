@@ -585,7 +585,7 @@ def test_music_group_metadata_and_management_defaults(invocation):
     assert {command.name for command in group.commands} == {"play", "playnext", "join", "queue", "panel", "remove", "move", "shuffle", "clear", "jump", "repeat", "skip", "stop", "autoplay", "pause", "resume", "volume"}
     for command in group.commands:
         assert command.guild_only is True
-        if command.name in {"join", "stop", "move", "shuffle", "clear", "jump", "repeat", "autoplay", "pause", "resume", "volume"}:
+        if command.name in {"join", "stop", "playnext", "move", "shuffle", "clear", "jump", "repeat", "autoplay", "pause", "resume", "volume"}:
             assert command.default_permissions.manage_guild is True
 
 async def test_remove_queue_uses_fresh_member_rights_and_private_reply(invocation):
@@ -691,9 +691,14 @@ async def test_repeat_uses_slash_choice_private_manager_rights(invocation):
     with pytest.raises(UserError, match="виберіть"):
         await invoke(f, "repeat", "invalid")
 
-async def test_playnext_private_and_available_to_regular_member(invocation):
+async def test_playnext_private_and_manager_only(invocation):
     f = invocation
     f.actor.guild_permissions = discord.Permissions.none()
+    with pytest.raises(UserError, match="Керувати сервером"):
+        await invoke(f, "playnext", "some artist")
+    f.player.enqueue_next.assert_not_awaited()
+    f.channel.connect.assert_not_awaited()
+    f.actor.guild_permissions = discord.Permissions(manage_guild=True)
     await invoke(f, "playnext", "some artist")
     f.player.enqueue_next.assert_awaited_once_with("some artist", f.actor.id)
     f.player.enqueue.assert_not_awaited()

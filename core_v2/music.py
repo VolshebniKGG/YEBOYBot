@@ -737,7 +737,7 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
             validate_source(query)
         except MusicError as error:
             raise UserError(str(error)) from None
-        guild, channel, actor, _ = await self._context(interaction)
+        guild, channel, actor, _ = await self._context(interaction, manager=next_up)
         session = await self._ensure(guild, channel)
         try:
             if next_up:
@@ -759,7 +759,8 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
     async def play(self, interaction: discord.Interaction, query: app_commands.Range[str, 1, 500]):
         await self._request_music(interaction, query)
 
-    @app_commands.command(name="playnext", description="Поставити власний трек наступним, не перериваючи поточний")
+    @app_commands.command(name="playnext", description="Поставити трек наступним; Керувати сервером")
+    @app_commands.default_permissions(manage_guild=True)
     @app_commands.guild_only()
     async def playnext(self, interaction: discord.Interaction, query: app_commands.Range[str, 1, 500]):
         await self._request_music(interaction, query, next_up=True)
