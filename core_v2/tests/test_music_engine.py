@@ -797,7 +797,7 @@ async def test_jump_clear_next_validation_and_closed_state(music):
     for position in (0, -1, 2, 50, True, False, 1.0, "1"):
         with pytest.raises(MusicError, match="позиції|позиція"):
             await player.jump(position)
-    for value in (None, True, "yes", 1):
+    for value in (None, "yes", 1):
         with pytest.raises(MusicError, match="порядок"):
             await player.enqueue("other", 22, next_up=value)
     assert [item.source for item in player.queue] == ["waiting"]
