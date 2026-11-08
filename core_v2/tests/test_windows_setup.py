@@ -114,7 +114,7 @@ def test_main_cmd_enters_real_prepared_core_menu_from_arbitrary_cwd(tmp_path):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Core V2" in result.stdout, result.stdout + result.stderr
-    assert "[24]" in result.stdout, result.stdout + result.stderr
+    assert "[19]" in result.stdout, result.stdout + result.stderr
 
 
 @WINDOWS

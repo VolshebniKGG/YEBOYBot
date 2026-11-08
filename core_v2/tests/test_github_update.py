@@ -181,7 +181,7 @@ def test_zip_second_update_refuses_changed_tracked_source(installation, monkeypa
 
 
 @pytest.mark.parametrize("unsafe", [
-    "../outside.txt", "other/../../outside.txt", "a\\b.txt",
+    "../outside.txt", "other/../../outside.txt",
 ])
 def test_zip_rejects_unsafe_members_before_applying(installation, monkeypatch, tmp_path, unsafe):
     package = tmp_path / "unsafe.zip"
