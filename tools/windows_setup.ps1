@@ -179,7 +179,60 @@ function Start-YeboyAfterUpdate {
     }
 }
 
+# This process-owned handle spans apply, dependency changes, verification and
+# recovery. Its release on process exit distinguishes a crash from a live updater.
+# FileShare.None also prevents a second PowerShell window from recovering live work.
+function Invoke-YeboyUpdateSession {
+    param([Parameter(Mandatory)][ValidateSet('Update', 'Recover')][string]$Action)
+    $directory = Join-Path $script:YeboyRoot 'data\v2'
+    $lockPath = Join-Path $directory 'update-session.lock'
+    $session = $null
+    try {
+        [System.IO.Directory]::CreateDirectory($directory) | Out-Null
+        if ((Test-Path -LiteralPath $lockPath) -and
+            ((Get-Item -LiteralPath $lockPath -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+            throw 'Unsafe update lock'
+        }
+        $session = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+    } catch {
+        Write-Host 'Інше вікно оновлює або відновлює бота. Дочекайтеся завершення операції.'
+        return 1
+    }
+    $script:YeboyRestartAfterUpdate = $false
+    try {
+        if ($Action -eq 'Update') { $result = Invoke-YeboyGitHubUpdateCore }
+        else { $result = Restore-YeboyInterruptedUpdateCore }
+    } finally {
+        $session.Dispose()
+    }
+    # Launch only after releasing the session lock and completing verification.
+    if ($script:YeboyRestartAfterUpdate -and ($result -eq 0 -or $result -eq 2)) {
+        [void](Start-YeboyAfterUpdate)
+    }
+    return $result
+}
+
 function Invoke-YeboyGitHubUpdate {
+    return (Invoke-YeboyUpdateSession -Action 'Update')
+}
+
+function Restore-YeboyInterruptedUpdate {
+    return (Invoke-YeboyUpdateSession -Action 'Recover')
+}
+
+function Complete-YeboyUpdateRepair {
+    $marker = Join-Path $script:YeboyRoot 'data\v2\update-repair-required.json'
+    Write-Host 'Перевірка бібліотек і конфігурації після повернення попереднього коду...'
+    if ((Install-YeboyCore -Repair) -ne 0 -or (Test-YeboyAfterUpdate) -ne 0) {
+        Write-Host 'Відновлення не підтверджене. Повторіть YEBOYBot.cmd; запуск бота заблоковано.'
+        return 1
+    }
+    Remove-Item -LiteralPath $marker -Force -ErrorAction Stop
+    return 0
+}
+
+function Invoke-YeboyGitHubUpdateCore {
     $python = Join-Path $script:YeboyRoot '.venv-v2\Scripts\python.exe'
     $source = Join-Path $script:YeboyRoot 'tools\update_worker.py'
     $directory = Join-Path $script:YeboyRoot 'data\v2'
@@ -232,19 +285,18 @@ function Invoke-YeboyGitHubUpdate {
         if (-not $ok) {
             Write-Host ''
             Write-Host 'Оновлення не підтверджено. Відновлюємо попередній код...'
+            # rollback removes code transaction markers; retain this independent
+            # gate through dependency repair and offline verification (also on crash).
+            $repairMarker = Join-Path $directory 'update-repair-required.json'
+            Set-Content -LiteralPath $repairMarker -Value '{"phase":"repair_required"}' -Encoding UTF8 -ErrorAction Stop
             $rollback = Invoke-YeboyUpdateWorker -Python $python -Snapshot $snapshot -Action 'rollback'
             if ($rollback -eq 0) {
-                $recovered = $true
-                Write-Host 'Перевірка бібліотек після повернення до попередньої версії...'
-                if ((Install-YeboyCore -Repair) -ne 0) {
-                    $recovered = $false
-                    Write-Host 'Бібліотеки не відновлено. Залиште бот вимкненим і перевірте журнал.'
-                }
+                $recovered = ((Complete-YeboyUpdateRepair) -eq 0)
             } else {
                 Write-Host 'Відновлення не підтверджене; копія updater і резерви збережені.'
             }
             if ($recovered -and $wasRunning) {
-                [void](Start-YeboyAfterUpdate)
+                $script:YeboyRestartAfterUpdate = $true
             }
             # Code/deps restored => safe to return to menu. Otherwise halt.
             if ($recovered) { return 2 }
@@ -254,7 +306,7 @@ function Invoke-YeboyGitHubUpdate {
         Write-Host 'Оновлення успішне. Програмні файли, залежності та конфігурацію перевірено.'
         if ($wasRunning) {
             Write-Host 'Повертаємо бота до стану запуску...'
-            [void](Start-YeboyAfterUpdate)
+            $script:YeboyRestartAfterUpdate = $true
         }
         return 0
     } finally {
@@ -346,12 +398,14 @@ function Show-YeboySetup {
     }
 }
 
-function Restore-YeboyInterruptedUpdate {
+function Restore-YeboyInterruptedUpdateCore {
     $directory = Join-Path $script:YeboyRoot 'data\v2'
     $plan = Join-Path $directory 'update-plan.json'
     $transaction = Join-Path $directory 'update-transaction.json'
+    $repairMarker = Join-Path $directory 'update-repair-required.json'
     if (-not (Test-Path -LiteralPath $plan -PathType Leaf) -and
-        -not (Test-Path -LiteralPath $transaction -PathType Leaf)) {
+        -not (Test-Path -LiteralPath $transaction -PathType Leaf) -and
+        -not (Test-Path -LiteralPath $repairMarker -PathType Leaf)) {
         return 0
     }
     Write-Host ''
@@ -368,6 +422,9 @@ function Restore-YeboyInterruptedUpdate {
         # Neither ZIP nor Git has changed code if no transaction was recorded.
         if (Test-Path -LiteralPath $plan -PathType Leaf) {
             Remove-Item -LiteralPath $plan -Force -ErrorAction Stop
+        }
+        if (Test-Path -LiteralPath $repairMarker -PathType Leaf) {
+            return (Complete-YeboyUpdateRepair)
         }
         Write-Host 'Незастосований план скасовано; програмні файли не змінювалися.'
         return 0
@@ -386,14 +443,12 @@ function Restore-YeboyInterruptedUpdate {
         Write-Host 'Python 3.12 недоступний. Відновіть його перед повторенням.'
         return 1
     }
+    Set-Content -LiteralPath $repairMarker -Value '{"phase":"repair_required"}' -Encoding UTF8 -ErrorAction Stop
     if ((Invoke-YeboyUpdateWorker -Python $python -Snapshot $snapshot.FullName -Action 'rollback') -ne 0) {
         Write-Host 'Rollback не підтверджений. Код та дані залишено для діагностики.'
         return 1
     }
-    if ((Install-YeboyCore -Repair) -ne 0) {
-        Write-Host 'Код відновлено, але перевірка бібліотек не пройдена.'
-        return 1
-    }
+    if ((Complete-YeboyUpdateRepair) -ne 0) { return 1 }
     Remove-Item -LiteralPath $snapshot.FullName -Force -ErrorAction SilentlyContinue
     Write-Host 'Попередню версію відновлено. Можна повернутися до головного меню.'
     return 0

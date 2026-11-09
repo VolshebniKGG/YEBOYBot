@@ -22,6 +22,7 @@ BASE = {
     "tools/launcher/github_update.py": "OLD GITHUB MENU",
     "tools/launcher/verify_update.py": "OLD VERIFIER",
 }
+BASE[worker.PROTOCOL_PATH] = json.dumps(worker.PROTOCOL)
 NEW = {key: "NEW " + key for key in BASE}
 NEW["tools/windows_setup.ps1"] += (
     "\\nfunction Invoke-YeboyGitHubUpdate {}"
@@ -29,6 +30,9 @@ NEW["tools/windows_setup.ps1"] += (
 )
 NEW["tools/update_worker.py"] += "\\ndef rollback(root): pass\\ndef confirm(root): pass"
 NEW["tools/launcher/__main__.py"] += "\\nUPDATE_EXIT_CODE = 26"
+
+
+NEW[worker.PROTOCOL_PATH] = json.dumps(worker.PROTOCOL)
 
 
 @pytest.fixture
@@ -461,3 +465,45 @@ def test_preflight_rejects_missing_self_update_links_and_case_collisions(entries
             return json.dumps({"truncated": False, "tree": entries}).encode()
     with pytest.raises(worker.UpdateFailure):
         github_update.inspect_release("a" * 40, open_url=lambda *_args, **_kwargs: Response())
+
+
+@pytest.mark.parametrize("marker", ["update-plan.json", "update-transaction.json", "update-repair-required.json"])
+def test_start_refuses_pending_update_before_spawning(installation, monkeypatch, marker):
+    from tools.launcher import process
+    (installation / "data/v2" / marker).write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(process.subprocess, "Popen", lambda *a, **k: pytest.fail("Unverified code spawned"))
+    with pytest.raises(RuntimeError, match="Оновлення не завершено"):
+        process.start(installation)
+
+
+def test_start_refuses_live_session_even_after_markers_removed(installation, monkeypatch):
+    from core_v2.runtime import InstanceLock
+    from tools.launcher import process
+    monkeypatch.setattr(process.subprocess, "Popen", lambda *a, **k: pytest.fail("Unverified code spawned"))
+    with InstanceLock(installation / "data/v2/update-session.lock"):
+        with pytest.raises(RuntimeError, match="Інше вікно"):
+            process.start(installation)
+
+
+def test_update_session_probe_releases_lock(installation):
+    from core_v2.runtime import InstanceLock, require_update_complete
+    require_update_complete(installation)
+    with InstanceLock(installation / "data/v2/update-session.lock"):
+        pass
+
+
+def test_concurrent_menu_cannot_overwrite_prepared_plan(installation, monkeypatch):
+    monkeypatch.setattr(github_update.storage, "database_path", lambda root: root / "data/v2/yeboy.db")
+    monkeypatch.setattr(github_update.process, "locked", lambda root: False)
+    plan = installation / "data/v2/update-plan.json"
+    answers = iter(["1", "ОНОВИТИ"])
+    def reader(_):
+        answer = next(answers)
+        if answer == "ОНОВИТИ":
+            plan.write_text('{"other_window": true}', encoding="utf-8")
+        return answer
+    with pytest.raises(RuntimeError, match="Оновлення не завершено"):
+        github_update.menu(installation, reader=reader, printer=lambda _: None,
+                           branches=[{"name": "main", "sha": "b" * 40}],
+                           preflight=lambda _: len(worker.REQUIRED))
+    assert json.loads(plan.read_text()) == {"other_window": True}

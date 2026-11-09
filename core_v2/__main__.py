@@ -3,7 +3,7 @@ import logging
 import os
 
 from .config import ROOT, Settings
-from .runtime import InstanceLock, configure_logging
+from .runtime import InstanceLock, configure_logging, require_update_complete
 
 
 async def run(settings):
@@ -23,6 +23,7 @@ def main():
     configure_logging(settings)
     try:
         with InstanceLock("data/v2/bot.lock"):
+            require_update_complete(ROOT)
             asyncio.run(run(settings))
     except KeyboardInterrupt:
         pass

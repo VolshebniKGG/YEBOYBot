@@ -196,7 +196,14 @@ def menu(root=ROOT, *, reader=input, printer=print, branches=None,
                "branch": selected["name"], "sha": selected["sha"],
                "sqlite_path": str(sqlite_path), "was_running": bool(process.locked(root)),
                "created": int(time.time())}
-    write_json(plan_path, payload)
+    # Fence plan creation against another already-open menu starting the bot.
+    # start() checks these persistent markers under the same launch lock.
+    with process.InstanceLock(root / "data/v2/launch.lock"):
+        process.require_update_complete(root)
+        if plan_path.exists() or pending_path.exists():
+            raise UpdateFailure("Інше вікно вже підготувало оновлення. Дочекайтеся завершення.")
+        payload["was_running"] = bool(process.locked(root))
+        write_json(plan_path, payload)
     try:
         if payload["was_running"]:
             printer("  Коректне завершення керованого процесу Discord...")

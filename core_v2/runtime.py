@@ -67,3 +67,19 @@ class InstanceLock:
                 import fcntl
                 fcntl.flock(self.file, fcntl.LOCK_UN)
             self.file.close()
+
+
+def require_update_complete(root):
+    """Called under the launch/bot lock before starting an unverified version."""
+    directory = Path(root) / "data/v2"
+    # The Windows parent keeps this file exclusively open through dependency
+    # verification, including intervals after transaction markers are removed.
+    # A probe must not retain the lock: the worker uses launch/bot locks instead.
+    try:
+        with InstanceLock(directory / "update-session.lock"):
+            pass
+    except (OSError, RuntimeError) as error:
+        raise RuntimeError("Інше вікно оновлює або відновлює бота. Дочекайтеся завершення.") from error
+    if any((directory / name).exists() for name in
+           ("update-plan.json", "update-transaction.json", "update-repair-required.json")):
+        raise RuntimeError("Оновлення не завершено. Дочекайтеся завершення або відкрийте YEBOYBot.cmd для відновлення.")

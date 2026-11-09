@@ -674,7 +674,7 @@ Assert-True ($code -eq EXPECTED_CODE) 'Preserve successful and failed native med
 @WINDOWS
 @pytest.mark.parametrize("scenario, expected_code, expected_order", [
     ("success", 0, "apply,repair,verify,confirm"),
-    ("rollback", 2, "apply,rollback,repair"),
+    ("rollback", 2, "apply,rollback,repair,verify"),
     ("unconfirmed", 1, "apply,rollback"),
 ])
 def test_github_updater_external_worker_handoff_is_atomic(
@@ -719,4 +719,90 @@ if (SCENARIO_PLACEHOLDER -eq 'unconfirmed') {
         "SCENARIO_PLACEHOLDER", _literal(scenario)).replace(
         "EXPECTED_PLACEHOLDER", str(expected_code)).replace(
         "ORDER_PLACEHOLDER", _literal(expected_order))
+    _run_ps(tmp_path, body, timeout=90)
+
+
+@WINDOWS
+def test_update_session_blocks_recovery_and_python_until_restart(tmp_path):
+    # Real FileShare.None handle versus a child Python process: no JSON marker
+    # exists here, modeling confirm/rollback followed by dependency verification.
+    root = tmp_path / "session bot"
+    root.mkdir()
+    probe = (
+        "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[2]); "
+        "from core_v2.runtime import require_update_complete\n"
+        "try: require_update_complete(Path(sys.argv[1]))\n"
+        "except RuntimeError: sys.exit(3)\n"
+    )
+    body = r"""
+$script:YeboyRoot = ROOT_PLACEHOLDER
+$script:Restarted = $false
+function Test-PythonProbe {
+    param([int]$Expected)
+    & PYTHON_PLACEHOLDER -c PROBE_PLACEHOLDER $script:YeboyRoot REPO_PLACEHOLDER 2>$null
+    if ($Expected -eq 0) { Assert-True ($LASTEXITCODE -eq 0) 'Python may launch after session release' }
+    else { Assert-True ($LASTEXITCODE -ne 0) 'Python must refuse active PowerShell session' }
+}
+function Invoke-YeboyGitHubUpdateCore {
+    Test-PythonProbe 1
+    Assert-True ((Restore-YeboyInterruptedUpdate) -eq 1) 'Recovery must refuse a live update'
+    Assert-True ((Invoke-YeboyGitHubUpdate) -eq 1) 'Another updater must refuse a live update'
+    Test-PythonProbe 1
+    $script:YeboyRestartAfterUpdate = $true
+    return 0
+}
+function Start-YeboyAfterUpdate {
+    Test-PythonProbe 0
+    $script:Restarted = $true
+    return 0
+}
+Assert-True ((Invoke-YeboyGitHubUpdate) -eq 0) 'Update succeeds'
+Assert-True $script:Restarted 'Restart after session release'
+function Restore-YeboyInterruptedUpdateCore {
+    Test-PythonProbe 1
+    Assert-True ((Invoke-YeboyGitHubUpdate) -eq 1) 'Update cannot interrupt recovery'
+    throw 'Injected recovery failure'
+}
+$thrown = $false
+try { $null = Restore-YeboyInterruptedUpdate } catch { $thrown = $true }
+Assert-True $thrown 'Injected failure surfaced'
+Test-PythonProbe 0
+""".replace("ROOT_PLACEHOLDER", _literal(root)).replace(
+        "PYTHON_PLACEHOLDER", _literal(sys.executable)).replace(
+        "PROBE_PLACEHOLDER", _literal(probe)).replace("REPO_PLACEHOLDER", _literal(ROOT))
+    _run_ps(tmp_path, body, timeout=90)
+
+
+@WINDOWS
+@pytest.mark.parametrize("failure", ["repair", "verify"])
+def test_recovery_retries_persistent_repair_gate_without_code_transaction(tmp_path, failure):
+    root = tmp_path / "recovery bot"
+    directory = root / "data/v2"
+    directory.mkdir(parents=True)
+    marker = directory / "update-repair-required.json"
+    marker.write_text('{"phase":"repair_required"}', encoding="utf-8")
+    body = r"""
+$script:YeboyRoot = ROOT_PLACEHOLDER
+$script:Fail = FAILURE_PLACEHOLDER
+$script:Repairs = 0
+function Read-Host { return 'ВІДНОВИТИ' }
+function Install-YeboyCore {
+    param([switch]$Repair)
+    $script:Repairs++
+    if ($script:Fail -eq 'repair') { return 1 }
+    return 0
+}
+function Test-YeboyAfterUpdate {
+    if ($script:Fail -eq 'verify') { return 1 }
+    return 0
+}
+function Invoke-YeboyUpdateWorker { throw 'Code already restored; no rollback to repeat' }
+Assert-True ((Restore-YeboyInterruptedUpdate) -eq 1) 'Failed dependency or smoke check blocks recovery'
+Assert-True (Test-Path -LiteralPath MARKER_PLACEHOLDER) 'Repair gate survives failure'
+$script:Fail = ''
+Assert-True ((Restore-YeboyInterruptedUpdate) -eq 0) 'Next launch retries repair without transaction'
+Assert-True ($script:Repairs -eq 2) 'Both attempts verify dependencies'
+Assert-True (-not (Test-Path -LiteralPath MARKER_PLACEHOLDER)) 'Gate cleared only after successful verification'
+""".replace("ROOT_PLACEHOLDER", _literal(root)).replace(
+        "FAILURE_PLACEHOLDER", _literal(failure)).replace("MARKER_PLACEHOLDER", _literal(marker))
     _run_ps(tmp_path, body, timeout=90)

@@ -7,7 +7,7 @@ import time
 import uuid
 
 from .config import ROOT, Settings
-from .runtime import InstanceLock, configure_logging
+from .runtime import InstanceLock, configure_logging, require_update_complete
 from .recovery import ControlFailure, recover
 
 STATE = ROOT / "data/v2/managed.json"
@@ -74,6 +74,7 @@ def main():
     settings = Settings.load()
     configure_logging(settings)
     with InstanceLock(ROOT / "data/v2/bot.lock"):
+        require_update_complete(ROOT)
         instance = uuid.uuid4().hex
         code = 0
         try:

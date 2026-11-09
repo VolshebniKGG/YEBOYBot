@@ -32,6 +32,8 @@ MAX_ARCHIVE = 100 * 1024 * 1024
 MAX_CONTENT = 300 * 1024 * 1024
 MAX_ONE_FILE = 40 * 1024 * 1024
 MAX_FILES = 5000
+PROTOCOL_PATH = "tools/updater_protocol.json"
+PROTOCOL = {"protocol": "yeboy-update-session", "version": 1}
 REQUIRED = {"YEBOYBot.cmd", "tools/windows_setup.ps1", "tools/update_worker.py",
             "tools/launcher/__main__.py", "tools/launcher/github_update.py",
             "tools/launcher/verify_update.py", "core_v2/__main__.py"}
@@ -152,6 +154,18 @@ def check_compatibility(reader):
             )
 
 
+def validate_protocol(content):
+    """Reject older targets that cannot fence startup during dependency changes."""
+    try:
+        if len(content) > 4096:
+            raise ValueError("oversized protocol")
+        value = json.loads(content)
+        if value != PROTOCOL or type(value.get("version")) is not int:
+            raise ValueError("unsupported protocol")
+    except (TypeError, ValueError, UnicodeError) as error:
+        raise UpdateFailure("Гілка не підтримує безпечний протокол оновлення 1.") from error
+
+
 def extract_archive(archive, destination):
     destination = Path(destination)
     directory = {}
@@ -204,6 +218,12 @@ def extract_archive(archive, destination):
     if not REQUIRED <= directory.keys():
         raise UpdateFailure("Гілка не містить повного комплекту Core V2 для Windows.")
     check_compatibility(lambda name: (destination / name).read_bytes())
+
+
+    if PROTOCOL_PATH not in directory:
+        raise UpdateFailure("Гілка не підтримує безпечний протокол оновлення 1.")
+    with (destination / PROTOCOL_PATH).open("rb") as protocol_file:
+        validate_protocol(protocol_file.read(4097))
     return directory
 
 
@@ -336,6 +356,11 @@ def git_apply(root, plan, transaction_file):
     if not REQUIRED <= names:
         raise UpdateFailure("Гілка не підтримує потрібний Core V2 лаунчер.")
     check_compatibility(lambda name: git(root, "show", f"{remote_commit}:{name}"))
+
+
+    if PROTOCOL_PATH not in names:
+        raise UpdateFailure("Гілка не підтримує безпечний протокол оновлення 1.")
+    validate_protocol(git(root, "show", remote_commit + ":" + PROTOCOL_PATH))
     changed = set(filter(None, git(root, "diff", "--name-only", previous, remote_commit).splitlines()))
     if any(protected(name) for name in changed):
         raise UpdateFailure("Гілка намагається замінити секрети або локальні дані.")

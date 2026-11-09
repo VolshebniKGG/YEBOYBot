@@ -5,7 +5,7 @@ import sys
 import time
 from pathlib import Path
 
-from core_v2.runtime import InstanceLock
+from core_v2.runtime import InstanceLock, require_update_complete
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -54,6 +54,7 @@ def start(root=ROOT, timeout=30):
     if locked(root):
         return state(root)
     with InstanceLock(root / "data/v2/launch.lock"):
+        require_update_complete(root)
         if locked(root):
             return state(root)
         child = subprocess.Popen([sys.executable, "-m", "core_v2.managed"], cwd=root,
