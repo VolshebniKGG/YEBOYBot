@@ -215,7 +215,12 @@ def explain_install_failure(name, stage, error):
         hint = 'Не вдалося запустити програму для перевірки її версії.'
     else:
         hint = 'Відхилено некоректний формат даних або операцію.'
-    return MediaInstallError(f'{name}: збій на етапі «{stage}». {hint}')
+    result = MediaInstallError(f'{name}: збій на етапі «{stage}». {hint}')
+    # Structured exit signalling to PowerShell; do not parse localized text.
+    # Never fall back to WinGet for network, hash, ZIP or ordinary file errors.
+    if stage == 'запуск програми' and getattr(error, 'winerror', None) == 5:
+        result.winget_fallback = name
+    return result
 
 
 def install_package(root, package):

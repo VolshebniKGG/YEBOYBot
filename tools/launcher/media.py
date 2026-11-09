@@ -194,7 +194,9 @@ def main(root=ROOT, *, args=()):
             prepare_portable(root, selection=selection)
     except MediaInstallError as error:
         print("[ПОМИЛКА] " + str(error))
-        return 1
+        # The interactive Windows entry may offer official WinGet as a
+        # policy-respecting alternative to a refused portable executable.
+        return {"ffmpeg": 31, "deno": 32}.get(getattr(error, "winget_fallback", None), 1)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, zipfile.BadZipFile):
         print("[ПОМИЛКА] Музичний комплект не готовий. Перевірте доступ до програм, права папки та мережу; зупиніть бот перед повторенням.")
         return 1

@@ -231,6 +231,15 @@ def test_windows_access_denied_at_launch_shows_policy_logs_without_bypass():
     assert 'secret' not in explanation
 
 
+def test_refused_windows_executable_marks_only_its_tool_for_winget_fallback():
+    error = PermissionError(errno.EACCES, "synthetic private path")
+    error.winerror = 5
+    marked = media.explain_install_failure('ffmpeg', 'запуск програми', error)
+    assert marked.winget_fallback == 'ffmpeg'
+    unmarked = media.explain_install_failure('ffmpeg', 'розпакування ZIP', error)
+    assert not hasattr(unmarked, 'winget_fallback')
+
+
 def test_windows_launch_diagnostics_do_not_confuse_locked_file_with_policy_block():
     error = PermissionError(errno.EACCES, 'private path')
     error.winerror = 32

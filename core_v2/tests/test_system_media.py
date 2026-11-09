@@ -79,6 +79,41 @@ def test_discover_selects_compatible_candidate_not_first_old_one(tmp_path, monke
     assert system_media.discover("ffmpeg", tmp_path / "bot")["path"] == str(newer)
 
 
+def test_winget_package_discovered_without_current_shell_path(tmp_path, monkeypatch):
+    root = tmp_path / "bot"
+    root.mkdir()
+    local = tmp_path / "Local AppData"
+    ffmpeg = (local / "Microsoft" / "WinGet" / "Packages" /
+              "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe" /
+              "ffmpeg-9.0.2-full_build" / "bin" /
+              ("ffmpeg.exe" if os.name == "nt" else "ffmpeg"))
+    ffmpeg.parent.mkdir(parents=True)
+    ffmpeg.touch()
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.setattr(system_media.shutil, "which", lambda name: None)
+    for key in ("USERPROFILE", "ProgramFiles", "ProgramData"):
+        monkeypatch.delenv(key, raising=False)
+    listed = list(system_media.candidates("ffmpeg", root))
+    assert ffmpeg.resolve() in listed
+    assert len(listed) == 1
+
+
+def test_winget_deno_package_discovered_without_path(tmp_path, monkeypatch):
+    root = tmp_path / "bot"
+    root.mkdir()
+    local = tmp_path / "LocalAppData"
+    deno = (local / "Microsoft" / "WinGet" / "Packages" /
+            "DenoLand.Deno_Microsoft.Winget.Source_8wekyb3d8bbwe" /
+            ("deno.exe" if os.name == "nt" else "deno"))
+    deno.parent.mkdir(parents=True)
+    deno.touch()
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.setattr(system_media.shutil, "which", lambda name: None)
+    for key in ("USERPROFILE", "ProgramFiles", "ProgramData"):
+        monkeypatch.delenv(key, raising=False)
+    assert deno.resolve() in list(system_media.candidates("deno", root))
+
+
 def test_minimum_versions_match_pinned_portable_releases():
     for package in portable_media.PACKAGES:
         assert system_media.MINIMUM[package.name] == tuple(map(int, package.version.split(".")))

@@ -99,7 +99,7 @@ function Select-YeboyMedia {
         Write-Host ''
         if (-not $tool.found) {
             Write-Host ('[!] {0}: сумісної зовнішньої копії не знайдено.' -f $label)
-            Write-Host ('    План: локальний комплект у bin\\{0}.' -f $name)
+            Write-Host ('    План: локальний комплект у bin\{0}.' -f $name)
             continue
         }
         Write-Host ('[?] {0}: {1}' -f $label, $tool.path)
@@ -147,6 +147,30 @@ function Invoke-YeboyWinget {
         & $Executable @arguments *> $null
         return [int]$LASTEXITCODE
     } catch { return 1 }
+}
+
+function Invoke-YeboyWingetMedia {
+    param([Parameter(Mandatory)][ValidateSet('ffmpeg', 'deno')][string]$Name)
+    $winget = Find-YeboyWinget
+    if (-not $winget) {
+        Write-Host '[!] WinGet не знайдено. Не можна автоматично встановити системну програму.'
+        return 1
+    }
+    $package = if ($Name -eq 'ffmpeg') { 'Gyan.FFmpeg' } else { 'DenoLand.Deno' }
+    Write-Host ('[i] Windows заборонила запуск локального {0}. Пробуємо офіційний WinGet ({1}) для цього користувача...' -f $Name, $package)
+    # The user explicitly chose [1] setup, which explains this fallback
+    # before installation. Keep official source/hash/terms and per-user scope.
+    $arguments = @('install', '--id', $package, '--exact', '--source', 'winget',
+                   '--scope', 'user', '--architecture', 'x64', '--silent',
+                   '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
+    try {
+        $global:LASTEXITCODE = 1
+        & $winget @arguments | Out-Host
+        return [int]$LASTEXITCODE
+    } catch {
+        Write-Host '[!] WinGet не вдалося запустити. Наявні файли й конфігурація збережені.'
+        return 1
+    }
 }
 
 function Invoke-YeboyBootstrap {
@@ -446,6 +470,29 @@ function Install-YeboyCore {
     } else {
         $media = Invoke-YeboyMedia
     }
+    if ($script:YeboyInteractiveInstall -and $null -ne $mediaSelection) {
+        # Codes 31/32 are emitted only for WinError 5 on executable launch,
+        # never for hash mismatch or network failures. At most one fallback
+        # per tool, never install WinGet packages during silent repair.
+        $attempted = @{ ffmpeg = $false; deno = $false }
+        while ($media -eq 31 -or $media -eq 32) {
+            $name = if ($media -eq 31) { 'ffmpeg' } else { 'deno' }
+            if ($attempted[$name]) { break }
+            $attempted[$name] = $true
+            $wingetCode = Invoke-YeboyWingetMedia -Name $name
+            # Even if WinGet returns 'already installed', resolve the actual
+            # executable and verify its version via absolute path, not PATH.
+            $report = Invoke-YeboySystemMediaProbe -Python $python
+            $candidate = if ($null -ne $report) { $report.$name } else { $null }
+            if ($null -eq $candidate -or -not $candidate.compatible) {
+                Write-Host ('[!] {0}: WinGet не надав доступного сумісного виконуваного файлу (код {1}).' -f $name, $wingetCode)
+                break
+            }
+            Write-Host ('[OK] {0} з WinGet перевірено: {1}; повторна підготовка без ручного PATH.' -f $name, $candidate.path)
+            $mediaSelection[$name] = [string]$candidate.path
+            $media = Invoke-YeboyMedia -SelectMedia -SystemFfmpeg $mediaSelection.ffmpeg -SystemDeno $mediaSelection.deno
+        }
+    }
     if ($media -ne 0) { return $media }
     Write-Host '[4/4] Перевірка середовища та критичних бібліотек...'
     if (-not (Test-YeboyEnvironment)) {
@@ -474,6 +521,9 @@ function Show-YeboySetup {
         Write-Host 'Ви оберете: використовувати сумісні FFmpeg/Deno з ПК або локальні.'
         Write-Host 'Python-бібліотеки ізолюються в .venv-v2; глобальні пакети не змінюються.'
         Write-Host 'Якщо потрібні локальні програми, архіви перевіряються за SHA-256.'
+        Write-Host 'Якщо Windows заблокує запуск локального FFmpeg/Deno, [1] дозволяє'
+        Write-Host 'резервне встановлення офіційного пакета через WinGet для користувача.'
+        Write-Host 'Нічого вручну в PowerShell робити не потрібно; PATH не змінюємо самі.'
         Write-Host 'Потрібні інтернет і дозвіл Windows на встановлення програм.'
         $choice = Read-Host 'Номер дії (Enter — вихід)'
         if ([string]::IsNullOrWhiteSpace($choice) -or $choice.Trim() -eq '0') { return 0 }

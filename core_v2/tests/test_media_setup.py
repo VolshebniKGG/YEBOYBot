@@ -108,6 +108,19 @@ def test_ffmpeg_install_on_linux_gives_instructions_without_running_installer(tm
     assert "Linux" in capsys.readouterr().out
 
 
+def test_denied_portable_executable_returns_machine_readable_winget_code(tmp_path, monkeypatch, capsys):
+    from tools.portable_media import MediaInstallError
+    blocked = MediaInstallError('ffmpeg: відмовлено у запуску')
+    blocked.winget_fallback = 'ffmpeg'
+    monkeypatch.setattr(media, 'prepare_portable', lambda *args, **kwargs: (_ for _ in ()).throw(blocked))
+    assert media.main(tmp_path, args=('--prepare',)) == 31
+    assert 'відмовлено' in capsys.readouterr().out
+    blocked.winget_fallback = 'deno'
+    assert media.main(tmp_path, args=('--prepare',)) == 32
+    blocked.winget_fallback = None
+    assert media.main(tmp_path, args=('--prepare',)) == 1
+
+
 def test_ffmpeg_windows_install_requires_explicit_consent_and_keeps_hash_checks(tmp_path, monkeypatch):
     monkeypatch.setattr(media, "os", SimpleNamespace(name="nt"))
     monkeypatch.setattr(media.shutil, "which", lambda name: "C:/trusted/winget.exe")

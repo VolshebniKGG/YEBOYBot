@@ -27,8 +27,27 @@ def candidates(name, root):
     program_files = os.getenv("ProgramFiles")
     if local:
         base = Path(local)
-        paths.extend((base / "Microsoft" / "WinGet" / "Links" / filename,
+        winget = base / "Microsoft" / "WinGet"
+        paths.extend((winget / "Links" / filename,
                       base / "Programs" / "deno" / filename))
+        # WinGet portable packages are usually below Packages/<id>_<source>/...
+        # Winget may have updated the user's PATH on disk, but the launcher
+        # inherits the OLD PATH from its already-running parent shell.
+        # Discover exact package IDs without a recursive filesystem scan.
+        packages = winget / "Packages"
+        package_id = "Gyan.FFmpeg_" if name == "ffmpeg" else "DenoLand.Deno_"
+        if packages.is_dir():
+            try:
+                for item in sorted(packages.iterdir()):
+                    if not item.is_dir() or not item.name.casefold().startswith(package_id.casefold()):
+                        continue
+                    paths.extend((item / filename, item / "bin" / filename))
+                    # Expected Gyan layout: ffmpeg-9.0.2-full_build/bin/ffmpeg.exe;
+                    # Deno may also be under a version-named directory.
+                    paths.extend(item.glob("*/" + filename))
+                    paths.extend(item.glob("*/bin/" + filename))
+            except OSError:
+                pass
     if home:
         paths.extend((Path(home) / ".deno" / "bin" / filename,
                       Path(home) / "scoop" / "shims" / filename,

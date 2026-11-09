@@ -513,6 +513,119 @@ Assert-True ($script:Choices.Count -eq 0) 'Only two separate media questions'
 
 
 @WINDOWS
+@pytest.mark.parametrize(("name", "package"), [
+    ("ffmpeg", "Gyan.FFmpeg"), ("deno", "DenoLand.Deno"),
+])
+def test_media_winget_fallback_uses_pinned_official_package_and_user_scope(tmp_path, name, package):
+    _run_ps(tmp_path, r"""
+$script:Captured = @()
+function Find-YeboyWinget { return 'Invoke-TestWinget' }
+function Invoke-TestWinget {
+    $script:Captured = @($args)
+    $global:LASTEXITCODE = 0
+}
+$code = Invoke-YeboyWingetMedia -Name NAME_PLACEHOLDER
+Assert-True ($code -eq 0) 'WinGet fallback success'
+$argsSeen = $script:Captured
+Assert-True ($argsSeen[0] -eq 'install') 'Official install only'
+foreach ($pair in @(@('--id', PACKAGE_PLACEHOLDER), @('--source', 'winget'),
+                    @('--scope', 'user'), @('--architecture', 'x64'))) {
+    $index = [Array]::IndexOf($argsSeen, $pair[0])
+    Assert-True ($index -ge 0 -and $argsSeen[$index + 1] -eq $pair[1]) ('Wrong policy: ' + $pair[0])
+}
+foreach ($flag in @('--exact', '--silent', '--accept-package-agreements',
+                    '--accept-source-agreements', '--disable-interactivity')) {
+    Assert-True ($argsSeen -contains $flag) ('Missing trusted-catalog flag ' + $flag)
+}
+foreach ($bad in @('--force', '--ignore-security-hash', '--override')) {
+    Assert-True (-not ($argsSeen -contains $bad)) ('No security bypass ' + $bad)
+}
+""".replace("NAME_PLACEHOLDER", _literal(name)).replace("PACKAGE_PLACEHOLDER", _literal(package)))
+
+
+@WINDOWS
+def test_denied_portable_ffmpeg_falls_back_to_winget_inside_same_setup(tmp_path):
+    result = _run_ps(tmp_path, r"""
+$script:YeboyInteractiveInstall = $true
+$script:Probes = 0
+$script:MediaCalls = 0
+$script:WingetCalls = 0
+function Find-YeboyPython { return 'verified-python' }
+function Invoke-YeboySystemMediaProbe {
+    $script:Probes++
+    $ready = $script:Probes -ge 2
+    return [pscustomobject]@{
+        ffmpeg = [pscustomobject]@{ found = $ready; compatible = $ready; path = 'C:\WinGet\ffmpeg.exe'; version = '9.0.2' }
+        deno = [pscustomobject]@{ found = $false; compatible = $false; path = ''; version = '' }
+    }
+}
+function Invoke-YeboyBootstrap { return 0 }
+function Invoke-YeboyMedia {
+    param([switch]$SelectMedia, [string]$SystemFfmpeg, [string]$SystemDeno)
+    Assert-True ([bool]$SelectMedia) 'Use selected external or local paths'
+    $script:MediaCalls++
+    if ($script:MediaCalls -eq 1) {
+        Assert-True (-not $SystemFfmpeg) 'First try a pinned local FFmpeg'
+        return 31
+    }
+    Assert-True ($SystemFfmpeg -eq 'C:\WinGet\ffmpeg.exe') 'Reuse WinGet binary by verified path, not refreshed PATH'
+    Assert-True (-not $SystemDeno) 'Keep local Deno selection'
+    return 0
+}
+function Invoke-YeboyWingetMedia {
+    param([string]$Name)
+    Assert-True ($Name -eq 'ffmpeg') 'Fallback is only for denied FFmpeg, not Deno'
+    $script:WingetCalls++
+    return 0
+}
+function Test-YeboyEnvironment { return $true }
+$code = Install-YeboyCore
+Assert-True ($code -eq 0) 'User can finish via only YEBOYBot setup'
+Assert-True ($script:WingetCalls -eq 1) 'Only one exact WinGet fallback'
+Assert-True ($script:MediaCalls -eq 2) 'Continue the same setup, no second CMD run'
+Assert-True ($script:Probes -eq 2) 'Refresh installed-program discovery in current session'
+""")
+    assert "[4/4]" in result.stdout
+
+
+@WINDOWS
+def test_winget_fallback_never_runs_in_noninteractive_repairs(tmp_path):
+    _run_ps(tmp_path, r"""
+$script:YeboyInteractiveInstall = $false
+function Find-YeboyPython { return 'verified-python' }
+function Invoke-YeboyBootstrap { return 0 }
+function Invoke-YeboyMedia { return 31 }
+function Invoke-YeboyWingetMedia { throw 'Never install global software during automated repair' }
+$code = Install-YeboyCore -Repair
+Assert-True ($code -eq 31) 'No silent system package installation'
+""")
+
+
+@WINDOWS
+def test_winget_fallback_fails_closed_when_executable_is_still_unavailable(tmp_path):
+    _run_ps(tmp_path, r"""
+$script:YeboyInteractiveInstall = $true
+$script:MediaCalls = 0
+$script:WingetCalls = 0
+function Find-YeboyPython { return 'verified-python' }
+function Invoke-YeboySystemMediaProbe {
+    return [pscustomobject]@{
+        ffmpeg = [pscustomobject]@{ found = $false; compatible = $false; path = ''; version = '' }
+        deno = [pscustomobject]@{ found = $false; compatible = $false; path = ''; version = '' }
+    }
+}
+function Invoke-YeboyBootstrap { return 0 }
+function Invoke-YeboyMedia { $script:MediaCalls++; return 31 }
+function Invoke-YeboyWingetMedia { $script:WingetCalls++; return 5 }
+function Test-YeboyEnvironment { throw 'Never report ready without playable FFmpeg' }
+$code = Install-YeboyCore
+Assert-True ($code -eq 31) 'Keep original denied-executable failure code'
+Assert-True ($script:WingetCalls -eq 1) 'No repeated install attempts'
+Assert-True ($script:MediaCalls -eq 1) 'Do not retry media if system FFmpeg not executable'
+""")
+
+
+@WINDOWS
 def test_user_cancels_media_choice_before_any_application_install(tmp_path):
     _run_ps(tmp_path, r"""
 $script:YeboyInteractiveInstall = $true
