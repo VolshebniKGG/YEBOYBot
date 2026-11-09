@@ -46,14 +46,30 @@ def command_stage(args):
 
 
 def failure_hint(output):
-    # Recognize fixed patterns only. Never echo command output, URLs, credentials,
-    # environment values or arbitrary package names from a failed subprocess.
+    """Map pip's untrusted output to a fixed, secret-free diagnostic.
+
+    A failed index lookup often ends with "No matching distribution" even
+    when the underlying cause is DNS, TLS or a broken proxy. Check those
+    signatures first, without copying any URLs or exception details.
+    """
     value = output.lower()
     for patterns, category, hint in (
-        (("certificate_verify_failed", "sslcertverificationerror"), "certificate",
-         "Не підтверджено TLS-сертифікат. Перевірте дату Windows і довірені сертифікати; не вимикайте TLS-перевірку."),
-        (("no matching distribution", "could not find a version"), "package-unavailable",
-         "Не знайдено сумісного пакета. Перевірте доступ до PyPI та Python 3.12 x64; повторна інсталяція Python може не допомогти."),
+        (("certificate_verify_failed", "sslcertverificationerror",
+          "self signed certificate", "certificate verify failed",
+          "unknown ca", "certificate chain"), "certificate",
+         "Не підтверджено TLS-сертифікат. Перевірте дату Windows, довірені сертифікати та налаштування проксі; не вимикайте TLS-перевірку."),
+        (("proxyerror", "proxy authentication required", "407 proxy authentication",
+          "cannot connect to proxy", "proxy authentication failed"), "proxy",
+         "Проксі відхилив або не встановив з'єднання. Перевірте його доступність та авторизацію без передавання адрес і паролів."),
+        (("nameresolutionerror", "newconnectionerror", "getaddrinfo failed",
+          "temporary failure in name resolution", "name or service not known",
+          "failed to establish a new connection", "connectionerror",
+          "connection refused", "name resolution", "network is unreachable",
+          "timed out", "connecttimeouterror", "readtimeouterror",
+          "winerror 10060", "winerror 10061", "winerror 11001"), "network",
+         "Не вдалося отримати пакети через мережу. Перевірте DNS, HTTPS-доступ до pypi.org і files.pythonhosted.org, брандмауер та проксі."),
+        (("sslerror", "tlsv1 alert", "tls handshake"), "tls",
+         "Захищене TLS-з'єднання не встановлено. Перевірте Windows, сертифікати та мережевий фільтр; не вимикайте перевірку TLS."),
         (("no python at", "unable to create process"), "broken-interpreter",
          "Середовище посилається на відсутній Python. Потрібне відновлення .venv-v2 зі справного Python 3.12 x64."),
         (("no module named", "modulenotfounderror"), "missing-module",
@@ -62,14 +78,13 @@ def failure_hint(output):
          "Немає доступу до файлів. Закрийте інші процеси бота й перевірте права та захист папки Windows."),
         (("no space left", "disk full", "winerror 112"), "disk-full",
          "Недостатньо вільного місця на диску."),
-        (("proxyerror", "connectionerror", "connection refused", "name resolution", "timed out"), "network",
-         "Не вдалося з'єднатися з джерелом пакетів. Перевірте інтернет, проксі та правила мережі."),
+        (("no matching distribution", "could not find a version"), "package-unavailable",
+         "pip не отримав сумісний пакет. Це може означати недоступний індекс, фільтр мережі або обмеження версій; перевірте доступ до PyPI."),
         (("syntaxerror",), "probe-syntax", "Помилка запуску перевірки Python. Оновіть повний комплект файлів бота."),
     ):
         if any(pattern in value for pattern in patterns):
             return category, hint
     return "unknown", "Причину не визначено автоматично. Передайте безпечний install-report.json для діагностики; не повторюйте встановлення навмання."
-
 
 def write_failure_report(root, error):
     path = Path(root) / "data/v2/install-report.json"
@@ -101,6 +116,11 @@ def run(args, root):
                              stage=stage, category=category) from exc
     if result.returncode:
         category, hint = failure_hint((result.stdout or "") + "\n" + (result.stderr or ""))
+        if stage == "pip-upgrade" and category == "package-unavailable":
+            hint = ("Фіксована версія pip " + PIP_VERSION +
+                    " існує на PyPI, але її не вдалося отримати з цього ПК. " 
+                    "Перевірте https://pypi.org/simple/pip/ у браузері та доступ до "
+                    "files.pythonhosted.org; перевстановлення Python зазвичай не потрібне.")
         raise BootstrapError(f"Етап {stage}, код {result.returncode}, категорія {category}.\n{hint}",
                              stage=stage, category=category, exit_code=result.returncode)
     return result.stdout or ""

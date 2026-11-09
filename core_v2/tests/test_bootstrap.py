@@ -289,6 +289,63 @@ class CommandTests(unittest.TestCase):
         self.assertIn("/trusted/pip-ca.pem", command)
         self.assertNotIn("/global", command)
 
+    def test_network_cause_takes_precedence_over_pip_no_matching_distribution(self):
+        output = ("WARNING: Retrying after NewConnectionError: [WinError 11001] getaddrinfo failed "
+                  "https://account:secret@private.invalid/simple/pip/\\n"
+                  "ERROR: Could not find a version that satisfies the requirement pip==26.2 "
+                  "(from versions: none)\\n"
+                  "ERROR: No matching distribution found for pip==26.2")
+        result = subprocess.CompletedProcess([], 1, "", output)
+        with patch.object(b.subprocess, "run", return_value=result):
+            with self.assertRaises(b.BootstrapError) as failure:
+                b.run(["python", "-I", "-m", "pip", "install", "pip==" + b.PIP_VERSION], Path.cwd())
+        self.assertEqual(failure.exception.stage, "pip-upgrade")
+        self.assertEqual(failure.exception.category, "network")
+        self.assertIn("DNS", str(failure.exception))
+        self.assertNotIn("secret", str(failure.exception))
+        self.assertNotIn("private.invalid", str(failure.exception))
+
+    def test_certificate_cause_takes_precedence_over_pip_no_matching_distribution(self):
+        output = ("SSLCertVerificationError: CERTIFICATE_VERIFY_FAILED "
+                  "https://token:password@private.invalid/\\n"
+                  "ERROR: No matching distribution found for pip==26.2")
+        with patch.object(b.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", output)):
+            with self.assertRaises(b.BootstrapError) as failure:
+                b.run(["python", "-m", "pip", "install", "pip==" + b.PIP_VERSION], Path.cwd())
+        self.assertEqual(failure.exception.category, "certificate")
+        self.assertNotIn("password", str(failure.exception))
+        self.assertIn("TLS", str(failure.exception))
+
+    def test_proxy_cause_overrides_no_matching_and_never_discloses_credentials(self):
+        output = ("ProxyError: 407 Proxy Authentication Required; user=secret\\n"
+                  "ERROR: No matching distribution found for pip==26.2")
+        with patch.object(b.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", output)):
+            with self.assertRaises(b.BootstrapError) as failure:
+                b.run(["python", "-m", "pip", "install", "pip==" + b.PIP_VERSION], Path.cwd())
+        self.assertEqual(failure.exception.category, "proxy")
+        self.assertNotIn("secret", str(failure.exception))
+
+    def test_known_pip_release_missing_from_index_is_not_called_python_incompatible(self):
+        output = "ERROR: No matching distribution found for pip==" + b.PIP_VERSION
+        with patch.object(b.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", output)):
+            with self.assertRaises(b.BootstrapError) as failure:
+                b.run(["python", "-m", "pip", "install", "pip==" + b.PIP_VERSION], Path.cwd())
+        self.assertEqual(failure.exception.category, "package-unavailable")
+        self.assertIn("існує на PyPI", str(failure.exception))
+        self.assertNotIn("сумісного пакета", str(failure.exception))
+
+    def test_network_failure_report_has_no_raw_proxy_or_pip_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            error = b.BootstrapError("private token and URL", stage="pip-upgrade",
+                                     category="network", exit_code=1)
+            b.write_failure_report(directory, error)
+            content = (Path(directory) / "data/v2/install-report.json").read_text()
+            report = json.loads(content)
+        self.assertEqual(report["stage"], "pip-upgrade")
+        self.assertEqual(report["category"], "network")
+        self.assertNotIn("private", content)
+        self.assertNotIn("URL", content)
+
     def test_raw_package_manager_credentials_are_not_exposed(self):
         result = subprocess.CompletedProcess([], 1, "https://secret:private@invalid/", "private")
         with patch.object(b.subprocess, "run", return_value=result):
