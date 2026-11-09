@@ -1,4 +1,5 @@
 """Repeatable Windows installation using only the standard library initially."""
+import errno
 import hashlib
 import json
 import os
@@ -24,9 +25,69 @@ IMPORT_CHECK = "import discord, sqlalchemy, aiosqlite, asyncpg, dotenv, PIL, nac
 
 
 class BootstrapError(RuntimeError):
-    def __init__(self, message, *, stage="bootstrap", category="unknown", exit_code=None):
+    def __init__(self, message, *, stage="bootstrap", category="unknown", exit_code=None,
+                 errno=None, winerror=None):
         super().__init__(message)
         self.stage, self.category, self.exit_code = stage, category, exit_code
+        self.errno, self.winerror = errno, winerror
+
+
+def numeric_code(value):
+    """Only numeric system codes may cross the diagnostic boundary."""
+    return value if type(value) is int else None
+
+
+def os_failure_hint(error):
+    """Classify OS failures without depending on the Windows display language."""
+    win = numeric_code(getattr(error, "winerror", None))
+    code = numeric_code(getattr(error, "errno", None))
+    if win in {225, 226}:
+        return "security-blocked", (
+            "Windows повідомила про блокування або видалення файла засобом захисту. "
+            "Перегляньте Безпека Windows → Журнал захисту. Не вимикайте захист і не додавайте виключення автоматично.")
+    if win in {577, 1260, 4551}:
+        return "execution-policy", (
+            "Windows заборонила виконання за політикою або перевіркою підпису. "
+            "Перевірте журнал контролю програм; на керованому ПК зверніться до адміністратора. "
+            "Інсталятор не змінює політики захисту.")
+    if win in {5, 32, 33} or code in {errno.EACCES, errno.EPERM, errno.EBUSY}:
+        return "access-denied", (
+            "Windows або файлова система відмовила в доступі. Закрийте інші вікна бота й перевірте "
+            "права на його папку та Журнал захисту Windows. Цей код сам по собі не доводить блокування антивірусом.")
+    if win in {39, 112} or code == errno.ENOSPC:
+        return "disk-full", "Недостатньо вільного місця для .venv-v2 або тимчасових файлів Python."
+    if win == 206 or code == errno.ENAMETOOLONG:
+        return "path-too-long", "Шлях до середовища занадто довгий. Розпакуйте повний ZIP у коротший шлях і повторіть налаштування."
+    if win in {2, 3} or code == errno.ENOENT:
+        return "missing-file", (
+            "Не знайдено потрібний файл Python або середовища. Перевірте цілісність встановлення Python 3.12 "
+            "та Журнал захисту Windows; не видаляйте конфігурацію чи БД бота.")
+    if win in {193, 216} or code == errno.ENOEXEC:
+        return "invalid-executable", "Файл Python не є придатним виконуваним файлом. Перевірте офіційне встановлення Python 3.12 x64."
+    return "filesystem", "Системна помилка роботи з файлами або запуску Python. Збережіть наведений числовий код і install-report.json."
+
+
+def command_failure(error, stage):
+    """Never interpolate raw exceptions, paths, commands or subprocess output."""
+    win = numeric_code(getattr(error, "winerror", None))
+    code = numeric_code(getattr(error, "errno", None))
+    exit_code = numeric_code(getattr(error, "returncode", None))
+    if isinstance(error, subprocess.TimeoutExpired):
+        category, hint = "timeout", "Перевищено час очікування Python. Перевірте завантаження ПК і журнал захисту; автоматичного повтору немає."
+    elif isinstance(error, OSError):
+        category, hint = os_failure_hint(error)
+    else:
+        output = str(getattr(error, "output", "") or "") + str(getattr(error, "stderr", "") or "")
+        category, hint = failure_hint(output)
+    details = [f"Етап {stage}", f"категорія {category}"]
+    if win is not None:
+        details.append(f"WinError {win}")
+    if code is not None:
+        details.append(f"errno {code}")
+    if exit_code is not None:
+        details.append(f"код процесу {exit_code}")
+    return BootstrapError(", ".join(details) + ".\n" + hint, stage=stage,
+                          category=category, exit_code=exit_code, errno=code, winerror=win)
 
 
 def command_stage(args):
@@ -72,7 +133,7 @@ def failure_hint(output):
          "Захищене TLS-з'єднання не встановлено. Перевірте Windows, сертифікати та мережевий фільтр; не вимикайте перевірку TLS."),
         (("no python at", "unable to create process"), "broken-interpreter",
          "Середовище посилається на відсутній Python. Потрібне відновлення .venv-v2 зі справного Python 3.12 x64."),
-        (("no module named", "modulenotfounderror"), "missing-module",
+        (("no module named", "modulenotfounderror", "packagenotfounderror"), "missing-module",
          "Не знайдено потрібний модуль. Запустіть відновлення бібліотек після перевірки середовища."),
         (("permission denied", "access is denied", "winerror 5"), "access-denied",
          "Немає доступу до файлів. Закрийте інші процеси бота й перевірте права та захист папки Windows."),
@@ -95,7 +156,9 @@ def write_failure_report(root, error):
               "python_version": list(sys.version_info[:3]), "platform": sys.platform,
               "stage": getattr(error, "stage", "bootstrap"),
               "category": getattr(error, "category", "filesystem"),
-              "exit_code": getattr(error, "exit_code", None)}
+              "exit_code": numeric_code(getattr(error, "exit_code", None)),
+              "errno": numeric_code(getattr(error, "errno", None)),
+              "winerror": numeric_code(getattr(error, "winerror", None))}
     temporary = path.with_name("install-report-" + uuid.uuid4().hex + ".tmp")
     try:
         with temporary.open("x", encoding="utf-8") as stream:
@@ -111,9 +174,7 @@ def run(args, root):
         result = subprocess.run(args, check=False, cwd=root, env=clean_environment(), timeout=600,
                                 capture_output=True, text=True, encoding="utf-8", errors="replace")
     except (OSError, subprocess.SubprocessError) as exc:
-        category = "timeout" if isinstance(exc, subprocess.TimeoutExpired) else "process-start"
-        raise BootstrapError(f"Етап {stage}: процес не запущено або перевищено час очікування ({category}).",
-                             stage=stage, category=category) from exc
+        raise command_failure(exc, stage) from exc
     if result.returncode:
         category, hint = failure_hint((result.stdout or "") + "\n" + (result.stderr or ""))
         if stage == "pip-upgrade" and category == "package-unavailable":
@@ -179,10 +240,13 @@ def ensure_pip(root, stamp):
     interpreter = str(python_path(root))
     try:
         version = run([interpreter, "-I", "-c", PIP_VERSION_CHECK], root).strip()
-    except BootstrapError:
+    except BootstrapError as error:
+        if error.category != "missing-module":
+            raise
         # Recover only this verified venv's missing pip from Python's local bundle.
         stamp.unlink(missing_ok=True)
-        run([interpreter, "-I", "-m", "ensurepip", "--upgrade"], root)
+        print("Початкове встановлення pip із комплекту Python (без завантаження)…")
+        run([interpreter, "-I", "-m", "ensurepip", "--upgrade", "--default-pip"], root)
         version = run([interpreter, "-I", "-c", PIP_VERSION_CHECK], root).strip()
     if pip_is_current(version):
         return
@@ -199,13 +263,12 @@ def python_path(root):
 
 def create_environment(target):
     try:
-        venv.EnvBuilder(with_pip=True, system_site_packages=False, clear=False).create(target)
+        # EnvBuilder's built-in ensurepip combines file creation and execution,
+        # inherits ambient settings and has no timeout. Probe first, then use
+        # our isolated, bounded ensure_pip path for the local pip bundle.
+        venv.EnvBuilder(with_pip=False, system_site_packages=False, clear=False).create(target)
     except (OSError, subprocess.SubprocessError) as exc:
-        output = str(getattr(exc, "output", "") or "") + str(getattr(exc, "stderr", "") or "")
-        category, hint = failure_hint(output)
-        raise BootstrapError("Не вдалося створити .venv-v2. " + hint,
-                             stage="venv-create", category=category,
-                             exit_code=getattr(exc, "returncode", None)) from exc
+        raise command_failure(exc, "venv-create") from exc
 
 
 def prepare(root=ROOT, *, repair=False):
@@ -229,11 +292,14 @@ def prepare(root=ROOT, *, repair=False):
             owner.write_text(str(root), encoding="utf-8")
             print("Створення .venv-v2…")
             create_environment(target)
+        print("Перевірка запуску Python та ізоляції .venv-v2…")
         try:
             validate_environment(root)
         except BootstrapError as error:
             owner = target / ".yeboy-core-owner"
             if (error.stage != "environment-probe"
+                    or error.category in {"access-denied", "execution-policy", "security-blocked",
+                                          "disk-full", "path-too-long", "filesystem", "timeout"}
                     or owner.is_symlink() or not owner.is_file()
                     or owner.read_text(encoding="utf-8") != str(root)):
                 raise
