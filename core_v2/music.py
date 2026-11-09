@@ -20,7 +20,7 @@ from .media_environment import ffmpeg_path
 from .music_engine import (MusicError, MusicManager, YTDLPResolver, spotify_track_id,
                            validate_source, failure_message, normalize_failure_code)
 from .music_options import load_autoplaylist, load_music_options
-from .music_panel import MAX_PANELS, MusicPanel
+from .music_panel import MAX_PANELS, MAX_PANELS_PER_GUILD, MAX_PANELS_PER_USER, MusicPanel
 from .security import UserError, guild_context
 from .spotify import SpotifyMetadata
 
@@ -860,6 +860,14 @@ class Music(commands.GroupCog, group_name="music", group_description="Музик
         session = self._control_session(guild)
         if len(self.panels) >= MAX_PANELS:
             raise UserError("Ліміт активних панелей. Спробуйте пізніше.")
+        guild_panels = tuple(view for view in self.panels if view.guild_id == guild.id)
+        if len(guild_panels) >= MAX_PANELS_PER_GUILD:
+            raise UserError("Ліміт активних музичних панелей на цьому сервері. Спробуйте пізніше.")
+        if sum(view.user_id == actor.id for view in guild_panels) >= MAX_PANELS_PER_USER:
+            raise UserError("Ліміт ваших активних панелей на цьому сервері. "
+                            "Скористайтеся вже відкритою або зачекайте її завершення.")
+        # No await between capacity checks and reservation: concurrent requests
+        # cannot both consume the same available slot on this event loop.
         view = MusicPanel(self, guild.id, actor.id, interaction.channel_id, session)
         self.panels.add(view)
         try:

@@ -6,7 +6,7 @@ import discord
 import pytest
 
 from core_v2 import music as music_module
-from core_v2.music_panel import MAX_PANELS, MusicPanel
+from core_v2.music_panel import MAX_PANELS, MAX_PANELS_PER_GUILD, MAX_PANELS_PER_USER, MusicPanel
 from core_v2.security import UserError
 import test_music_commands as music_test_helpers
 from test_music_commands import invoke
@@ -52,6 +52,8 @@ async def test_slash_panel_is_private_session_bound_and_bounded(music_invocation
     assert all(button.row in (0, 1) for button in view.children)
     assert view.session is f.cog.sessions[f.guild.id]
     assert MAX_PANELS == 64
+    assert MAX_PANELS_PER_GUILD == 8
+    assert MAX_PANELS_PER_USER == 2
     await view.expire()
     assert view.expired and view not in f.cog.panels
     assert all(item.disabled for item in view.children)
@@ -172,6 +174,61 @@ async def test_too_many_panels_prevents_new_instance(music_invocation, monkeypat
         await invoke(f, "panel")
     f.interaction.followup.send.assert_not_awaited()
     await view.expire()
+
+async def test_panel_user_limit_is_per_guild_and_expired_panels_release_slot(music_invocation):
+    f = music_invocation
+    session = await f.cog._ensure(f.guild, f.channel)
+    # The same author on another server must not consume this server's quota.
+    other = MusicPanel(f.cog, f.guild.id + 1, f.actor.id, 777, session)
+    f.cog.panels.add(other)
+    try:
+        first = await opened(f)
+        second = await opened(f)
+        f.interaction.followup.send.reset_mock()
+        with pytest.raises(UserError, match="ваших активних панелей"):
+            await invoke(f, "panel")
+        f.interaction.followup.send.assert_not_awaited()
+        assert len(f.cog.panels) == 3
+        await first.expire()
+        third = await opened(f)
+        assert third in f.cog.panels
+        await second.expire()
+        await third.expire()
+    finally:
+        other.close_locally()
+
+
+async def test_panel_guild_limit_is_independent_of_global_limit(music_invocation, monkeypatch):
+    f = music_invocation
+    await f.cog._ensure(f.guild, f.channel)
+    monkeypatch.setattr(music_module, "MAX_PANELS_PER_GUILD", 2)
+    monkeypatch.setattr(music_module, "MAX_PANELS_PER_USER", 3)
+    first = await opened(f)
+    second = await opened(f)
+    f.interaction.followup.send.reset_mock()
+    with pytest.raises(UserError, match="цьому сервері"):
+        await invoke(f, "panel")
+    f.interaction.followup.send.assert_not_awaited()
+    await first.expire()
+    third = await opened(f)
+    assert third in f.cog.panels
+    await second.expire()
+    await third.expire()
+
+
+async def test_panel_absolute_deadline_rejects_refresh_and_releases_slot(music_invocation):
+    f = music_invocation
+    await f.cog._ensure(f.guild, f.channel)
+    view = await opened(f)
+    view.created_at -= 121
+    caller = click(f)
+    await view._action(caller, "refresh")
+    caller.response.defer.assert_not_awaited()
+    assert "Час дії" in caller.followup.send.await_args.args[0]
+    assert view.expired and view not in f.cog.panels
+    view.message.edit.assert_awaited_once()
+    assert all(item.disabled for item in view.children)
+
 
 async def test_stale_panel_stop_does_not_close_replacement_session(music_invocation):
     f = music_invocation

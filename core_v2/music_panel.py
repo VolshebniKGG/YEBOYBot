@@ -1,6 +1,7 @@
 """Short-lived private Discord music controls with fresh permissions per click."""
 import asyncio
 import logging
+import time
 
 import discord
 
@@ -11,6 +12,8 @@ log = logging.getLogger(__name__)
 MENTIONS = discord.AllowedMentions.none()
 PANEL_TIMEOUT = 120
 MAX_PANELS = 64
+MAX_PANELS_PER_GUILD = 8
+MAX_PANELS_PER_USER = 2
 
 
 async def _private(interaction, text):
@@ -29,6 +32,7 @@ class MusicPanel(discord.ui.View):
         self.session = session
         self.message = None
         self.expired = False
+        self.created_at = time.monotonic()
         self._lock = asyncio.Lock()
 
     def render(self):
@@ -72,6 +76,14 @@ class MusicPanel(discord.ui.View):
             return False
         if self.expired or self.cog._closing:
             await _private(interaction, "Панель застаріла. Відкрийте /music panel знову.")
+            return False
+        # discord.ui.View.timeout resets on every click. Enforce an absolute
+        # deadline as well, so repeated refreshes cannot hold a slot forever.
+        if time.monotonic() - self.created_at >= PANEL_TIMEOUT:
+            try:
+                await _private(interaction, "Час дії панелі минув. Відкрийте /music panel знову.")
+            finally:
+                await self.expire()
             return False
         return True
 
