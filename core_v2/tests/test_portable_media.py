@@ -235,7 +235,7 @@ def test_healthy_install_reuses_files_without_network(installed):
     assert fetch.call_count == 1
     assert probe.call_count == 2
     assert (executable.parent / 'LICENSE').read_bytes() == b'license'
-    assert not list((root / 'bin').glob('.media-stage-*'))
+    assert not list((root / 'bin').glob('.m-*'))
 
 
 def test_corrupt_owned_install_is_preserved_and_replaced(installed):
@@ -259,7 +259,7 @@ def test_failed_replacement_preserves_original_and_removes_stage(installed):
         media.install_package(root, package)
     assert executable.read_bytes() == b'original-corrupt'
     assert not list((root / 'bin').glob('deno.previous-*'))
-    assert not list((root / 'bin').glob('.media-stage-*'))
+    assert not list((root / 'bin').glob('.m-*'))
 
 
 def test_failed_atomic_publish_restores_previous_install(installed, monkeypatch):
@@ -275,7 +275,7 @@ def test_failed_atomic_publish_restores_previous_install(installed, monkeypatch)
         media.install_package(root, package)
     assert executable.read_bytes() == b'previous'
     assert not list((root / 'bin').glob('deno.previous-*'))
-    assert not list((root / 'bin').glob('.media-stage-*'))
+    assert not list((root / 'bin').glob('.m-*'))
 
 
 def test_unowned_folder_is_not_changed_or_downloaded(tmp_path, monkeypatch):
