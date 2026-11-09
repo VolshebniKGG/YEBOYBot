@@ -1,7 +1,6 @@
 """Offline compatibility checks for external tools; no executable is launched here."""
 import json
 import os
-from pathlib import Path
 import subprocess
 
 import pytest
