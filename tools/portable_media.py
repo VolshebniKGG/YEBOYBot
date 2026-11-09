@@ -1,5 +1,6 @@
 """Pinned, local Windows music tools; no PATH changes or administrator installer."""
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -102,16 +103,13 @@ def invalid_component(part):
 
 
 def unpack(archive, destination, package):
-    """Extract all upstream files, including license notices, within a private stage."""
+    """Safely extract the signed ZIP while shortening its shared root folder."""
     with zipfile.ZipFile(archive) as source:
         members = source.infolist()
         if len(members) > 20000 or sum(item.file_size for item in members) > MAX_UNPACKED:
             raise MediaInstallError('Архів перевищує дозволений розмір розпакування.')
-        seen = set()
-        executables = []
+        entries = []
         for item in members:
-            # ZipInfo normalizes backslashes on Windows and truncates NULs.
-            # Validate the original archive name before using its normalized form.
             if item.orig_filename != item.filename:
                 raise MediaInstallError('Архів містить неприпустимий шлях або посилання.')
             path = PurePosixPath(item.filename)
@@ -121,16 +119,34 @@ def unpack(archive, destination, package):
                     or any(invalid_component(part) for part in parts)
                     or kind not in (0, stat.S_IFREG, stat.S_IFDIR)):
                 raise MediaInstallError('Архів містить неприпустимий шлях або посилання.')
-            key = str(path).casefold()
+            entries.append((item, path))
+        # FFmpeg ZIP is nested under a single ffmpeg-...-essentials_build
+        # directory. Strip only a genuinely common top directory, retaining
+        # every notice, license and other file, and reducing Windows path length.
+        common = entries[0][1].parts[0] if entries else None
+        strip_root = bool(common) and all(
+            path.parts[0] == common and (len(path.parts) > 1 or item.is_dir())
+            for item, path in entries
+        )
+        normalized = []
+        seen = set()
+        executables = []
+        for item, path in entries:
+            parts = path.parts[1:] if strip_root else path.parts
+            if not parts:
+                continue
+            relative = PurePosixPath(*parts)
+            key = str(relative).casefold()
             if key in seen:
                 raise MediaInstallError('Архів містить дублікати шляхів.')
             seen.add(key)
-            if not item.is_dir() and path.name.casefold() == package.executable:
-                executables.append(path)
+            normalized.append((item, relative))
+            if not item.is_dir() and relative.name.casefold() == package.executable:
+                executables.append(relative)
         if len(executables) != 1:
             raise MediaInstallError('У перевіреному архіві не знайдено єдиний потрібний executable.')
-        for item in members:
-            output = destination.joinpath(*PurePosixPath(item.filename).parts)
+        for item, relative in normalized:
+            output = destination.joinpath(*relative.parts)
             if item.is_dir():
                 output.mkdir(parents=True, exist_ok=True)
                 continue
@@ -169,52 +185,120 @@ def read_manifest(target, package):
     return data if isinstance(data, dict) and data.get('owner') == 'YEBOYBot' and data.get('name') == package.name else None
 
 
+def explain_install_failure(name, stage, error):
+    """Report the failure stage and OS category without leaking local paths."""
+    if isinstance(error, zipfile.BadZipFile):
+        hint = 'Не вдалося відкрити перевірений ZIP.'
+    elif isinstance(error, OSError):
+        code = getattr(error, 'winerror', None)
+        number = code if code is not None else error.errno
+        if code in (5, 32, 33) or error.errno in (errno.EACCES, errno.EPERM):
+            hint = ('Windows заборонив доступ до файлу або він зайнятий іншою програмою. '
+                    'Перевірте дозволи папки й історію захисту Windows.')
+        elif code == 206 or error.errno == errno.ENAMETOOLONG:
+            hint = ('Windows відхилив занадто довгий шлях. '
+                    'Спробуйте розпакувати бот у коротку папку, наприклад C:\\YEBOYBot.')
+        elif code in (112, 39) or error.errno == errno.ENOSPC:
+            hint = 'Недостатньо місця на диску для розпакування.'
+        else:
+            hint = 'Файлова система або Windows не завершили операцію.'
+        if number is not None:
+            hint += f' Код ОС: {number}.'
+    elif isinstance(error, subprocess.SubprocessError):
+        hint = 'Не вдалося запустити програму для перевірки її версії.'
+    else:
+        hint = 'Відхилено некоректний формат даних або операцію.'
+    return MediaInstallError(f'{name}: збій на етапі «{stage}». {hint}')
+
+
 def install_package(root, package):
     root = Path(root).resolve()
-    folder = root / 'bin'
-    reject_link(folder)
-    folder.mkdir(exist_ok=True)
-    target = folder / package.name
-    reject_link(target)
-    executable = target / package.executable
-    manifest = read_manifest(target, package)
-    if target.exists() and not manifest:
-        raise MediaInstallError(f'bin/{package.name} вже існує без маркера YEBOYBot. Збережіть папку перейменуванням.')
-    if manifest and manifest.get('archive_sha256') == package.sha256:
-        reject_link(executable)
-        if executable.is_file() and digest(executable) == manifest.get('executable_sha256'):
-            try:
-                verify(executable, package)
-            except (OSError, subprocess.SubprocessError, MediaInstallError):
-                pass
+    stage_name = 'перевірка папки'
+    try:
+        folder = root / 'bin'
+        reject_link(folder)
+        folder.mkdir(exist_ok=True)
+        target = folder / package.name
+        reject_link(target)
+        executable = target / package.executable
+        manifest = read_manifest(target, package)
+        if target.exists() and not manifest:
+            raise MediaInstallError(f'bin/{package.name} вже існує без маркера YEBOYBot. Збережіть папку перейменуванням.')
+        if manifest and manifest.get('archive_sha256') == package.sha256:
+            reject_link(executable)
+            if executable.is_file() and digest(executable) == manifest.get('executable_sha256'):
+                try:
+                    verify(executable, package)
+                except (OSError, subprocess.SubprocessError, MediaInstallError):
+                    pass
+                else:
+                    print(f'  [OK] {package.name} {package.version} — готово, повторне завантаження не потрібне.')
+                    return executable
+
+        cache = folder / ('.media-verified-' + package.name + '-' + package.sha256[:16] + '.zip')
+        reject_link(cache)
+        stage_name = 'тимчасова папка'
+        # A shorter stage name, plus flattening the ZIP's shared top folder,
+        # lowers the risk of Windows legacy MAX_PATH failures.
+        with tempfile.TemporaryDirectory(prefix='.m-', dir=folder) as temporary:
+            stage = Path(temporary)
+            archive = stage / 'd.zip'
+            extracted = stage / 'ready'
+            extracted.mkdir()
+            valid_cache = (cache.is_file() and cache.stat().st_size == package.size
+                           and digest(cache) == package.sha256)
+            stage_name = 'завантаження'
+            if valid_cache:
+                archive = cache
+                print(f'  […] {package.name}: перевірений ZIP з попередньої спроби; завантаження не потрібне.', flush=True)
             else:
-                print(f'  [OK] {package.name} {package.version} — готово, повторне завантаження не потрібне.')
-                return executable
-    with tempfile.TemporaryDirectory(prefix='.media-stage-', dir=folder) as temporary:
-        stage = Path(temporary)
-        archive = stage / 'download.zip'
-        extracted = stage / 'ready'
-        extracted.mkdir()
-        print(f'  […] {package.name} {package.version} — завантаження {package.size // 1_000_000} МБ, перевірка SHA-256…', flush=True)
-        download(package, archive)
-        candidate = unpack(archive, extracted, package)
-        verify(candidate, package)
-        (extracted / MANIFEST).write_text(json.dumps({
-            'owner': 'YEBOYBot', 'name': package.name, 'version': package.version,
-            'archive_sha256': package.sha256, 'executable_sha256': digest(candidate),
-        }, indent=2), encoding='utf-8')
-        saved = None
-        if target.exists():
-            saved = folder / (package.name + '.previous-' + uuid.uuid4().hex)
-            target.rename(saved)
-        try:
-            extracted.rename(target)
-        except OSError:
-            if saved is not None:
-                saved.rename(target)
-            raise
-    print(f'  [OK] {package.name} — перевірено й підготовлено в bin/{package.name}.')
-    return executable
+                print(f'  […] {package.name} {package.version} — завантаження {package.size // 1_000_000} МБ, перевірка SHA-256…', flush=True)
+                download(package, archive)
+            try:
+                stage_name = 'розпакування ZIP'
+                candidate = unpack(archive, extracted, package)
+                stage_name = 'запуск програми'
+                verify(candidate, package)
+                stage_name = 'запис маркера'
+                (extracted / MANIFEST).write_text(json.dumps({
+                    'owner': 'YEBOYBot', 'name': package.name, 'version': package.version,
+                    'archive_sha256': package.sha256, 'executable_sha256': digest(candidate),
+                }, indent=2), encoding='utf-8')
+                saved = None
+                stage_name = 'публікація програми'
+                if target.exists():
+                    saved = folder / (package.name + '.previous-' + uuid.uuid4().hex)
+                    target.rename(saved)
+                try:
+                    extracted.rename(target)
+                except OSError:
+                    if saved is not None:
+                        saved.rename(target)
+                    raise
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError,
+                    zipfile.BadZipFile):
+                # Keep only a verified archive for retry, not a partial download.
+                if (archive != cache and archive.is_file() and not cache.exists()
+                        and archive.stat().st_size == package.size
+                        and digest(archive) == package.sha256):
+                    try:
+                        archive.rename(cache)
+                        print('  [i] ZIP зі справжнім SHA-256 збережено для наступної спроби.', flush=True)
+                    except OSError:
+                        pass
+                raise
+        if valid_cache:
+            try:
+                cache.unlink(missing_ok=True)
+            except OSError:
+                pass  # Successful installation is not invalidated by cache cleanup.
+        print(f'  [OK] {package.name} — перевірено й підготовлено в bin/{package.name}.')
+        return executable
+    except MediaInstallError:
+        raise
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError,
+            zipfile.BadZipFile) as error:
+        raise explain_install_failure(package.name, stage_name, error) from error
 
 
 def ensure_tools(root=ROOT, *, names=None):

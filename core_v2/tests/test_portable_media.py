@@ -1,4 +1,5 @@
 """Pinned portable tools: bounded download, safe extraction, reuse and rollback."""
+import errno
 import hashlib
 import io
 import json
@@ -99,8 +100,8 @@ def test_unpack_keeps_notices_and_has_stable_executable(tmp_path):
     ])
     assert media.unpack(path, destination, package) == destination / 'deno.exe'
     assert (destination / 'deno.exe').read_bytes() == b'binary'
-    assert (destination / 'version/LICENSE').read_bytes() == b'license'
-    assert (destination / 'version/README.txt').read_bytes() == b'readme'
+    assert (destination / 'LICENSE').read_bytes() == b'license'
+    assert (destination / 'README.txt').read_bytes() == b'readme'
 
 
 @pytest.mark.parametrize('name', [
@@ -177,6 +178,54 @@ def installed(tmp_path, monkeypatch):
     monkeypatch.setattr(media, 'verify', probe)
     executable = media.install_package(tmp_path, package)
     return tmp_path, package, fetch, probe, executable
+
+
+def test_verified_archive_is_cached_after_failed_unpack_and_reused(tmp_path, monkeypatch):
+    payload = archive_bytes([('folder/bin/deno.exe', b'binary'),
+                             ('folder/LICENSE', b'license')])
+    package = package_for(payload)
+    fetch = stub_download(monkeypatch, payload)
+    original_unpack = media.unpack
+    calls = []
+
+    def fail_once(archive, destination, selected):
+        calls.append(archive)
+        if len(calls) == 1:
+            raise PermissionError(errno.EACCES, 'synthetic access denied')
+        return original_unpack(archive, destination, selected)
+
+    monkeypatch.setattr(media, 'unpack', fail_once)
+    monkeypatch.setattr(media, 'verify', Mock())
+    with pytest.raises(media.MediaInstallError, match='розпакування ZIP'):
+        media.install_package(tmp_path, package)
+    cache = list((tmp_path / 'bin').glob('.media-verified-*.zip'))
+    assert len(cache) == 1 and cache[0].read_bytes() == payload
+    executable = media.install_package(tmp_path, package)
+    assert executable.read_bytes() == b'binary'
+    assert (executable.parent / 'LICENSE').read_bytes() == b'license'
+    assert fetch.call_count == 1
+    assert not list((tmp_path / 'bin').glob('.media-verified-*.zip'))
+
+
+@pytest.mark.parametrize('error, hint', [
+    (PermissionError(errno.EACCES, 'https://secret@private.example'), 'доступ'),
+    (OSError(errno.ENAMETOOLONG, 'https://secret@private.example'), 'довгий шлях'),
+    (OSError(errno.ENOSPC, 'https://secret@private.example'), 'місця на диску'),
+    (zipfile.BadZipFile('https://secret@private.example'), 'ZIP'),
+])
+def test_safe_failure_identifies_stage_without_sensitive_source(error, hint):
+    message = str(media.explain_install_failure('ffmpeg', 'розпакування ZIP', error))
+    assert 'ffmpeg' in message and 'розпакування ZIP' in message
+    assert hint in message and 'secret' not in message
+
+
+def test_unpack_shared_root_cannot_hide_colliding_files(tmp_path):
+    path, destination, package = write_archive(tmp_path, [
+        ('root/bin/deno.exe', b'one'), ('root/BIN/DENO.EXE', b'two'),
+    ])
+    with pytest.raises(media.MediaInstallError, match='дублікати'):
+        media.unpack(path, destination, package)
+    assert list(destination.iterdir()) == []
 
 
 def test_healthy_install_reuses_files_without_network(installed):
