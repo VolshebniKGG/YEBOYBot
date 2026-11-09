@@ -192,7 +192,14 @@ def explain_install_failure(name, stage, error):
     elif isinstance(error, OSError):
         code = getattr(error, 'winerror', None)
         number = code if code is not None else error.errno
-        if code in (5, 32, 33) or error.errno in (errno.EACCES, errno.EPERM):
+        if stage == 'запуск програми' and (code == 5 or (code is None and error.errno in (errno.EACCES, errno.EPERM))):
+            hint = ('Windows відмовив у запуску виконуваного файлу. '
+                    'Перевірте Безпека у Windows → Журнал захисту; '
+                    'у Перегляді подій: CodeIntegrity/Operational (подія 3077) '
+                    'або AppLocker/EXE and DLL (подія 8004). '
+                    'Це може бути антивірус, політика запуску або права доступу. '
+                    'Не вимикайте захист і не додавайте всю папку до винятків.')
+        elif code in (5, 32, 33) or error.errno in (errno.EACCES, errno.EPERM):
             hint = ('Windows заборонив доступ до файлу або він зайнятий іншою програмою. '
                     'Перевірте дозволи папки й історію захисту Windows.')
         elif code == 206 or error.errno == errno.ENAMETOOLONG:

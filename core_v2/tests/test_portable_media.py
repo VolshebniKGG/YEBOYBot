@@ -219,6 +219,26 @@ def test_safe_failure_identifies_stage_without_sensitive_source(error, hint):
     assert hint in message and 'secret' not in message
 
 
+def test_windows_access_denied_at_launch_shows_policy_logs_without_bypass():
+    error = PermissionError(errno.EACCES, 'https://secret@private.example')
+    error.winerror = 5
+    explanation = str(media.explain_install_failure('ffmpeg', 'запуск програми', error))
+    assert 'WinError' not in explanation
+    assert 'Код ОС: 5' in explanation
+    assert '3077' in explanation and '8004' in explanation
+    assert 'Журнал захисту' in explanation
+    assert 'Не вимикайте захист' in explanation
+    assert 'secret' not in explanation
+
+
+def test_windows_launch_diagnostics_do_not_confuse_locked_file_with_policy_block():
+    error = PermissionError(errno.EACCES, 'private path')
+    error.winerror = 32
+    explanation = str(media.explain_install_failure('ffmpeg', 'запуск програми', error))
+    assert 'Код ОС: 32' in explanation
+    assert '3077' not in explanation
+
+
 def test_unpack_shared_root_cannot_hide_colliding_files(tmp_path):
     path, destination, package = write_archive(tmp_path, [
         ('root/bin/deno.exe', b'one'), ('root/BIN/DENO.EXE', b'two'),
