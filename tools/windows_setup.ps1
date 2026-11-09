@@ -67,6 +67,69 @@ function Find-YeboyPython {
     }
 }
 
+function Invoke-YeboySystemMediaProbe {
+    param([Parameter(Mandatory)][string]$Python)
+    # Pure standard-library probe: no pip, downloads, installer, or configuration edits.
+    $arguments = @('-I', '-X', 'utf8', '-c', $script:YeboyModuleCode,
+                   $script:YeboyRoot, 'tools.launcher.system_media', '--json')
+    try {
+        $global:LASTEXITCODE = 1
+        $lines = @(& $Python @arguments 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $lines.Count -ne 1) { return $null }
+        return (ConvertFrom-Json -InputObject ([string]$lines[0]) -ErrorAction Stop)
+    } catch { return $null }
+}
+
+function Select-YeboyMedia {
+    param([Parameter(Mandatory)][string]$Python)
+    Write-Host ''
+    Write-Host '════════════════════════════════════════════════════════════════════════'
+    Write-Host '  YEBOYBot / ПЕРЕВІРКА НАЯВНИХ ПРОГРАМ НА ПК'
+    Write-Host '════════════════════════════════════════════════════════════════════════'
+    Write-Host 'Пошук FFmpeg та Deno у PATH і типових каталогах (без встановлення).'
+    $report = Invoke-YeboySystemMediaProbe -Python $Python
+    if ($null -eq $report -or $null -eq $report.ffmpeg -or $null -eq $report.deno) {
+        Write-Host 'Не вдалося перевірити зовнішні програми. Встановлення зупинено без змін.'
+        return $null
+    }
+    $selected = @{ ffmpeg = ''; deno = ''; cancelled = $false }
+    foreach ($name in @('ffmpeg', 'deno')) {
+        $label = if ($name -eq 'ffmpeg') { 'FFmpeg' } else { 'Deno' }
+        $tool = $report.$name
+        Write-Host ''
+        if (-not $tool.found) {
+            Write-Host ('[!] {0}: сумісної зовнішньої копії не знайдено.' -f $label)
+            Write-Host ('    План: локальний комплект у bin\\{0}.' -f $name)
+            continue
+        }
+        Write-Host ('[?] {0}: {1}' -f $label, $tool.path)
+        if (-not $tool.compatible) {
+            Write-Host ('[!] Версія не підтверджена або нижча від мінімальної. Локальна копія буде перевірена чи встановлена.')
+            continue
+        }
+        Write-Host ('[OK] Перевірена версія: {0}. Можна використовувати зовнішню програму.' -f $tool.version)
+        while ($true) {
+            Write-Host ('  [1] ТАК — використовувати наявний {0} без копіювання в папку бота' -f $label)
+            Write-Host ('  [2] НІ — використати/встановити окремий {0} у папку бота' -f $label)
+            Write-Host '  [0] Скасувати підготовку'
+            $choice = Read-Host ('Джерело {0}' -f $label)
+            if ([string]::IsNullOrWhiteSpace($choice) -or $choice.Trim() -eq '0') {
+                $selected.cancelled = $true
+                return $selected
+            }
+            if ($choice.Trim() -eq '1') {
+                $selected[$name] = [string]$tool.path
+                break
+            }
+            if ($choice.Trim() -eq '2') { break }
+            Write-Host 'Виберіть 1, 2 або 0.'
+        }
+    }
+    Write-Host ''
+    Write-Host 'Бібліотеки Python залишаються в ізольованій .venv-v2 навіть при виборі зовнішніх програм.'
+    return $selected
+}
+
 function Find-YeboyWinget {
     $command = Get-Command 'winget.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { return $command.Source }
@@ -101,10 +164,18 @@ function Invoke-YeboyBootstrap {
 }
 
 function Invoke-YeboyMedia {
+    param([switch]$SelectMedia, [string]$SystemFfmpeg = '', [string]$SystemDeno = '')
     $python = Join-Path $script:YeboyRoot '.venv-v2\Scripts\python.exe'
+    $arguments = @('-I', '-X', 'utf8', '-c', $script:YeboyModuleCode,
+                   $script:YeboyRoot, 'tools.launcher.media', '--prepare')
+    if ($SelectMedia) {
+        $arguments += '--select-media'
+        if ($SystemFfmpeg) { $arguments += @('--system-ffmpeg', $SystemFfmpeg) }
+        if ($SystemDeno) { $arguments += @('--system-deno', $SystemDeno) }
+    }
     try {
         $global:LASTEXITCODE = 1
-        & $python -I -X utf8 -c $script:YeboyModuleCode $script:YeboyRoot 'tools.launcher.media' --prepare | Out-Host
+        & $python @arguments | Out-Host
         return [int]$LASTEXITCODE
     } catch {
         Write-Host 'Не вдалося підготувати FFmpeg і Deno. Зупиніть бота та перевірте доступ до папки й мережі.'
@@ -348,12 +419,25 @@ function Install-YeboyCore {
             return 1
         }
     }
-    Write-Host ('Знайдено сумісний Python 3.12 x64: {0}' -f $python)
+    Write-Host ('[OK] Сумісний Python 3.12 x64: {0}' -f $python)
+    $mediaSelection = $null
+    if ($script:YeboyInteractiveInstall) {
+        $mediaSelection = Select-YeboyMedia -Python $python
+        if ($null -eq $mediaSelection) { return 1 }
+        if ($mediaSelection.cancelled) {
+            Write-Host 'Встановлення скасовано до підготовки бібліотек. Наявні файли збережено.'
+            return 0
+        }
+    }
     Write-Host '[2/4] Окреме середовище й усі бібліотеки Core V2...'
     $prepared = Invoke-YeboyBootstrap -Python $python -Repair:$Repair
     if ($prepared -ne 0) { return $prepared }
-    Write-Host '[3/4] Локальні FFmpeg і Deno: перевірка та підготовка...'
-    $media = Invoke-YeboyMedia
+    Write-Host '[3/4] FFmpeg і Deno: вибрані зовнішні або локальні програми...'
+    if ($null -ne $mediaSelection) {
+        $media = Invoke-YeboyMedia -SelectMedia -SystemFfmpeg $mediaSelection.ffmpeg -SystemDeno $mediaSelection.deno
+    } else {
+        $media = Invoke-YeboyMedia
+    }
     if ($media -ne 0) { return $media }
     Write-Host '[4/4] Перевірка середовища та критичних бібліотек...'
     if (-not (Test-YeboyEnvironment)) {
@@ -378,9 +462,10 @@ function Show-YeboySetup {
         Write-Host ''
         Write-Host '[1] дозволяє встановити Python 3.12 x64 для цього користувача,'
         Write-Host 'якщо його немає, через WinGet з погодженням умов Python і каталогу.'
-        Write-Host 'Наявний сумісний Python і перевірені бібліотеки буде використано повторно.'
-        Write-Host 'Далі: бібліотеки бота, FFmpeg і Deno у папці bin (без зміни PATH).'
-        Write-Host 'Архіви програм завантажуються через HTTPS із перевіркою SHA-256.'
+        Write-Host 'Спочатку буде перевірено Python, FFmpeg і Deno, показано версії та шляхи.'
+        Write-Host 'Ви оберете: використовувати сумісні FFmpeg/Deno з ПК або локальні.'
+        Write-Host 'Python-бібліотеки ізолюються в .venv-v2; глобальні пакети не змінюються.'
+        Write-Host 'Якщо потрібні локальні програми, архіви перевіряються за SHA-256.'
         Write-Host 'Потрібні інтернет і дозвіл Windows на встановлення програм.'
         $choice = Read-Host 'Номер дії (Enter — вихід)'
         if ([string]::IsNullOrWhiteSpace($choice) -or $choice.Trim() -eq '0') { return 0 }
@@ -388,7 +473,9 @@ function Show-YeboySetup {
             Write-Host 'Оберіть [1] для встановлення або [0] для виходу.'
             continue
         }
-        $result = Install-YeboyCore -AllowPythonInstall
+        $script:YeboyInteractiveInstall = $true
+        try { $result = Install-YeboyCore -AllowPythonInstall }
+        finally { $script:YeboyInteractiveInstall = $false }
         if ($result -eq 0) { return 0 }
         Write-Host ''
         Write-Host ('Встановлення зупинено (код {0}). Причина наведена вище.' -f $result)

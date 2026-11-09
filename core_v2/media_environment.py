@@ -8,7 +8,21 @@ from .config import ROOT
 
 
 def javascript_runtime(root=ROOT):
-    """Use an already installed trusted runtime; never fetch executable code."""
+    """Prefer explicit DENO_PATH, then bundled tools, then a discovered runtime."""
+    from dotenv import dotenv_values
+    root = Path(root)
+    # Settings.load() also loads this file. Reading only the selected key here
+    # keeps the resolver usable in a standalone subprocess without a token.
+    configured = os.getenv("DENO_PATH")
+    if configured is None:
+        configured = dotenv_values(root / ".env.v2").get("DENO_PATH")
+    if configured:
+        path = Path(configured).expanduser()
+        if not path.is_absolute():
+            path = root / path
+        if not path.is_file():
+            raise ValueError("DENO_PATH не знайдено; повторіть вибір програм через початкове встановлення.")
+        return {"deno": {"path": str(path.resolve())}}
     suffix = ".exe" if os.name == "nt" else ""
     for name in ("deno", "node"):
         paths = [root / "bin" / name / (name + suffix), root / "bin" / (name + suffix)]
@@ -17,7 +31,7 @@ def javascript_runtime(root=ROOT):
         found = next((str(path.resolve()) for path in paths if path.is_file()), None) or shutil.which(name)
         if found:
             return {name: {"path": found}}
-    raise ValueError("Для YouTube потрібен Deno або Node.js ≥20. Windows: [25] → [4] Deno; Linux: установіть підтримуваний runtime.")
+    raise ValueError("Для YouTube потрібен Deno або Node.js ≥20. Windows: [20] у головному меню; Linux: установіть підтримуваний runtime.")
 
 
 def ffmpeg_path(configured="ffmpeg", root=ROOT):
@@ -40,7 +54,7 @@ def ffmpeg_path(configured="ffmpeg", root=ROOT):
     resolved = shutil.which("ffmpeg")
     if resolved:
         return resolved
-    raise ValueError("FFmpeg не знайдено. Відкрийте [25] у YEBOYBot.cmd.")
+    raise ValueError("FFmpeg не знайдено. Відкрийте [20] у YEBOYBot.cmd.")
 
 
 def check_music(configured="ffmpeg", root=ROOT):

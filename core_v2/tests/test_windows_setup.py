@@ -441,6 +441,89 @@ Assert-True ($script:Choices.Count -eq 1) 'Stop after failure instead of reopeni
 """)
 
 
+
+@WINDOWS
+def test_interactive_media_probe_reuses_ffmpeg_but_installs_deno_locally(tmp_path):
+    result = _run_ps(tmp_path, r"""
+$script:YeboyInteractiveInstall = $true
+$script:Choices = [System.Collections.Generic.Queue[string]]::new()
+$script:Choices.Enqueue('1')
+$script:Choices.Enqueue('2')
+function Read-Host { return $script:Choices.Dequeue() }
+function Find-YeboyPython { return 'verified-python' }
+function Invoke-YeboySystemMediaProbe {
+    param([string]$Python)
+    Assert-True ($Python -eq 'verified-python') 'Probe verified interpreter before pip'
+    return [pscustomobject]@{
+        ffmpeg = [pscustomobject]@{ found = $true; compatible = $true; path = 'C:\Program Files\FFmpeg\bin\ffmpeg.exe'; version = '9.0.2' }
+        deno = [pscustomobject]@{ found = $true; compatible = $true; path = 'C:\Deno Test\deno.exe'; version = '2.9.8' }
+    }
+}
+function Invoke-YeboyBootstrap { return 0 }
+function Invoke-YeboyMedia {
+    param([switch]$SelectMedia, [string]$SystemFfmpeg, [string]$SystemDeno)
+    Assert-True ([bool]$SelectMedia) 'Interactive selection forwarded to media'
+    Assert-True ($SystemFfmpeg -eq 'C:\Program Files\FFmpeg\bin\ffmpeg.exe') 'Reuse chosen global FFmpeg'
+    Assert-True ($SystemDeno -eq '') 'Deno explicitly requested local'
+    return 0
+}
+function Test-YeboyEnvironment { return $true }
+$code = Install-YeboyCore
+Assert-True ($code -eq 0) 'Selected hybrid media setup should succeed'
+Assert-True ($script:Choices.Count -eq 0) 'Only two separate media questions'
+""")
+    assert "C:\\Program Files\\FFmpeg\\bin\\ffmpeg.exe" in result.stdout
+    assert "C:\\Deno Test\\deno.exe" in result.stdout
+    assert "[OK]" in result.stdout
+
+
+@WINDOWS
+def test_user_cancels_media_choice_before_any_application_install(tmp_path):
+    _run_ps(tmp_path, r"""
+$script:YeboyInteractiveInstall = $true
+function Read-Host { return '0' }
+function Find-YeboyPython { return 'verified-python' }
+function Invoke-YeboySystemMediaProbe {
+    return [pscustomobject]@{
+        ffmpeg = [pscustomobject]@{ found = $true; compatible = $true; path = 'C:\ffmpeg.exe'; version = '9.0.2' }
+        deno = [pscustomobject]@{ found = $false; compatible = $false; path = ''; version = '' }
+    }
+}
+function Invoke-YeboyBootstrap { throw 'Cancelled before pip/venv creation' }
+function Invoke-YeboyMedia { throw 'Cancelled before media installation' }
+$code = Install-YeboyCore
+Assert-True ($code -eq 0) 'Cancel means no installation; no error loop'
+""")
+
+
+@WINDOWS
+def test_broken_system_probe_fails_closed_without_downloading(tmp_path):
+    _run_ps(tmp_path, r"""
+$script:YeboyInteractiveInstall = $true
+function Find-YeboyPython { return 'verified-python' }
+function Invoke-YeboySystemMediaProbe { return $null }
+function Invoke-YeboyBootstrap { throw 'No bootstrap without confirmed probe' }
+function Invoke-YeboyMedia { throw 'No media install after probe failure' }
+$code = Install-YeboyCore
+Assert-True ($code -ne 0) 'Preflight failure stops initial installation'
+""")
+
+
+@WINDOWS
+def test_initial_menu_enables_and_restores_interactive_preflight_flag(tmp_path):
+    _run_ps(tmp_path, r"""
+function Read-Host { return '1' }
+function Install-YeboyCore([switch]$AllowPythonInstall) {
+    Assert-True ([bool]$AllowPythonInstall) 'Only explicit setup selection allows system Python'
+    Assert-True ([bool]$script:YeboyInteractiveInstall) 'Enable media decisions for human'
+    return 0
+}
+$code = Show-YeboySetup
+Assert-True ($code -eq 0) 'Setup choice accepted'
+Assert-True (-not $script:YeboyInteractiveInstall) 'No interactive prompts in automated repairs'
+""")
+
+
 @WINDOWS
 def test_python_discovery_uses_registry_when_running_console_has_no_python_in_path(tmp_path):
     _run_ps(tmp_path, r"""

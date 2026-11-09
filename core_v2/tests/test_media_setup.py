@@ -276,3 +276,99 @@ def test_music_prepare_failure_returns_nonzero_without_success_or_secrets(tmp_pa
     assert media.main(tmp_path) == 1
     text = capsys.readouterr().out
     assert '[ПОМИЛКА]' in text and 'synthetic-secret' not in text and '[OK]' not in text
+
+
+def test_selected_system_media_skips_download_and_preserves_token(tmp_path, monkeypatch):
+    from tools import portable_media
+    from tools.launcher import system_media
+    root = tmp_path / "bot"
+    root.mkdir()
+    setup_root(root)
+    (root / ".env.v2").write_text(
+        "DISCORD_TOKEN=synthetic-private\nDATABASE_URL=sqlite+aiosqlite:///custom.db\nOTHER=yes\n")
+    external = tmp_path / "external"
+    external.mkdir()
+    ffmpeg = external / "ffmpeg.exe"
+    deno = external / "deno.exe"
+    ffmpeg.touch()
+    deno.touch()
+    checked = []
+    monkeypatch.setattr(system_media, "validate", lambda name, path, root: {
+        "compatible": True, "path": str(path.resolve())})
+    monkeypatch.setattr(portable_media, "ensure_tools", lambda *a, **k:
+                        pytest.fail("Selected external programs must not be downloaded"))
+    monkeypatch.setattr(media, "check_music", lambda configured, root:
+                        checked.append((configured, os.environ["DENO_PATH"])))
+    previous = os.environ.get("DENO_PATH")
+    media.prepare_portable(root, selection={"ffmpeg": str(ffmpeg), "deno": str(deno)})
+    values = dotenv_values(root / ".env.v2")
+    assert checked == [(str(ffmpeg.resolve()), str(deno.resolve()))]
+    assert values["FFMPEG_PATH"] == str(ffmpeg.resolve())
+    assert values["DENO_PATH"] == str(deno.resolve())
+    assert values["DISCORD_TOKEN"] == "synthetic-private"
+    assert values["DATABASE_URL"] == "sqlite+aiosqlite:///custom.db"
+    assert values["OTHER"] == "yes"
+    assert os.environ.get("DENO_PATH") == previous
+    assert not (root / "bin").exists()
+    assert not list(root.glob(".env.v2.*.tmp"))
+
+
+def test_mixed_choice_downloads_only_missing_tool_and_reuses_saved_system_on_repair(
+        tmp_path, monkeypatch):
+    from tools import portable_media
+    from tools.launcher import system_media
+    root = tmp_path / "bot"
+    root.mkdir()
+    setup_root(root)
+    ffmpeg = tmp_path / "ffmpeg.exe"
+    ffmpeg.touch()
+    monkeypatch.setattr(system_media, "validate", lambda name, path, root: {
+        "compatible": True, "path": str(path.resolve())})
+    downloads = []
+    monkeypatch.setattr(portable_media, "ensure_tools", lambda root, *, names:
+                        downloads.append(tuple(names)))
+    monkeypatch.setattr(media, "check_music", lambda *args: None)
+    media.prepare_portable(root, selection={"ffmpeg": str(ffmpeg), "deno": ""})
+    assert downloads == [("deno",)]
+    values = dotenv_values(root / ".env.v2")
+    assert values["FFMPEG_PATH"] == str(ffmpeg.resolve())
+    assert values["DENO_PATH"] == "bin/deno/deno.exe"
+    media.prepare_portable(root)
+    assert downloads == [("deno",), ("deno",)]
+
+
+def test_invalid_external_selection_does_not_modify_existing_configuration(
+        tmp_path, monkeypatch):
+    from tools import portable_media
+    from tools.launcher import system_media
+    root = tmp_path / "bot"
+    root.mkdir()
+    setup_root(root)
+    env = root / ".env.v2"
+    env.write_text("DISCORD_TOKEN=synthetic-private\nFFMPEG_PATH=ffmpeg\n")
+    original = env.read_bytes()
+    monkeypatch.setattr(system_media, "validate", lambda name, path, root: {
+        "compatible": False, "path": str(path)})
+    monkeypatch.setattr(portable_media, "ensure_tools", lambda *a, **k:
+                        pytest.fail("Invalid external selection must fail before any download"))
+    assert media.main(root, args=("--prepare", "--select-media",
+                                 "--system-ffmpeg", str(tmp_path / "untrusted.exe"))) == 1
+    assert env.read_bytes() == original
+    assert not (root / "bin").exists()
+
+
+def test_configured_deno_path_is_used_before_bundled_or_path(tmp_path, monkeypatch):
+    root = setup_root(tmp_path)
+    custom = root / "custom" / ("deno.exe" if os.name == "nt" else "deno")
+    custom.parent.mkdir()
+    custom.touch()
+    bundled = root / "bin" / custom.name
+    bundled.parent.mkdir()
+    bundled.touch()
+    (root / ".env.v2").write_text("DENO_PATH=custom/" + custom.name + "\n")
+    monkeypatch.delenv("DENO_PATH", raising=False)
+    assert environment.javascript_runtime(root) == {"deno": {"path": str(custom.resolve())}}
+    (root / ".env.v2").write_text("DENO_PATH=missing.exe\n")
+    with pytest.raises(ValueError, match="DENO_PATH"):
+        environment.javascript_runtime(root)
+

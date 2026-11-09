@@ -217,12 +217,17 @@ def install_package(root, package):
     return executable
 
 
-def ensure_tools(root=ROOT):
+def ensure_tools(root=ROOT, *, names=None):
+    """Prepare only explicitly selected local programs, never touch system tools."""
     if os.name != 'nt' or platform.machine().lower() not in {'amd64', 'x86_64'}:
         raise MediaInstallError('Автоматичний комплект призначено для Windows x64. На іншій ОС встановіть FFmpeg і Deno штатним менеджером.')
+    selected = {package.name for package in PACKAGES} if names is None else set(names)
+    if not selected or not selected <= {package.name for package in PACKAGES}:
+        raise MediaInstallError('Невідомий або порожній перелік музичних програм.')
     root = Path(root).resolve()
     with InstanceLock(root / 'data/v2/media-install.lock'), InstanceLock(root / 'data/v2/bot.lock'):
-        return {package.name: install_package(root, package) for package in PACKAGES}
+        return {package.name: install_package(root, package)
+                for package in PACKAGES if package.name in selected}
 
 
 def main(argv=None):

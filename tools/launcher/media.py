@@ -1,9 +1,11 @@
 """Explicit music opt-in and official optional FFmpeg install from the CMD menu."""
+import argparse
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import sys
 import zipfile
 
 from dotenv import dotenv_values, set_key
@@ -89,28 +91,112 @@ def check_enabled_music(root=ROOT):
         check_music(configured, root)
 
 
-def prepare_portable(root=ROOT):
-    from tools.portable_media import ensure_tools
-    print("  • Перевірка локальних FFmpeg і Deno…")
-    ensure_tools(root)
-    print("  • Підготовка налаштувань музики…")
-    prepare_options(root)
-    values = dotenv_values(root / ".env.v2")
-    configured = os.getenv("FFMPEG_PATH", values.get("FFMPEG_PATH") or "ffmpeg")
-    print("  • Перевірка голосових бібліотек і музичних програм…")
-    check_music(configured, root)
-    print("[OK] Музичний комплект готовий. Наявні налаштування збережено.")
-
-
-def main(root=ROOT):
+def _active_system_tools(root, selection):
+    """Verify the selected external executables again, immediately before use."""
+    from tools.launcher.system_media import validate
     from tools.portable_media import MediaInstallError
+    root = Path(root).resolve()
+    values = dotenv_values(root / ".env.v2") if selection is None else {}
+    selected = {}
+    for name, key in (("ffmpeg", "FFMPEG_PATH"), ("deno", "DENO_PATH")):
+        configured = (selection.get(name) or "") if selection is not None else (
+            os.getenv(key, values.get(key) or ""))
+        if not configured or configured == name:
+            continue
+        path = Path(configured).expanduser()
+        if not path.is_absolute():
+            path = root / path
+        if path.resolve().is_relative_to(root):
+            continue  # A local choice; the signed installer handles this tool.
+        checked = validate(name, path, root)
+        if not checked["compatible"]:
+            raise MediaInstallError(
+                f"{name}: зовнішня програма не пройшла перевірку версії або запуску. "
+                "Виберіть локальне встановлення через YEBOYBot.cmd.")
+        selected[name] = checked["path"]
+    return selected
+
+
+def save_runtime_paths(root, ffmpeg, deno):
+    """Commit both explicit executable choices atomically; retain all secrets."""
+    root = Path(root)
+    env = root / ".env.v2"
+    if env.is_symlink():
+        raise ValueError("Конфігурація не може бути символічним посиланням.")
+    with InstanceLock(root / "data/v2/bot.lock"), InstanceLock(root / "data/v2/config.lock"):
+        original = env.read_text(encoding="utf-8") if env.exists() else (
+            root / ".env.v2.example").read_text(encoding="utf-8")
+        fd, name = tempfile.mkstemp(prefix=".env.v2.", suffix=".tmp", dir=root)
+        temporary = Path(name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as output:
+                output.write(original)
+            set_key(str(temporary), "FFMPEG_PATH", ffmpeg)
+            set_key(str(temporary), "DENO_PATH", deno)
+            os.replace(temporary, env)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def prepare_portable(root=ROOT, *, selection=None):
+    from tools.portable_media import ensure_tools
+    root = Path(root).resolve()
+    external = _active_system_tools(root, selection)
+    local = tuple(name for name in ("ffmpeg", "deno") if name not in external)
+    for name in external:
+        print(f"  [OK] Зовнішній {name}: {external[name]} (повторне завантаження не потрібне).")
+    if local:
+        print("  • Перевірка локальних: " + ", ".join(local) + "…")
+        if len(local) == 2:
+            ensure_tools(root)
+        else:
+            ensure_tools(root, names=local)
+    else:
+        print("  [OK] Обидві програми використовуються з ПК; локальні архіви не завантажуються.")
+    # The env file is written only after libraries and BOTH media tools passed
+    # readiness. Do not modify a pre-existing token or preferences on failure.
+    ffmpeg = external.get("ffmpeg", "bin/ffmpeg/ffmpeg.exe")
+    deno = external.get("deno", "bin/deno/deno.exe")
+    previous_deno = os.environ.get("DENO_PATH")
     try:
-        prepare_portable(root)
+        os.environ["DENO_PATH"] = deno
+        print("  • Перевірка голосових бібліотек і вибраних музичних програм…")
+        check_music(ffmpeg, root)
+    finally:
+        if previous_deno is None:
+            os.environ.pop("DENO_PATH", None)
+        else:
+            os.environ["DENO_PATH"] = previous_deno
+    prepare_options(root)
+    if selection is not None:
+        save_runtime_paths(root, ffmpeg, deno)
+        if os.getenv("FFMPEG_PATH") or os.getenv("DENO_PATH"):
+            print("[!] Змінні середовища FFMPEG_PATH/DENO_PATH мають пріоритет над .env.v2.")
+    print("[OK] Музичний комплект готовий. Конфігурація й дані бота збережені.")
+
+
+def main(root=ROOT, *, args=()):
+    from tools.portable_media import MediaInstallError
+    parser = argparse.ArgumentParser(description="FFmpeg і Deno для YEBOYBot")
+    parser.add_argument("--prepare", action="store_true")
+    parser.add_argument("--select-media", action="store_true")
+    parser.add_argument("--system-ffmpeg", default="")
+    parser.add_argument("--system-deno", default="")
+    options = parser.parse_args(args)
+    if (options.system_ffmpeg or options.system_deno) and not options.select_media:
+        parser.error("system media paths require --select-media")
+    selection = ({"ffmpeg": options.system_ffmpeg, "deno": options.system_deno}
+                 if options.select_media else None)
+    try:
+        if selection is None:
+            prepare_portable(root)
+        else:
+            prepare_portable(root, selection=selection)
     except MediaInstallError as error:
         print("[ПОМИЛКА] " + str(error))
         return 1
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, zipfile.BadZipFile):
-        print("[ПОМИЛКА] Музичний комплект не готовий. Перевірте інтернет, права папки та вільне місце; зупиніть бот перед повторенням.")
+        print("[ПОМИЛКА] Музичний комплект не готовий. Перевірте доступ до програм, права папки та мережу; зупиніть бот перед повторенням.")
         return 1
     return 0
 
@@ -142,4 +228,4 @@ def menu(root=ROOT):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(args=sys.argv[1:]))
