@@ -151,7 +151,15 @@ function Invoke-YeboyWinget {
 
 function Invoke-YeboyBootstrap {
     param([Parameter(Mandatory)][string]$Python, [switch]$Repair)
-    $arguments = @('-I', '-X', 'utf8', '-c', $script:YeboyModuleCode, $script:YeboyRoot, 'tools.launcher.bootstrap')
+    # Invoke a real .py entry point, never pass python.exe as a script argument.
+    # The prior inline -c trampoline could hand a binary to Python as source on
+    # some Windows installations; the absolute entry path is unambiguous.
+    $entry = Join-Path $script:YeboyRoot 'tools\launcher\bootstrap_entry.py'
+    if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) {
+        Write-Host 'Відсутній tools\launcher\bootstrap_entry.py. Повторно розпакуйте повний ZIP бота.'
+        return 1
+    }
+    $arguments = @('-I', '-X', 'utf8', $entry)
     if ($Repair) { $arguments += '--repair' }
     try {
         $global:LASTEXITCODE = 1

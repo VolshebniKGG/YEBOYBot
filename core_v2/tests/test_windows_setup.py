@@ -343,8 +343,12 @@ Assert-True (-not ($seen -contains '--override')) 'Do not inject arbitrary insta
 @WINDOWS
 @pytest.mark.parametrize("exit_code", [0, 17], ids=["success", "failure"])
 def test_real_bootstrap_boundary_preserves_literal_root_and_exit_code(tmp_path, exit_code):
+    root = tmp_path / "Бот O'Connor & $(no-command)" / "YEBOYBot"
+    entry = root / "tools/launcher/bootstrap_entry.py"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("# safe fixture entry\n", encoding="utf-8")
     _run_ps(tmp_path, r"""
-$script:YeboyRoot = 'D:\Бот з пробілами O''Connor & $(no-command)\YEBOYBot'
+$script:YeboyRoot = ROOT_LITERAL
 $script:CapturedArguments = @()
 function Invoke-FakePython {
     $script:CapturedArguments = @($args)
@@ -353,11 +357,42 @@ function Invoke-FakePython {
 $code = Invoke-YeboyBootstrap -Python 'Invoke-FakePython' -Repair
 Assert-True ($code -eq EXPECTED_CODE) 'Propagate actual Python process result'
 $seen = $script:CapturedArguments
-Assert-True ($seen[0] -eq '-I' -and $seen[1] -eq '-X' -and $seen[2] -eq 'utf8' -and $seen[3] -eq '-c') 'Run isolated Python with explicit UTF-8'
-Assert-True ($seen[5] -ceq $script:YeboyRoot) 'Root must stay one literal argument'
-Assert-True ($seen[6] -eq 'tools.launcher.bootstrap') 'Use existing owned-venv installer'
-Assert-True ($seen[7] -eq '--repair') 'Forward repair without splitting root'
-""".replace("EXPECTED_CODE", str(exit_code)))
+Assert-True ($seen[0] -eq '-I' -and $seen[1] -eq '-X' -and $seen[2] -eq 'utf8') 'Run isolated Python with explicit UTF-8'
+Assert-True ($seen[3] -ceq (Join-Path $script:YeboyRoot 'tools\launcher\bootstrap_entry.py')) 'Launch exact Python source, never python.exe as a script'
+Assert-True ($seen[4] -eq '--repair') 'Forward repair without splitting path'
+Assert-True ($seen.Count -eq 5) 'No unintended extra executable or script argument'
+""".replace("ROOT_LITERAL", _literal(root)).replace("EXPECTED_CODE", str(exit_code)))
+
+
+@WINDOWS
+@pytest.mark.parametrize("repair", [False, True], ids=["first-install", "repair"])
+def test_bootstrap_entry_launches_real_verified_python_in_isolated_mode(tmp_path, repair):
+    # Native Windows execution catches the Python-binary-as-script regression
+    # that fake PowerShell functions would silently miss.
+    root = tmp_path / "Бот O'Connor & $(no-command)"
+    launcher = root / "tools/launcher"
+    launcher.mkdir(parents=True)
+    shutil.copy2(ROOT / "tools/launcher/bootstrap_entry.py", launcher)
+    (root / "tools/__init__.py").write_text("", encoding="utf-8")
+    (launcher / "__init__.py").write_text("", encoding="utf-8")
+    (launcher / "bootstrap.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "assert sys.flags.isolated, 'Python isolation must stay active'\n"
+        f"assert sys.argv[1:] == {['--repair'] if repair else []!r}, sys.argv\n"
+        f"assert Path(__file__).resolve().parents[2] == Path({str(root)!r}).resolve()\n"
+        "print('YEBOY_BOOTSTRAP_NATIVE_OK')\n",
+        encoding="utf-8",
+    )
+    result = _run_ps(tmp_path, r"""
+$script:YeboyRoot = ROOT_LITERAL
+$code = Invoke-YeboyBootstrap -Python PYTHON_LITERAL REPAIR_ARGUMENT
+Assert-True ($code -eq 0) 'Run real Python and invoke module successfully'
+""".replace("ROOT_LITERAL", _literal(root))
+         .replace("PYTHON_LITERAL", _literal(sys.executable))
+         .replace("REPAIR_ARGUMENT", "-Repair" if repair else ""))
+    assert "YEBOY_BOOTSTRAP_NATIVE_OK" in result.stdout
+    assert "Non-UTF-8" not in result.stdout
 
 
 @WINDOWS
