@@ -271,7 +271,7 @@ def test_failed_atomic_publish_restores_previous_install(installed, monkeypatch)
             raise PermissionError('blocked publish')
         return original(path, target)
     monkeypatch.setattr(Path, 'rename', fail_publish)
-    with pytest.raises(PermissionError):
+    with pytest.raises(media.MediaInstallError, match='публікація програми'):
         media.install_package(root, package)
     assert executable.read_bytes() == b'previous'
     assert not list((root / 'bin').glob('deno.previous-*'))
