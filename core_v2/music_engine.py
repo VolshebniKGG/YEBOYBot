@@ -552,8 +552,15 @@ class GuildPlayer:
         if self._task.done():
             raise MusicError("Музичний плеєр недоступний. Використайте /music stop перед новим підключенням.")
         self.autoplay_enabled = enabled
-        if not enabled and self.request and self.request.requester_id is None:
-            self._interrupted = True
+        if not enabled:
+            if self.request and self.request.requester_id is None:
+                self._interrupted = True
+            # A live retry may wait behind a user song or in backoff, with no
+            # current automatic request. Disabling autoplay cancels that intent
+            # too; manually requested live streams keep their recovery budget.
+            if self._live_retry is not None and self._live_retry.requester_id is None:
+                self._live_retry = None
+                self._live_retry_count = 0
         self._changed.set()
 
     async def set_manual_paused(self, enabled):
