@@ -3,6 +3,7 @@ import errno
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,47 @@ from tools.installer_policy import (
 
 ROOT = Path(__file__).resolve().parents[2]
 IMPORT_CHECK = "import discord, sqlalchemy, aiosqlite, asyncpg, dotenv, PIL, nacl, davey, yt_dlp, yt_dlp_ejs"
+
+
+STAGE_LABELS = {
+    "bootstrap": "Підготовка встановлення",
+    "venv-create": "Створення окремого середовища .venv-v2",
+    "environment-validation": "Перевірка файлів та ізоляції середовища",
+    "environment-probe": "Запуск Python із .venv-v2",
+    "pip-version": "Перевірка версії pip",
+    "ensurepip": "Встановлення pip із локального комплекту Python",
+    "pip-upgrade": "Оновлення pip через мережу",
+    "dependency-install": "Встановлення бібліотек Core V2",
+    "dependency-check": "Перевірка сумісності бібліотек",
+    "library-import": "Перевірка завантаження бібліотек",
+    "subprocess": "Запуск допоміжної перевірки",
+}
+CATEGORY_LABELS = {
+    "unknown": "Причину ще не встановлено",
+    "filesystem": "Системна помилка файлів або запуску",
+    "access-denied": "Відмовлено в доступі",
+    "file-locked": "Файл зайнятий або заблокований іншим процесом",
+    "security-blocked": "Windows повідомила про блокування засобом захисту",
+    "execution-policy": "Виконання заборонено політикою або перевіркою підпису",
+    "disk-full": "Недостатньо місця на диску",
+    "path-too-long": "Занадто довгий шлях",
+    "missing-file": "Не знайдено потрібний файл",
+    "invalid-executable": "Непридатний виконуваний файл",
+    "invalid-environment": "Не підтверджено цілісність або ізоляцію середовища",
+    "timeout": "Перевищено час очікування",
+    "certificate": "Не підтверджено TLS-сертифікат",
+    "proxy": "Помилка з'єднання через проксі",
+    "network": "Помилка мережевого з'єднання",
+    "tls": "Помилка захищеного з'єднання",
+    "broken-interpreter": "Непрацездатний Python середовища",
+    "missing-module": "Не знайдено потрібний модуль",
+    "package-unavailable": "Не вдалося отримати потрібний пакет",
+    "probe-syntax": "Помилка коду перевірки Python",
+}
+NO_AUTOMATIC_REPAIR = frozenset({
+    "access-denied", "file-locked", "execution-policy", "security-blocked",
+    "disk-full", "path-too-long", "filesystem", "timeout",
+})
 
 
 class BootstrapError(RuntimeError):
@@ -50,7 +92,14 @@ def os_failure_hint(error):
             "Windows заборонила виконання за політикою або перевіркою підпису. "
             "Перевірте журнал контролю програм; на керованому ПК зверніться до адміністратора. "
             "Інсталятор не змінює політики захисту.")
-    if win in {5, 32, 33} or code in {errno.EACCES, errno.EPERM, errno.EBUSY}:
+    # Prefer the specific Windows code over its lossy POSIX errno mapping.
+    if win is not None:
+        code = None
+    if win in {32, 33} or code == errno.EBUSY:
+        return "file-locked", (
+            "Файл зайнятий або заблокований іншим процесом. Закрийте інші вікна бота та інсталятори, "
+            "дочекайтеся завершення їхньої роботи й повторіть встановлення. Дані не видаляйте.")
+    if win == 5 or code in {errno.EACCES, errno.EPERM}:
         return "access-denied", (
             "Windows або файлова система відмовила в доступі. Закрийте інші вікна бота й перевірте "
             "права на його папку та Журнал захисту Windows. Цей код сам по собі не доводить блокування антивірусом.")
@@ -79,15 +128,9 @@ def command_failure(error, stage):
     else:
         output = str(getattr(error, "output", "") or "") + str(getattr(error, "stderr", "") or "")
         category, hint = failure_hint(output)
-    details = [f"Етап {stage}", f"категорія {category}"]
-    if win is not None:
-        details.append(f"WinError {win}")
-    if code is not None:
-        details.append(f"errno {code}")
-    if exit_code is not None:
-        details.append(f"код процесу {exit_code}")
-    return BootstrapError(", ".join(details) + ".\n" + hint, stage=stage,
-                          category=category, exit_code=exit_code, errno=code, winerror=win)
+    return BootstrapError(hint, stage=stage, category=category,
+                          exit_code=exit_code, errno=code, winerror=win)
+
 
 
 def command_stage(args):
@@ -114,6 +157,13 @@ def failure_hint(output):
     signatures first, without copying any URLs or exception details.
     """
     value = output.lower()
+    # Match complete numeric tokens: WinError 577 is not WinError 5.
+    for match in re.finditer(r"\bwinerror\s+(\d{1,10})\b", value):
+        error = OSError()
+        error.winerror = int(match.group(1))
+        category, hint = os_failure_hint(error)
+        if category != "filesystem":
+            return category, hint
     for patterns, category, hint in (
         (("certificate_verify_failed", "sslcertverificationerror",
           "self signed certificate", "certificate verify failed",
@@ -135,9 +185,9 @@ def failure_hint(output):
          "Середовище посилається на відсутній Python. Потрібне відновлення .venv-v2 зі справного Python 3.12 x64."),
         (("no module named", "modulenotfounderror", "packagenotfounderror"), "missing-module",
          "Не знайдено потрібний модуль. Запустіть відновлення бібліотек після перевірки середовища."),
-        (("permission denied", "access is denied", "winerror 5"), "access-denied",
+        (("permission denied", "access is denied"), "access-denied",
          "Немає доступу до файлів. Закрийте інші процеси бота й перевірте права та захист папки Windows."),
-        (("no space left", "disk full", "winerror 112"), "disk-full",
+        (("no space left", "disk full"), "disk-full",
          "Недостатньо вільного місця на диску."),
         (("no matching distribution", "could not find a version"), "package-unavailable",
          "pip не отримав сумісний пакет. Це може означати недоступний індекс, фільтр мережі або обмеження версій; перевірте доступ до PyPI."),
@@ -148,14 +198,15 @@ def failure_hint(output):
     return "unknown", "Причину не визначено автоматично. Передайте безпечний install-report.json для діагностики; не повторюйте встановлення навмання."
 
 def write_failure_report(root, error):
+    error = normalize_failure(error)
     path = Path(root) / "data/v2/install-report.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_symlink():
         raise OSError("Report target is a symlink")
     report = {"status": "failed", "time_utc": datetime.now(UTC).isoformat(),
               "python_version": list(sys.version_info[:3]), "platform": sys.platform,
-              "stage": getattr(error, "stage", "bootstrap"),
-              "category": getattr(error, "category", "filesystem"),
+              "stage": error.stage if error.stage in STAGE_LABELS else "bootstrap",
+              "category": error.category if error.category in CATEGORY_LABELS else "unknown",
               "exit_code": numeric_code(getattr(error, "exit_code", None)),
               "errno": numeric_code(getattr(error, "errno", None)),
               "winerror": numeric_code(getattr(error, "winerror", None))}
@@ -182,7 +233,7 @@ def run(args, root):
                     " існує на PyPI, але її не вдалося отримати з цього ПК. " 
                     "Перевірте https://pypi.org/simple/pip/ у браузері та доступ до "
                     "files.pythonhosted.org; перевстановлення Python зазвичай не потрібне.")
-        raise BootstrapError(f"Етап {stage}, код {result.returncode}, категорія {category}.\n{hint}",
+        raise BootstrapError(hint,
                              stage=stage, category=category, exit_code=result.returncode)
     return result.stdout or ""
 
@@ -232,8 +283,11 @@ def validate_environment(root):
                 raise ValueError("External import path")
             if {"site-packages", "dist-packages"}.intersection(resolved.parts) and not resolved.is_relative_to(target):
                 raise ValueError("External installed packages")
-    except (OSError, ValueError, TypeError, KeyError) as exc:
-        raise BootstrapError("Потрібен окремий ізольований Python 3.12 з .venv-v2 без system/user site-packages. Збережіть неповне середовище перейменуванням і повторіть встановлення.") from exc
+    except OSError as exc:
+        raise command_failure(exc, "environment-validation") from exc
+    except (ValueError, TypeError, KeyError) as exc:
+        raise BootstrapError("Потрібен окремий ізольований Python 3.12 з .venv-v2 без system/user site-packages. Збережіть неповне середовище перейменуванням і повторіть встановлення.",
+                             stage="environment-validation", category="invalid-environment") from exc
 
 
 def ensure_pip(root, stamp):
@@ -298,8 +352,7 @@ def prepare(root=ROOT, *, repair=False):
         except BootstrapError as error:
             owner = target / ".yeboy-core-owner"
             if (error.stage != "environment-probe"
-                    or error.category in {"access-denied", "execution-policy", "security-blocked",
-                                          "disk-full", "path-too-long", "filesystem", "timeout"}
+                    or error.category in NO_AUTOMATIC_REPAIR
                     or owner.is_symlink() or not owner.is_file()
                     or owner.read_text(encoding="utf-8") != str(root)):
                 raise
@@ -321,7 +374,8 @@ def prepare(root=ROOT, *, repair=False):
                     run(pip_command(interpreter, "check"), root)
                     run([str(interpreter), "-I", "-c", IMPORT_CHECK], root)
                 except BootstrapError as error:
-                    if error.stage not in {"dependency-check", "library-import"}:
+                    if (error.stage not in {"dependency-check", "library-import"}
+                            or error.category in NO_AUTOMATIC_REPAIR):
                         raise
                     stamp.unlink(missing_ok=True)
                     install = True
@@ -335,7 +389,11 @@ def prepare(root=ROOT, *, repair=False):
             run(pip_command(interpreter, "check"), root)
             run([str(interpreter), "-I", "-c", IMPORT_CHECK], root)
         except BootstrapError:
-            stamp.unlink(missing_ok=True)
+            try:
+                stamp.unlink(missing_ok=True)
+            except OSError:
+                # A failed cleanup must not hide the original installation error.
+                print("Не вдалося прибрати маркер перевірки; наступний запуск повторно перевірить бібліотеки.")
             raise
         stamp.write_text(digest + "\n", encoding="ascii")
         for folder in ("data/v2/logs", "backups"):
@@ -352,20 +410,47 @@ def prepare(root=ROOT, *, repair=False):
     return interpreter
 
 
+
+def normalize_failure(error):
+    """Only BootstrapError contains messages authored by this installer."""
+    if isinstance(error, BootstrapError):
+        return error
+    if isinstance(error, OSError):
+        return command_failure(error, "bootstrap")
+    if isinstance(error.__cause__, OSError):
+        return command_failure(error.__cause__, "bootstrap")
+    return BootstrapError(
+        "Не вдалося завершити підготовку. Перевірте, чи не працює бот або інше вікно встановлення. "
+        "Якщо ні — передайте безпечний звіт; точна причина поки не підтверджена.")
+
+
+def render_failure(error):
+    error = normalize_failure(error)
+    stage = error.stage if error.stage in STAGE_LABELS else "bootstrap"
+    category = error.category if error.category in CATEGORY_LABELS else "unknown"
+    codes = [f"{label}={value}" for label, value in (
+        ("WinError", numeric_code(error.winerror)), ("errno", numeric_code(error.errno)),
+        ("код процесу", numeric_code(error.exit_code))) if value is not None]
+    return "\n".join([
+        "ВСТАНОВЛЕННЯ ЗУПИНЕНО",
+        f"Етап: {STAGE_LABELS[stage]} [{stage}]",
+        f"Тип помилки: {CATEGORY_LABELS[category]} [{category}]",
+        "Системні коди: " + (", ".join(codes) if codes else "не отримано"),
+        "Пояснення та наступні дії:", str(error),
+        "Для діагностики передайте новий install-report.json після цієї спроби.",
+    ])
+
 def main():
     try:
         prepare(repair="--repair" in sys.argv[1:])
     except (BootstrapError, OSError, RuntimeError) as exc:
-        print(f"Встановлення не завершено: {type(exc).__name__}")
-        if isinstance(exc, (BootstrapError, RuntimeError)):
-            print(str(exc))
-        else:
-            print("Перевірте права запису, вільне місце та доступність Python. Дані й конфігурація не видаляються.")
+        exc = normalize_failure(exc)
+        print(render_failure(exc))
         try:
             write_failure_report(ROOT, exc)
             print("Безпечний звіт: data/v2/install-report.json (без токена, URL і вмісту конфігурації).")
         except OSError:
-            print("Не вдалося записати звіт. Збережіть зазначені вище етап і код помилки.")
+            print("Не вдалося записати новий звіт; попередній файл може бути застарілим. Збережіть наведений вище блок помилки.")
         return 1
     return 0
 
