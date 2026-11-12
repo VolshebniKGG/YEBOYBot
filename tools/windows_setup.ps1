@@ -75,11 +75,10 @@ function Write-YeboyLauncherReport {
         } | ConvertTo-Json -Compress
         $temporary = Join-Path $directory ('launcher-report-' + [guid]::NewGuid().ToString('N') + '.tmp')
         [IO.File]::WriteAllText($temporary, $report + "`n", [Text.UTF8Encoding]::new($false))
-        if (Test-Path -LiteralPath $destination) {
-            [IO.File]::Replace($temporary, $destination, $null)
-        } else {
-            [IO.File]::Move($temporary, $destination)
-        }
+        # File.Replace is not reliably supported for this diagnostic file
+        # on every Windows filesystem; Move-Item -Force works for both first
+        # create and overwrite, while never following a checked reparse target.
+        Move-Item -LiteralPath $temporary -Destination $destination -Force -ErrorAction Stop
         Write-Host 'Безпечний звіт запуску: data/v2/launcher-report.json (без токена, шляхів і сирого виводу).'
     } catch {
         Write-Host 'Звіт запуску не вдалося записати. Скопіюйте номер етапу й код помилки з консолі.'
