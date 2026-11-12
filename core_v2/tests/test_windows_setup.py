@@ -432,6 +432,99 @@ Assert-True ($script:MenuCalls -eq 1) 'One exited menu, no failed restart loop'
 
 
 @WINDOWS
+def test_complete_bundle_preflight_is_read_only_and_passes_for_repository(tmp_path):
+    _run_ps(tmp_path, r"""
+Assert-True (Test-YeboySourceBundle) 'All required source files present in full ZIP'
+""")
+
+
+@WINDOWS
+def test_missing_source_files_stop_before_python_or_network_and_save_safe_report(tmp_path):
+    root = tmp_path / "Неповний ZIP бота"
+    root.mkdir()
+    result = _run_ps(tmp_path, r"""
+$script:YeboyRoot = FIXTURE_ROOT
+$script:InstallCalls = 0
+function Read-Host { return '1' }
+function Install-YeboyCore { $script:InstallCalls++; throw 'Must reject partial ZIP before any downloads' }
+$code = Show-YeboySetup
+Assert-True ($code -eq 1) 'Partial ZIP is not an installable project'
+Assert-True ($script:InstallCalls -eq 0) 'No Python, WinGet, venv or media started'
+$report = Get-Content -LiteralPath (Join-Path $script:YeboyRoot 'data/v2/launcher-report.json') -Raw |
+    ConvertFrom-Json
+Assert-True ($report.stage -eq 'source-bundle') 'Missing source stage reported'
+Assert-True ($report.exit_code -eq 1 -and $report.status -eq 'failed') 'Failure status persisted'
+""".replace("FIXTURE_ROOT", _literal(root)))
+    assert "bootstrap_entry.py" in result.stdout
+    assert not (root / ".venv-v2").exists()
+    assert not (root / ".env.v2").exists()
+
+
+@WINDOWS
+def test_report_contains_only_fixed_metadata_and_never_leaks_user_secrets(tmp_path):
+    root = tmp_path / "Бот O'Connor & private-token"
+    root.mkdir()
+    report_path = root / "data/v2/launcher-report.json"
+    _run_ps(tmp_path, r"""
+$script:YeboyRoot = FIXTURE_ROOT
+Write-YeboyLauncherReport -Stage bootstrap -ExitCode 17
+Assert-True (Test-Path -LiteralPath (Join-Path $script:YeboyRoot 'data/v2/launcher-report.json')) 'Report created without Python'
+Write-YeboyLauncherReport -Stage media -ExitCode 31
+$report = Get-Content -LiteralPath (Join-Path $script:YeboyRoot 'data/v2/launcher-report.json') -Raw | ConvertFrom-Json
+Assert-True ($report.stage -eq 'media') 'Last failed stage is recorded'
+Assert-True ($report.exit_code -eq 31) 'Last child code is recorded'
+Assert-True ($report.schema -eq 1 -and $report.status -eq 'failed') 'Minimal versioned diagnostic format'
+""".replace("FIXTURE_ROOT", _literal(root)))
+    report = report_path.read_text(encoding="utf-8-sig")
+    import json
+    payload = json.loads(report)
+    assert set(payload) == {"schema", "timestamp_utc", "status", "stage", "exit_code"}
+    assert "private-token" not in report and "O'Connor" not in report
+    assert "password" not in report and "DISCORD_TOKEN" not in report
+    assert not list(report_path.parent.glob("launcher-report-*.tmp"))
+
+
+@WINDOWS
+def test_setup_failure_after_bootstrap_saves_stage_and_failure_code(tmp_path):
+    root = tmp_path / "Бот O'Connor"
+    root.mkdir()
+    _run_ps(tmp_path, r"""
+$script:YeboyRoot = FIXTURE_ROOT
+function Test-YeboySourceBundle { return $true }
+function Read-Host { return '1' }
+function Install-YeboyCore {
+    $script:YeboyInstallStage = 'bootstrap'
+    return 9
+}
+$code = Show-YeboySetup
+Assert-True ($code -eq 9) 'Preserve child-process failure code'
+$report = Get-Content -LiteralPath (Join-Path $script:YeboyRoot 'data/v2/launcher-report.json') -Raw | ConvertFrom-Json
+Assert-True ($report.stage -eq 'bootstrap' -and $report.exit_code -eq 9) 'Correct stage saved'
+""".replace("FIXTURE_ROOT", _literal(root)))
+
+
+@WINDOWS
+def test_failed_report_write_does_not_hide_install_error(tmp_path):
+    root = tmp_path / "Бот з заблокованим звітом"
+    root.mkdir()
+    _run_ps(tmp_path, r"""
+$script:YeboyRoot = FIXTURE_ROOT
+function Test-YeboySourceBundle { return $true }
+function Read-Host { return '1' }
+function Install-YeboyCore {
+    $script:YeboyInstallStage = 'media'
+    return 31
+}
+function Write-YeboyLauncherReport {
+    param([string]$Stage, [int]$ExitCode)
+    Write-Host 'Звіт запуску не вдалося записати.'
+}
+$code = Show-YeboySetup
+Assert-True ($code -eq 31) 'Failure reporting cannot mask original exit status'
+""".replace("FIXTURE_ROOT", _literal(root)))
+
+
+@WINDOWS
 def test_setup_cancel_never_installs_system_components(tmp_path):
     _run_ps(tmp_path, r"""
 function Read-Host { return '0' }

@@ -10,6 +10,86 @@ param(
 $script:YeboyRoot = Split-Path -Parent $PSScriptRoot
 $script:YeboyModuleCode = "import runpy,sys;root=sys.argv.pop(1);module=sys.argv.pop(1);sys.path.insert(0,root);runpy.run_module(module,run_name='__main__',alter_sys=True)"
 
+# First-run safety boundary: fail before Python/WinGet/downloads for incomplete ZIPs.
+$script:YeboyInstallStage = 'launcher'
+$script:YeboyRequiredSources = @(
+    'YEBOYBot.cmd',
+    '.env.v2.example',
+    'core_v2\requirements.txt',
+    'core_v2\config.py',
+    'core_v2\runtime.py',
+    'core_v2\media_environment.py',
+    'config\example_options.ini',
+    'tools\installer_policy.py',
+    'tools\portable_media.py',
+    'tools\launcher\bootstrap_entry.py',
+    'tools\launcher\bootstrap.py',
+    'tools\launcher\media.py',
+    'tools\launcher\system_media.py',
+    'tools\launcher\__main__.py'
+)
+
+function Test-YeboySourceBundle {
+    $missing = @()
+    foreach ($relative in $script:YeboyRequiredSources) {
+        $path = Join-Path $script:YeboyRoot $relative
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            $missing += $relative
+        }
+    }
+    if ($missing.Count -eq 0) { return $true }
+    Write-Host '[ПОМИЛКА] Архів YEBOYBot розпаковано не повністю. Відсутні файли:'
+    foreach ($relative in $missing) { Write-Host ('  - {0}' -f $relative) }
+    Write-Host 'Розпакуйте повний ZIP робочої гілки в нову папку. Збережіть власні .env.v2, data та backups.'
+    Write-Host 'Завантаження і встановлення системних програм не починалося.'
+    return $false
+}
+
+function Write-YeboyLauncherReport {
+    param(
+        [Parameter(Mandatory)][ValidateSet('source-bundle', 'python', 'media-probe',
+            'bootstrap', 'media', 'readiness', 'launcher')][string]$Stage,
+        [Parameter(Mandatory)][int]$ExitCode
+    )
+    # Persist only a controlled stage, process code, and timestamp. Never
+    # serialize exceptions, stdout, user paths, private configuration or tokens.
+    $directory = Join-Path $script:YeboyRoot 'data\v2'
+    $destination = Join-Path $directory 'launcher-report.json'
+    $temporary = $null
+    try {
+        if ((Test-Path -LiteralPath $directory) -and
+            ((Get-Item -LiteralPath $directory -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'Unsafe report directory'
+        }
+        [void][IO.Directory]::CreateDirectory($directory)
+        if ((Test-Path -LiteralPath $destination) -and
+            ((Get-Item -LiteralPath $destination -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'Unsafe report target'
+        }
+        $report = [ordered]@{
+            schema = 1
+            timestamp_utc = [DateTime]::UtcNow.ToString('o')
+            status = 'failed'
+            stage = $Stage
+            exit_code = $ExitCode
+        } | ConvertTo-Json -Compress
+        $temporary = Join-Path $directory ('launcher-report-' + [guid]::NewGuid().ToString('N') + '.tmp')
+        [IO.File]::WriteAllText($temporary, $report + "`n", [Text.UTF8Encoding]::new($false))
+        if (Test-Path -LiteralPath $destination) {
+            [IO.File]::Replace($temporary, $destination, $null)
+        } else {
+            [IO.File]::Move($temporary, $destination)
+        }
+        Write-Host 'Безпечний звіт запуску: data/v2/launcher-report.json (без токена, шляхів і сирого виводу).'
+    } catch {
+        Write-Host 'Звіт запуску не вдалося записати. Скопіюйте номер етапу й код помилки з консолі.'
+    } finally {
+        if ($null -ne $temporary -and (Test-Path -LiteralPath $temporary)) {
+            Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Find-YeboyPython {
     # Modern py.exe can provision a runtime merely while probing it. Discovery
     # must never install software before the user selects the installation item.
@@ -422,6 +502,7 @@ function Invoke-YeboyGitHubUpdateCore {
 
 function Install-YeboyCore {
     param([switch]$AllowPythonInstall, [switch]$Repair)
+    $script:YeboyInstallStage = 'python'
     Write-Host '[1/4] Перевірка Python 3.12 x64...'
     $python = Find-YeboyPython
     if (-not $python) {
@@ -454,6 +535,7 @@ function Install-YeboyCore {
     Write-Host ('[OK] Сумісний Python 3.12 x64: {0}' -f $python)
     $mediaSelection = $null
     if ($script:YeboyInteractiveInstall) {
+        $script:YeboyInstallStage = 'media-probe'
         $mediaSelection = Select-YeboyMedia -Python $python
         if ($null -eq $mediaSelection) { return 1 }
         if ($mediaSelection.cancelled) {
@@ -461,9 +543,11 @@ function Install-YeboyCore {
             return 0
         }
     }
+    $script:YeboyInstallStage = 'bootstrap'
     Write-Host '[2/4] Окреме середовище й усі бібліотеки Core V2...'
     $prepared = Invoke-YeboyBootstrap -Python $python -Repair:$Repair
     if ($prepared -ne 0) { return $prepared }
+    $script:YeboyInstallStage = 'media'
     Write-Host '[3/4] FFmpeg і Deno: вибрані зовнішні або локальні програми...'
     if ($null -ne $mediaSelection) {
         $media = Invoke-YeboyMedia -SelectMedia -SystemFfmpeg $mediaSelection.ffmpeg -SystemDeno $mediaSelection.deno
@@ -494,6 +578,7 @@ function Install-YeboyCore {
         }
     }
     if ($media -ne 0) { return $media }
+    $script:YeboyInstallStage = 'readiness'
     Write-Host '[4/4] Перевірка середовища та критичних бібліотек...'
     if (-not (Test-YeboyEnvironment)) {
         Write-Host 'Перевірка бібліотек не пройдена. Для відновлення виконайте в папці бота:'
@@ -531,10 +616,23 @@ function Show-YeboySetup {
             Write-Host 'Оберіть [1] для встановлення або [0] для виходу.'
             continue
         }
+        $script:YeboyInstallStage = 'source-bundle'
+        if (-not (Test-YeboySourceBundle)) {
+            Write-YeboyLauncherReport -Stage 'source-bundle' -ExitCode 1
+            return 1
+        }
         $script:YeboyInteractiveInstall = $true
-        try { $result = Install-YeboyCore -AllowPythonInstall }
-        finally { $script:YeboyInteractiveInstall = $false }
+        try {
+            try { $result = Install-YeboyCore -AllowPythonInstall }
+            catch {
+                # Do not print a raw PowerShell exception: it may contain
+                # local paths, environment variables, or executable output.
+                Write-Host '[ПОМИЛКА] Внутрішня помилка на зазначеному етапі початкового встановлення.'
+                $result = 1
+            }
+        } finally { $script:YeboyInteractiveInstall = $false }
         if ($result -eq 0) { return 0 }
+        Write-YeboyLauncherReport -Stage $script:YeboyInstallStage -ExitCode ([int]$result)
         Write-Host ''
         Write-Host ('Встановлення зупинено (код {0}). Причина наведена вище.' -f $result)
         Write-Host 'Усуньте вказану причину й відкрийте YEBOYBot.cmd знову.'
@@ -601,8 +699,14 @@ function Restore-YeboyInterruptedUpdateCore {
 
 function Invoke-YeboyEntry {
     param([ValidateSet('Launcher', 'Setup', 'Ensure', 'Repair')][string]$Mode)
-    if ($Mode -eq 'Ensure') { return (Install-YeboyCore) }
-    if ($Mode -eq 'Repair') { return (Install-YeboyCore -Repair) }
+    if ($Mode -eq 'Ensure' -or $Mode -eq 'Repair') {
+        if (-not (Test-YeboySourceBundle)) {
+            Write-YeboyLauncherReport -Stage 'source-bundle' -ExitCode 1
+            return 1
+        }
+        if ($Mode -eq 'Ensure') { return (Install-YeboyCore) }
+        return (Install-YeboyCore -Repair)
+    }
     if ($Mode -eq 'Setup') { return (Show-YeboySetup) }
     $recovery = Restore-YeboyInterruptedUpdate
     if ($recovery -ne 0) { return $recovery }
@@ -656,6 +760,7 @@ if (-not $LibraryOnly) {
         exit $result
     } catch {
         Write-Host 'Операцію не завершено. Перевірте доступ до файлів, App Installer та правила Windows.'
+        Write-YeboyLauncherReport -Stage $script:YeboyInstallStage -ExitCode 1
         Write-Host 'Токен і дані бота не видаляються. Повторіть запуск YEBOYBot.cmd.'
         exit 1
     }
