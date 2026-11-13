@@ -227,3 +227,26 @@ def test_real_creation_and_bundled_pip_ignore_hostile_parent_environment(tmp_pat
     assert not foreign.exists()
     assert not (tmp_path / "foreign-prefix").exists()
     assert not (root / ".venv-v2/yeboy-requirements.sha256").exists()
+
+
+def test_reported_windows_code_matches_the_error_selected_for_classification(tmp_path, monkeypatch):
+    monkeypatch.setattr(b.subprocess, "run", Mock(return_value=subprocess.CompletedProcess(
+        ["python"], 91, "", f"[WinError 9999] [WinError 577] {PRIVATE}")))
+    with pytest.raises(b.BootstrapError) as caught:
+        b.run(["python", "-I", "-c", b.ENVIRONMENT_PROBE], tmp_path)
+    assert caught.value.category == "execution-policy"
+    assert caught.value.winerror == 577
+    assert caught.value.exit_code == 91
+    assert PRIVATE not in str(caught.value)
+
+
+def test_redirector_winerror_5_preserves_code_and_names_venv(tmp_path, monkeypatch):
+    monkeypatch.setattr(b.subprocess, "run", Mock(return_value=subprocess.CompletedProcess(
+        ["python"], 91, "", f"Unable to create process: [WinError 5] {PRIVATE}")))
+    with pytest.raises(b.BootstrapError) as caught:
+        b.run(["python", "-I", "-c", b.ENVIRONMENT_PROBE], tmp_path)
+    assert caught.value.category == "access-denied"
+    assert caught.value.winerror == 5
+    assert caught.value.exit_code == 91
+    assert ".venv-v2" in str(caught.value)
+    assert PRIVATE not in str(caught.value)

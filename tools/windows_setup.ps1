@@ -12,6 +12,8 @@ $script:YeboyModuleCode = "import runpy,sys;root=sys.argv.pop(1);module=sys.argv
 
 # First-run safety boundary: fail before Python/WinGet/downloads for incomplete ZIPs.
 $script:YeboyInstallStage = 'launcher'
+$script:YeboyAttemptId = $null
+$script:YeboyBootstrapStarted = $null
 $script:YeboyRequiredSources = @(
     'YEBOYBot.cmd',
     '.env.v2.example',
@@ -68,10 +70,11 @@ function Test-YeboyFreshVenvDeniedReport {
         $stamp = [DateTimeOffset]::Parse([string]$data.time_utc,
             [Globalization.CultureInfo]::InvariantCulture)
         return ($data.schema -eq 2 -and $data.status -ceq 'failed' -and
-            $data.attempt_id -ceq $script:YeboyAttemptId -and
+            $data.operation -ceq 'install' -and $data.attempt_id -ceq $script:YeboyAttemptId -and
             $stamp -ge $script:YeboyBootstrapStarted -and $stamp -le [DateTimeOffset]::UtcNow -and
             $data.stage -ceq 'environment-probe' -and
-            $data.category -ceq 'access-denied' -and $data.winerror -eq 5)
+            $data.category -ceq 'access-denied' -and
+            ($data.winerror -is [int] -or $data.winerror -is [long]) -and $data.winerror -eq 5)
     } catch { return $false }
 }
 
@@ -79,30 +82,40 @@ function Get-YeboyVenvBlockEvents {
     # Use named event payload fields. A process name in the display message
     # may describe the caller or an unrelated installation on the same PC.
     if ($null -eq $script:YeboyBootstrapStarted) { return }
+    $start = $script:YeboyBootstrapStarted.LocalDateTime
+    $end = [DateTime]::Now
     $target = Join-Path $script:YeboyRoot '.venv-v2\Scripts\python.exe'
     $sources = @(
-        @{ Log = 'Microsoft-Windows-CodeIntegrity/Operational'; Id = 3077; Code = 'CodeIntegrity:3077'; Field = 'FileName' },
-        @{ Log = 'Microsoft-Windows-AppLocker/EXE and DLL'; Id = 8004; Code = 'AppLocker:8004'; Field = 'FilePath' },
-        @{ Log = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1121; Code = 'Defender:1121'; Field = 'Path' }
+        @{ Log = 'Microsoft-Windows-CodeIntegrity/Operational'; Id = 3077; Code = 'CodeIntegrity:3077'; Fields = @('FileName', 'File Name') },
+        @{ Log = 'Microsoft-Windows-AppLocker/EXE and DLL'; Id = 8004; Code = 'AppLocker:8004'; Fields = @('FilePath') },
+        @{ Log = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1121; Code = 'Defender:1121'; Fields = @('Path') }
     )
     foreach ($source in $sources) {
         try {
             $filter = @{ LogName = [string]$source.Log; Id = [int]$source.Id
-                StartTime = $script:YeboyBootstrapStarted.LocalDateTime; EndTime = [DateTime]::Now }
+                StartTime = $start; EndTime = $end }
             $events = @(Get-WinEvent -FilterHashtable $filter -MaxEvents 30 -ErrorAction Stop)
-            foreach ($event in $events) {
-                try {
-                    [xml]$xml = $event.ToXml()
-                    foreach ($field in $xml.SelectNodes("//*[local-name()='EventData']/*[local-name()='Data']")) {
-                        if ($field.GetAttribute('Name') -ieq $source.Field -and
-                            $field.InnerText -ieq $target) {
-                            Write-Output ([string]$source.Code)
-                            break
-                        }
-                    }
-                } catch { continue }
-            }
         } catch { continue }
+        foreach ($event in $events) {
+            try {
+                if ($event.Id -ne $source.Id -or $event.LogName -ne $source.Log -or
+                    $null -eq $event.TimeCreated -or $event.TimeCreated -lt $start -or
+                    $event.TimeCreated -gt $end) { continue }
+                $xml = [System.Xml.XmlDocument]::new()
+                $xml.XmlResolver = $null
+                $xml.LoadXml($event.ToXml())
+                # AppLocker may place FilePath under UserData instead of EventData.
+                $fields = $xml.SelectNodes("//*[local-name()='EventData']/*[local-name()='Data'] | //*[local-name()='UserData']//*")
+                $match = $fields | Where-Object {
+                    ($source.Fields -contains $_.LocalName -or $source.Fields -contains $_.GetAttribute('Name')) -and
+                    [string]::Equals($_.InnerText, $target, [StringComparison]::OrdinalIgnoreCase)
+                } | Select-Object -First 1
+                if ($match) {
+                    Write-Output ([string]$source.Code)
+                    break
+                }
+            } catch { continue }
+        }
     }
 }
 
@@ -125,7 +138,7 @@ function Write-YeboyLauncherReport {
         $safeEvents = @($EventCodes | Where-Object { $allowed -ccontains $_ } | Select-Object -Unique)
         $report = [ordered]@{
             schema = 2
-            attempt_id = $script:YeboyAttemptId
+            attempt_id = $(if ($script:YeboyAttemptId -cmatch '^[a-f0-9]{32}$') { $script:YeboyAttemptId })
             timestamp_utc = [DateTime]::UtcNow.ToString('o')
             status = 'failed'
             stage = $Stage

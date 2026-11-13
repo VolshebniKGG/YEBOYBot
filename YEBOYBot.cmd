@@ -6,7 +6,9 @@ title YEBOYBot - Control Center
 echo.
 echo   YEBOYBot / Завантаження панелі керування...
 echo.
-cd /d "%~dp0"
+set "YEBOY_ROOT=%~dp0"
+if "%YEBOY_ROOT:~0,2%"=="\\" goto bad_location
+cd /d "%YEBOY_ROOT%"
 if errorlevel 1 goto bad_location
 set "SETUP_PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if not exist "%SETUP_PS%" goto no_powershell

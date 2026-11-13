@@ -59,6 +59,7 @@ CATEGORY_LABELS = {
     "missing-module": "Не знайдено потрібний модуль",
     "package-unavailable": "Не вдалося отримати потрібний пакет",
     "probe-syntax": "Помилка коду перевірки Python",
+    "package-conflict": "Конфлікт залежностей",
 }
 NO_AUTOMATIC_REPAIR = frozenset({
     "access-denied", "file-locked", "execution-policy", "security-blocked",
@@ -129,13 +130,15 @@ def command_failure(error, stage):
         category, hint = "timeout", "Перевищено час очікування Python. Перевірте завантаження ПК і журнал захисту; автоматичного повтору немає."
     elif isinstance(error, OSError):
         category, hint = os_failure_hint(error)
+    elif isinstance(error, subprocess.CalledProcessError):
+        output = str(error.output or "") + "\n" + str(error.stderr or "")
+        category, hint, win = output_failure(output)
     else:
-        output = str(getattr(error, "output", "") or "") + str(getattr(error, "stderr", "") or "")
-        category, hint = failure_hint(output)
-    if stage == "environment-probe" and category == "access-denied":
+        category, hint = failure_hint("")
+    if stage == "environment-probe" and win == 5:
         hint = (
             "Системний Python працює, але Windows відмовила у запуску Python "
-            "з ізольованої .venv-v2 (WinError 5 або EACCES). "
+            "з ізольованої .venv-v2. Середовище збережено. "
             "YEBOYBot.cmd перевірить доступні журнали блокувань автоматично. "
             "Це може бути політика виконання програм або права доступу; "
             "не вимикайте захист Windows і не перевстановлюйте Python навмання."
@@ -165,7 +168,7 @@ WINERROR_PATTERN = re.compile(r"\[WinError (\d{1,10})\]", re.IGNORECASE)
 ATTEMPT_ID_PATTERN = re.compile(r"[0-9a-f]{32}")
 
 
-def failure_hint(output):
+def output_failure(output):
     """Map pip's untrusted output to a fixed, secret-free diagnostic.
 
     A failed index lookup often ends with "No matching distribution" even
@@ -174,12 +177,15 @@ def failure_hint(output):
     """
     value = output.lower()
     # Match complete numeric tokens: WinError 577 is not WinError 5.
-    for match in re.finditer(r"\bwinerror\s+(\d{1,10})\b", value):
+    first_code = None
+    for match in WINERROR_PATTERN.finditer(output):
         error = OSError()
         error.winerror = int(match.group(1))
+        if first_code is None:
+            first_code = error.winerror
         category, hint = os_failure_hint(error)
         if category != "filesystem":
-            return category, hint
+            return category, hint, error.winerror
     for patterns, category, hint in (
         (("certificate_verify_failed", "sslcertverificationerror",
           "self signed certificate", "certificate verify failed",
@@ -207,11 +213,17 @@ def failure_hint(output):
          "Недостатньо вільного місця на диску."),
         (("no matching distribution", "could not find a version"), "package-unavailable",
          "pip не отримав сумісний пакет. Це може означати недоступний індекс, фільтр мережі або обмеження версій; перевірте доступ до PyPI."),
+        (("resolutionimpossible", "conflicting dependencies", "has requirement"), "package-conflict",
+         "Версії бібліотек конфліктують. Перевірте файл requirements.txt і повноту ZIP робочої гілки."),
         (("syntaxerror",), "probe-syntax", "Помилка запуску перевірки Python. Оновіть повний комплект файлів бота."),
     ):
         if any(pattern in value for pattern in patterns):
-            return category, hint
-    return "unknown", "Причину не визначено автоматично. Передайте безпечний install-report.json для діагностики; не повторюйте встановлення навмання."
+            return category, hint, first_code
+    return "unknown", "Причину не визначено автоматично. Передайте безпечний install-report.json для діагностики; не повторюйте встановлення навмання.", first_code
+
+
+def failure_hint(output):
+    return output_failure(output)[:2]
 
 def write_failure_report(root, error, *, attempt_id=None, operation="install"):
     error = normalize_failure(error)
@@ -251,17 +263,14 @@ def run(args, root):
     except (OSError, subprocess.SubprocessError) as exc:
         raise command_failure(exc, stage) from exc
     if result.returncode:
-        output = (result.stdout or "") + "\n" + (result.stderr or "")
-        category, hint = failure_hint(output)
-        match = WINERROR_PATTERN.search(output)
-        if stage == "pip-upgrade" and category == "package-unavailable":
-            hint = ("Фіксована версія pip " + PIP_VERSION +
-                    " існує на PyPI, але її не вдалося отримати з цього ПК. " 
-                    "Перевірте https://pypi.org/simple/pip/ у браузері та доступ до "
-                    "files.pythonhosted.org; перевстановлення Python зазвичай не потрібне.")
-        raise BootstrapError(hint,
-                             stage=stage, category=category, exit_code=result.returncode,
-                             winerror=int(match.group(1)) if match else None)
+        failure = command_failure(subprocess.CalledProcessError(
+            result.returncode, args, output=result.stdout, stderr=result.stderr), stage)
+        if stage == "pip-upgrade" and failure.category == "package-unavailable":
+            failure.args = ("Фіксована версія pip " + PIP_VERSION +
+                            " існує на PyPI, але її не вдалося отримати з цього ПК. "
+                            "Перевірте https://pypi.org/simple/pip/ у браузері та доступ до "
+                            "files.pythonhosted.org; перевстановлення Python зазвичай не потрібне.",)
+        raise failure
     return result.stdout or ""
 
 

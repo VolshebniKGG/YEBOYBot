@@ -518,7 +518,7 @@ $path = Join-Path $script:YeboyRoot 'data/v2/install-report.json'
 [void][IO.Directory]::CreateDirectory((Split-Path -Parent $path))
 $script:YeboyAttemptId = [guid]::NewGuid().ToString('N')
 $script:YeboyBootstrapStarted = [DateTimeOffset]::UtcNow.AddSeconds(-1)
-$sample = @{schema = 2; status = 'failed'; attempt_id = $script:YeboyAttemptId; time_utc = [DateTimeOffset]::UtcNow.ToString('o');
+$sample = @{schema = 2; status = 'failed'; operation = 'install'; attempt_id = $script:YeboyAttemptId; time_utc = [DateTimeOffset]::UtcNow.ToString('o');
     stage = 'environment-probe'; category = 'access-denied'; winerror = 5}
 $sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
 Assert-True (Test-YeboyFreshVenvDeniedReport) 'Fresh matching WinError 5'
@@ -530,37 +530,46 @@ $sample.time_utc = [DateTimeOffset]::UtcNow.AddDays(-1).ToString('o')
 $sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
 Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'No stale event scan'
 $sample.time_utc = [DateTimeOffset]::UtcNow.ToString('o')
-$sample.winerror = 32
-$sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
-Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'Do not confuse locked file and execution denial'
+foreach ($wrongCode in @(32, 577, '5')) {
+    $sample.winerror = $wrongCode
+    $sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
+    Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'Only numeric WinError 5 belongs to this diagnostic'
+}
+Set-Content -LiteralPath $path -Value '{"broken":' -Encoding UTF8
+Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'Ignore invalid JSON'
 """.replace("ROOT_LITERAL", _literal(root)))
 
 
 @WINDOWS
 def test_execution_log_probe_filters_target_and_never_displays_raw_messages(tmp_path):
     result = _run_ps(tmp_path, r"""
-$script:YeboyBootstrapStarted = [DateTimeOffset]::UtcNow.AddSeconds(-1)
+$script:YeboyBootstrapStarted = [DateTimeOffset]::UtcNow.AddSeconds(-5)
 $script:ExpectedTarget = Join-Path $script:YeboyRoot '.venv-v2\Scripts\python.exe'
-function New-TestEvent([string]$Field, [string]$Value) {
-    $event = [pscustomobject]@{ Payload = ('<Event><EventData><Data Name="{0}">{1}</Data></EventData></Event>' -f
-        $Field, [Security.SecurityElement]::Escape($Value)) }
+function New-TestEvent($Filter, [string]$Payload, [DateTime]$Time = (Get-Date).AddSeconds(-1)) {
+    $event = [pscustomobject]@{
+        Id = $Filter.Id; LogName = $Filter.LogName; TimeCreated = $Time
+        Payload = "<Event>$Payload</Event>"; Message = 'private-token'
+    }
     $event | Add-Member -MemberType ScriptMethod -Name ToXml -Value { $this.Payload }
     return $event
 }
 function Get-WinEvent {
     param($FilterHashtable, [int]$MaxEvents, [string]$ErrorAction)
-    Assert-True ($FilterHashtable.StartTime -eq $script:YeboyBootstrapStarted.LocalDateTime) 'Only current attempt window'
-    if ($FilterHashtable.Id -eq 3077) { return (New-TestEvent 'FileName' $script:ExpectedTarget) }
+    $target = [Security.SecurityElement]::Escape($script:ExpectedTarget)
+    if ($FilterHashtable.Id -eq 3077) {
+        New-TestEvent $FilterHashtable "<EventData><Data Name='File Name'>$target</Data></EventData>" ((Get-Date).AddDays(-1))
+        New-TestEvent $FilterHashtable "<EventData><Data Name='Process Name'>$target</Data></EventData>"
+        New-TestEvent $FilterHashtable "<EventData><Data Name='File Name'>$target</Data></EventData>"
+    }
     if ($FilterHashtable.Id -eq 8004) {
-        return (New-TestEvent 'FilePath' 'C:\Other Bot\.venv-v2\Scripts\python.exe')
+        New-TestEvent $FilterHashtable '<UserData><RuleAndFileData><FilePath>C:\Other\.venv-v2\Scripts\python.exe</FilePath></RuleAndFileData></UserData>'
+        New-TestEvent $FilterHashtable "<UserData><RuleAndFileData><FilePath>$target</FilePath></RuleAndFileData></UserData>"
     }
-    if ($FilterHashtable.Id -eq 1121) {
-        return (New-TestEvent 'Process Name' $script:ExpectedTarget)
-    }
+    if ($FilterHashtable.Id -eq 1121) { throw 'Not accessible' }
 }
 $codes = @(Get-YeboyVenvBlockEvents)
-Assert-True ($codes.Count -eq 1) 'Only matching executable and a known event ID'
-Assert-True ($codes[0] -eq 'CodeIntegrity:3077') 'Untrusted messages never leave the event reader'
+Assert-True ($codes.Count -eq 2) 'Only matching executable and a known event ID'
+Assert-True (($codes -join ',') -eq 'CodeIntegrity:3077,AppLocker:8004') 'Handle EventData and UserData'
 """)
     assert "private-token" not in result.stdout
     assert ".venv-v2" not in result.stdout
@@ -579,7 +588,7 @@ function Read-Host { return '1' }
 function Install-YeboyCore {
     $script:YeboyInstallStage = 'bootstrap'
     $script:YeboyBootstrapStarted = [DateTimeOffset]::UtcNow
-    @{schema = 2; status = 'failed'; attempt_id = $script:YeboyAttemptId;
+    @{schema = 2; status = 'failed'; operation = 'install'; attempt_id = $script:YeboyAttemptId;
       time_utc = [DateTimeOffset]::UtcNow.ToString('o'); stage = 'environment-probe';
       category = 'access-denied'; winerror = 5} |
         ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
@@ -1259,3 +1268,19 @@ Assert-True (-not (Test-Path -LiteralPath MARKER_PLACEHOLDER)) 'Gate cleared onl
 """.replace("ROOT_PLACEHOLDER", _literal(root)).replace(
         "FAILURE_PLACEHOLDER", _literal(failure)).replace("MARKER_PLACEHOLDER", _literal(marker))
     _run_ps(tmp_path, body, timeout=90)
+
+
+
+@WINDOWS
+def test_main_cmd_respects_restricted_powershell_policy(tmp_path):
+    root = tmp_path / "Політика Windows"
+    (root / "tools").mkdir(parents=True)
+    shutil.copy2(ROOT / "YEBOYBot.cmd", root)
+    (root / "tools/windows_setup.ps1").write_text("exit 0", encoding="utf-8-sig")
+    result = subprocess.run(
+        _cmd_entry(root / "YEBOYBot.cmd"), cwd=tmp_path,
+        env={**os.environ, "PSExecutionPolicyPreference": "Restricted"},
+        input="\n", text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=45,
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "PowerShell" in result.stdout
