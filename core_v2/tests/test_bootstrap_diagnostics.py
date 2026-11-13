@@ -187,3 +187,35 @@ def test_dependency_probe_external_failure_does_not_trigger_package_reinstall(tm
         b.prepare(root)
     assert caught.value is failure
     assert len(calls) == 1
+
+
+def test_bootstrap_report_correlates_with_the_invocation(tmp_path):
+    attempt = "0123456789abcdef0123456789abcdef"
+    b.write_failure_report(tmp_path, b.BootstrapError("safe"), attempt_id=attempt)
+    payload = json.loads((tmp_path / "data/v2/install-report.json").read_text(encoding="utf-8"))
+    assert payload["attempt_id"] == attempt
+
+
+def test_bootstrap_report_discards_unvalidated_attempt_metadata(tmp_path):
+    b.write_failure_report(tmp_path, b.BootstrapError("safe"), attempt_id=PRIVATE)
+    payload = (tmp_path / "data/v2/install-report.json").read_text(encoding="utf-8")
+    assert PRIVATE not in payload
+
+
+def test_ambiguous_windows_redirector_error_cannot_trigger_environment_rebuild(tmp_path, monkeypatch):
+    result = b.subprocess.CompletedProcess([], 101, "", "Unable to create process using 'private command'")
+    monkeypatch.setattr(b.subprocess, "run", Mock(return_value=result))
+    with pytest.raises(b.BootstrapError) as caught:
+        b.run(["python.exe", "-I", "-c", b.ENVIRONMENT_PROBE], tmp_path)
+    assert caught.value.category not in b.REBUILDABLE_ENVIRONMENT_CATEGORIES
+    assert caught.value.exit_code == 101
+
+
+def test_subprocess_report_keeps_exact_embedded_windows_code(tmp_path, monkeypatch):
+    result = b.subprocess.CompletedProcess([], 1, "", f"OSError: [WinError 577] {PRIVATE}")
+    monkeypatch.setattr(b.subprocess, "run", Mock(return_value=result))
+    with pytest.raises(b.BootstrapError) as caught:
+        b.run(["python.exe", "-I", "-c", b.ENVIRONMENT_PROBE], tmp_path)
+    assert caught.value.category == "execution-policy"
+    assert caught.value.winerror == 577
+    assert PRIVATE not in str(caught.value)

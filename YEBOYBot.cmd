@@ -1,5 +1,6 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
+set "ERRORLEVEL="
 chcp 65001 >nul
 set "PYTHONUTF8=1"
 title YEBOYBot - Control Center
