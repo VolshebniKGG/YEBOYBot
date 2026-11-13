@@ -54,8 +54,8 @@ def test_dirty_worktree_is_preserved(repo):
 
 def test_wrong_branch_rejected(repo):
     root, _, _ = repo
-    command(root, "checkout", "-b", "main")
-    with pytest.raises(update.UpdateError, match="feature/core-v2"):
+    command(root, "checkout", "-b", "local-development")
+    with pytest.raises(update.UpdateError, match=update.BRANCH):
         update.plan(root, fetch=False)
 
 

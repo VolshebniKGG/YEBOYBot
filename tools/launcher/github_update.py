@@ -52,7 +52,7 @@ def list_branches(*, open_url=urlopen):
             raise UpdateFailure("У репозиторії понад 300 гілок; потрібен звужений вибір.")
     if not branches or len(branches) > MAX_BRANCHES:
         raise UpdateFailure("Не знайдено сумісних GitHub-гілок.")
-    return sorted(branches, key=lambda x: (x["name"] != "improvement/probot-readiness", x["name"]))
+    return sorted(branches, key=lambda x: (x["name"] != "main", x["name"]))
 
 
 def inspect_release(sha, *, open_url=urlopen):

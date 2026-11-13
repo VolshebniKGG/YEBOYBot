@@ -14,7 +14,7 @@ PowerShell 5.1, доступ до інтернету й папка проєкт�
 
 ## Перше відкриття
 
-1. Завантажте [ZIP гілки improvement/probot-readiness](https://github.com/VolshebniKGG/YEBOYBot/archive/refs/heads/improvement/probot-readiness.zip).
+1. Завантажте [ZIP гілки main](https://github.com/VolshebniKGG/YEBOYBot/archive/refs/heads/main.zip).
 2. Розпакуйте весь архів. Не запускайте CMD усередині ZIP і не копіюйте лише
    один файл: потрібні папки `tools` та `core_v2` й інші файли проєкту.
 3. Двічі натисніть `YEBOYBot.cmd`. Стартова панель відкривається без Python:

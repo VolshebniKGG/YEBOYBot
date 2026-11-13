@@ -118,7 +118,7 @@ def test_list_branches_uses_official_api_and_deduplicates():
         assert timeout <= 20
         return Response()
     branches = github_update.list_branches(open_url=fake)
-    assert [item["name"] for item in branches] == ["feature/core-v2", "main"]
+    assert [item["name"] for item in branches] == ["main", "feature/core-v2"]
 
 
 def test_zip_menu_writes_selection_without_running_update(installation, monkeypatch):

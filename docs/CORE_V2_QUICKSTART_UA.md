@@ -1,6 +1,6 @@
 # Core v2: запуск і перевірка
 
-Це нове ізольоване ядро у гілці `feature/core-v2`, рання alpha.
+Core V2 працює в ізольованому середовищі в гілці `main`.
 На Windows запускайте через `YEBOYBot.cmd`; на Linux — через `python -m core_v2`.
 Старий запуск не є точкою входу Core V2.
 Для старих команд є [22] головного меню або `run.bat`, окреме `.venv-legacy`;
@@ -9,7 +9,7 @@
 
 ## Windows 10/11
 
-1. На Windows 10/11 x64 завантажте ZIP гілки: https://github.com/VolshebniKGG/YEBOYBot/archive/refs/heads/feature/core-v2.zip
+1. На Windows 10/11 x64 завантажте ZIP гілки: https://github.com/VolshebniKGG/YEBOYBot/archive/refs/heads/main.zip
 2. Розпакуйте **весь архів** у доступну для запису папку й двічі натисніть `YEBOYBot.cmd`.
    Стартова панель працює через вбудований Windows PowerShell 5.1 ще до появи Python.
 3. Виберіть **[1] Встановити все для Core V2 / відновити бібліотеки**.

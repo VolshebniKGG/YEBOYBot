@@ -10,7 +10,7 @@ from core_v2.runtime import InstanceLock
 from . import process, storage
 
 ROOT = Path(__file__).resolve().parents[2]
-BRANCH = "feature/core-v2"
+BRANCH = "main"
 REMOTE = "https://github.com/VolshebniKGG/YEBOYBot.git"
 
 
@@ -33,7 +33,7 @@ def git(root, *args):
 
 def clean(root):
     if git(root, "branch", "--show-current") != BRANCH:
-        raise UpdateError("Оновлення дозволено лише в feature/core-v2; автоматичного перемикання немає.")
+        raise UpdateError(f"Оновлення дозволено лише в {BRANCH}; автоматичного перемикання немає.")
     if git(root, "status", "--porcelain", "--untracked-files=all"):
         raise UpdateError("Є локальні зміни або нові файли. Збережіть їх перед оновленням.")
     if git(root, "remote", "get-url", "origin").rstrip("/") != REMOTE:
