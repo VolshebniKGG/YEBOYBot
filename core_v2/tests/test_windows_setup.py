@@ -17,6 +17,10 @@ def _literal(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def _cmd_environment():
+    return dict(os.environ, PSExecutionPolicyPreference="RemoteSigned")
+
+
 def _cmd_entry(script):
     # cmd /s /c removes its OUTER quote pair. list2cmdline uses CRT backslash
     # escaping, which cmd does not understand for this nested command string.
@@ -85,11 +89,11 @@ foreach ($name in @('Find-YeboyPython', 'Find-YeboyWinget', 'Invoke-YeboyWinget'
 
 @WINDOWS
 def test_main_cmd_without_python_displays_panel_and_can_exit_from_arbitrary_cwd(tmp_path):
-    root = tmp_path / "Порожній ПК O'Connor & бот"
+    root = tmp_path / "Порожній ПК O'Connor & бот (!) [ZIP]"
     (root / "tools").mkdir(parents=True)
     shutil.copy2(ROOT / "YEBOYBot.cmd", root)
     shutil.copy2(SOURCE, root / "tools/windows_setup.ps1")
-    environment = dict(os.environ)
+    environment = _cmd_environment()
     environment["PATH"] = str(tmp_path / "empty-path")
     result = subprocess.run(
         _cmd_entry(root / "YEBOYBot.cmd"),
@@ -111,6 +115,7 @@ def test_main_cmd_enters_real_prepared_core_menu_from_arbitrary_cwd(tmp_path):
         pytest.skip("CI Core installation not prepared")
     result = subprocess.run(
         _cmd_entry(ROOT / "YEBOYBot.cmd"),
+        env=_cmd_environment(),
         cwd=tmp_path, input="0\n", text=True, encoding="utf-8", errors="replace",
         capture_output=True, timeout=60,
     )
@@ -494,30 +499,51 @@ def test_fresh_access_denial_report_is_required_before_querying_security_events(
 $script:YeboyRoot = ROOT_LITERAL
 $path = Join-Path $script:YeboyRoot 'data/v2/install-report.json'
 [void][IO.Directory]::CreateDirectory((Split-Path -Parent $path))
-$sample = @{time_utc = [DateTimeOffset]::UtcNow.ToString('o');
-    stage = 'environment-probe'; category = 'access-denied'; winerror = 5}
+$script:YeboyBootstrapAttempt = [guid]::NewGuid().ToString('N')
+$sample = @{time_utc = [DateTimeOffset]::UtcNow.ToString('o'); status = 'failed';
+    attempt_id = $script:YeboyBootstrapAttempt; stage = 'environment-probe';
+    category = 'access-denied'; winerror = 5}
 $sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
-Assert-True (Test-YeboyFreshVenvDeniedReport) 'Fresh matching WinError 5'
-$sample.time_utc = [DateTimeOffset]::UtcNow.AddDays(-1).ToString('o')
+Assert-True (Test-YeboyFreshVenvDeniedReport) 'Matching WinError 5 from this bootstrap'
+$sample.attempt_id = [guid]::NewGuid().ToString('N')
 $sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
-Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'No stale event scan'
-$sample.time_utc = [DateTimeOffset]::UtcNow.ToString('o')
-$sample.winerror = 32
+Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'A recent report from another attempt is stale'
+$sample.attempt_id = $script:YeboyBootstrapAttempt
+$sample.winerror = 577
 $sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
-Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'Do not confuse locked file and execution denial'
+Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) '577 is distinct from 5'
+$sample.winerror = '5'
+$sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
+Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'Reject a string in a numeric field'
+'{' | Set-Content -LiteralPath $path -Encoding UTF8
+Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'Reject invalid JSON'
 """.replace("ROOT_LITERAL", _literal(root)))
 
 
 @WINDOWS
 def test_execution_log_probe_filters_target_and_never_displays_raw_messages(tmp_path):
     result = _run_ps(tmp_path, r"""
+$script:YeboyBootstrapStarted = [DateTime]::UtcNow.AddSeconds(-2)
+$target = Join-Path $script:YeboyRoot '.venv-v2\Scripts\python.exe'
+function New-TestEvent($id, $field, $path, $time) {
+    $value = [Security.SecurityElement]::Escape($path)
+    $event = [pscustomobject]@{
+        Id = $id; TimeCreated = $time; Message = 'private-token'
+        Xml = "<Event><EventData><Data Name='$field'>$value</Data></EventData></Event>"
+    }
+    $event | Add-Member -MemberType ScriptMethod -Name ToXml -Value { $this.Xml }
+    return $event
+}
 function Get-WinEvent {
     param($FilterHashtable, [int]$MaxEvents, [string]$ErrorAction)
     if ($FilterHashtable.Id -eq 3077) {
-        return [pscustomobject]@{Message = 'private-token: C:\\Test\\.venv-v2\\Scripts\\python.exe rejected'}
+        return (New-TestEvent 3077 'FileName' $target ([DateTime]::UtcNow.AddSeconds(-1)))
     }
     if ($FilterHashtable.Id -eq 8004) {
-        return [pscustomobject]@{Message = 'Another unrelated program blocked'}
+        New-TestEvent 8004 'FilePath' 'C:\Other\.venv-v2\Scripts\python.exe' ([DateTime]::UtcNow.AddSeconds(-1))
+        New-TestEvent 8004 'FilePath' $target ([DateTime]::UtcNow.AddMinutes(-1))
+        New-TestEvent 8004 'FilePath' ($target + '.old') ([DateTime]::UtcNow.AddSeconds(-1))
+        New-TestEvent 8004 'ProcessName' $target ([DateTime]::UtcNow.AddSeconds(-1))
     }
     if ($FilterHashtable.Id -eq 1121) { throw 'Not accessible' }
 }
@@ -537,18 +563,24 @@ def test_setup_records_only_allowlisted_security_event_codes_after_denied_venv(t
 $script:YeboyRoot = ROOT_LITERAL
 $path = Join-Path $script:YeboyRoot 'data/v2/install-report.json'
 [void][IO.Directory]::CreateDirectory((Split-Path -Parent $path))
-@{time_utc = [DateTimeOffset]::UtcNow.ToString('o'); stage = 'environment-probe';
-  category = 'access-denied'; winerror = 5} |
-    ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
 function Test-YeboySourceBundle { return $true }
 function Read-Host { return '1' }
-function Install-YeboyCore { $script:YeboyInstallStage = 'bootstrap'; return 1 }
+function Install-YeboyCore {
+    $script:YeboyInstallStage = 'bootstrap'
+    $script:YeboyBootstrapAttempt = [guid]::NewGuid().ToString('N')
+    @{time_utc = [DateTimeOffset]::UtcNow.ToString('o'); status = 'failed';
+      attempt_id = $script:YeboyBootstrapAttempt; stage = 'environment-probe';
+      category = 'access-denied'; winerror = 5} |
+        ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
+    return 1
+}
 function Get-YeboyVenvBlockEvents { return @('CodeIntegrity:3077','private-token') }
 $code = Show-YeboySetup
 Assert-True ($code -eq 1) 'Setup error is retained'
 $report = Get-Content -LiteralPath (Join-Path $script:YeboyRoot 'data/v2/launcher-report.json') -Raw |
     ConvertFrom-Json
 Assert-True ($report.stage -eq 'bootstrap') 'Stage preserved'
+Assert-True ($report.attempt_id -ceq $script:YeboyBootstrapAttempt) 'Reports identify the same attempt'
 Assert-True ($report.matched_security_events.Count -eq 1) 'Untrusted event IDs discarded'
 Assert-True ($report.matched_security_events[0] -eq 'CodeIntegrity:3077') 'Only known event evidence recorded'
 """.replace("ROOT_LITERAL", _literal(root)))
@@ -687,6 +719,7 @@ def test_media_winget_fallback_uses_pinned_official_package_and_user_scope(tmp_p
     _run_ps(tmp_path, r"""
 $script:Captured = @()
 function Find-YeboyWinget { return 'Invoke-TestWinget' }
+function Read-Host { return 'ТАК' }
 function Invoke-TestWinget {
     $script:Captured = @($args)
     $global:LASTEXITCODE = 0
@@ -1204,3 +1237,36 @@ Assert-True (-not (Test-Path -LiteralPath MARKER_PLACEHOLDER)) 'Gate cleared onl
 """.replace("ROOT_PLACEHOLDER", _literal(root)).replace(
         "FAILURE_PLACEHOLDER", _literal(failure)).replace("MARKER_PLACEHOLDER", _literal(marker))
     _run_ps(tmp_path, body, timeout=90)
+
+
+@WINDOWS
+def test_declining_media_winget_fallback_never_starts_installer(tmp_path):
+    _run_ps(tmp_path, r"""
+function Find-YeboyWinget { return 'Invoke-TestWinget' }
+function Read-Host { return '0' }
+function Invoke-TestWinget { throw 'Declined package must never be installed' }
+Assert-True ((Invoke-YeboyWingetMedia -Name ffmpeg) -eq 1223) 'Decline is an explicit cancellation'
+""")
+
+
+def test_production_batch_entry_points_honor_execution_policy():
+    for name in ("YEBOYBot.cmd", "install_v2.bat"):
+        assert "-ExecutionPolicy" not in (ROOT / name).read_text(encoding="utf-8")
+
+
+@WINDOWS
+@pytest.mark.parametrize("policy, expected", [("RemoteSigned", 37), ("Restricted", 1)])
+def test_cmd_keeps_child_failure_and_does_not_override_policy(tmp_path, policy, expected):
+    root = tmp_path / "Панель O'Connor & бот (!) [ZIP]"
+    tools = root / "tools"
+    tools.mkdir(parents=True)
+    shutil.copy2(ROOT / "YEBOYBot.cmd", root)
+    (tools / "windows_setup.ps1").write_text("Write-Output 'STUB_RAN'; exit 37", encoding="utf-8-sig")
+    result = subprocess.run(
+        _cmd_entry(root / "YEBOYBot.cmd"), cwd=tmp_path,
+        env=dict(_cmd_environment(), PSExecutionPolicyPreference=policy, ERRORLEVEL="0"),
+        input="\n", text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=45,
+    )
+    assert result.returncode == expected, result.stdout + result.stderr
+    assert ("STUB_RAN" in result.stdout) is (policy == "RemoteSigned")
+    assert f"(код {expected})" in result.stdout
