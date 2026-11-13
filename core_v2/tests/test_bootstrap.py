@@ -62,7 +62,7 @@ class BootstrapTests(unittest.TestCase):
         def validate(root):
             calls.append(root)
             if len(calls) == 1:
-                raise b.BootstrapError('broken', stage='environment-probe')
+                raise b.BootstrapError('broken', stage='environment-probe', category='broken-interpreter')
             return original(root)
         with patch.object(b, 'validate_environment', side_effect=validate):
             b.prepare(self.root)
