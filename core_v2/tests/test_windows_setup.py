@@ -486,6 +486,7 @@ def test_report_contains_only_fixed_metadata_and_never_leaks_user_secrets(tmp_pa
     report_path = root / "data/v2/launcher-report.json"
     _run_ps(tmp_path, r"""
 $script:YeboyRoot = FIXTURE_ROOT
+$script:YeboyAttemptId = [guid]::NewGuid().ToString('N')
 Write-YeboyLauncherReport -Stage bootstrap -ExitCode 17
 Assert-True (Test-Path -LiteralPath (Join-Path $script:YeboyRoot 'data/v2/launcher-report.json')) 'Report created without Python'
 Write-YeboyLauncherReport -Stage media -ExitCode 31
@@ -498,7 +499,9 @@ Assert-True ($report.schema -eq 2 -and $report.status -eq 'failed') 'Versioned d
     import json
     payload = json.loads(report)
     assert set(payload) == {"schema", "timestamp_utc", "status", "stage", "exit_code",
-                            "matched_security_events"}
+                            "matched_security_events", "attempt_id"}
+    assert len(payload["attempt_id"]) == 32
+    assert set(payload["attempt_id"]) <= set("0123456789abcdef")
     assert payload["matched_security_events"] == []
     assert "private-token" not in report and "O'Connor" not in report
     assert "password" not in report and "DISCORD_TOKEN" not in report
