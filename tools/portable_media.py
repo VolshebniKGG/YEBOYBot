@@ -192,7 +192,10 @@ def explain_install_failure(name, stage, error):
     elif isinstance(error, OSError):
         code = getattr(error, 'winerror', None)
         number = code if code is not None else error.errno
-        if stage == 'запуск програми' and (code == 5 or (code is None and error.errno in (errno.EACCES, errno.EPERM))):
+        if stage == 'запуск програми' and code in (225, 226, 577, 1260, 4551):
+            hint = ('Windows повідомила про блокування виконання або відхилення перевірки цілісності. '
+                    'Перевірте журнали захисту й зверніться до адміністратора керованого ПК.')
+        elif stage == 'запуск програми' and (code == 5 or (code is None and error.errno in (errno.EACCES, errno.EPERM))):
             hint = ('Windows відмовив у запуску виконуваного файлу. '
                     'Перевірте Безпека у Windows → Журнал захисту; '
                     'у Перегляді подій: CodeIntegrity/Operational (подія 3077) '
@@ -241,7 +244,14 @@ def install_package(root, package):
             if executable.is_file() and digest(executable) == manifest.get('executable_sha256'):
                 try:
                     verify(executable, package)
-                except (OSError, subprocess.SubprocessError, MediaInstallError):
+                except OSError as error:
+                    # A verified executable denied by Windows is not corrupt.
+                    # Preserve its installation and propagate the original OS code.
+                    winerror = getattr(error, 'winerror', None)
+                    if (winerror in (5, 225, 226, 577, 1260, 4551)
+                            or (winerror is None and error.errno in (errno.EACCES, errno.EPERM))):
+                        raise explain_install_failure(package.name, 'запуск програми', error) from error
+                except (subprocess.SubprocessError, MediaInstallError):
                     pass
                 else:
                     print(f'  [OK] {package.name} {package.version} — готово, повторне завантаження не потрібне.')
