@@ -267,6 +267,21 @@ def test_healthy_install_reuses_files_without_network(installed):
     assert not list((root / 'bin').glob('.m-*'))
 
 
+@pytest.mark.parametrize("code", [5, 577, 1260])
+def test_existing_blocked_executable_is_not_replaced_or_downloaded(installed, code):
+    root, package, fetch, probe, executable = installed
+    error = PermissionError(errno.EACCES, "private path")
+    error.winerror = code
+    probe.side_effect = error
+    with pytest.raises(media.MediaInstallError, match=f"Код ОС: {code}") as caught:
+        media.install_package(root, package)
+    assert getattr(caught.value, "winget_fallback", None) == ("deno" if code == 5 else None)
+    assert fetch.call_count == 1
+    assert probe.call_count == 2
+    assert executable.read_bytes() == b"binary"
+    assert not list((root / "bin").glob("deno.previous-*"))
+
+
 def test_corrupt_owned_install_is_preserved_and_replaced(installed):
     root, package, fetch, probe, executable = installed
     executable.write_bytes(b'corrupted')
