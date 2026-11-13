@@ -1,0 +1,77 @@
+# Аудит запуску — 25.10.2026
+
+База аудиту: `feature/core-v2`, `61c5293`. AGENTS.md у дереві відсутній.
+Початковий аудит виконувався через GitHub API, коли shell Git clone був
+недоступний через proxy. У поточній ітерації мережу відновлено; локальний
+каталог відновлено як повний Git-клон. Історичні результати нижче слід
+звіряти з конкретним комітом.
+Є відкритий draft PR #1; main не змінювався.
+
+Статуси описують підтверджену інтеграцію, а не готовність продукту до production.
+
+| Компонент | Стан | Підстава / обмеження |
+|---|---|---|
+| YEBOYBot.cmd → tools.launcher | Partial | Меню, фоновий запуск, stop/restart є; ручний подвійний клік не перевірено |
+| Початкове встановлення | Partial | PowerShell-панель до Python, opt-in official WinGet Python3.12x64, registry/LocalAppData rediscovery, Core bootstrap. [24]/[5] закривають меню перед pip;804d009 fullWindows1033/92 та39PS+12menu успішні. Native system installation на чистому Windows не виконувалась |
+| Керування процесом | Partial | OS lock/nonce; збій heartbeat завершує клієнт і задачі, ControlFailure без retry; live Discord та супервізор ОС не підтверджені |
+| Discord readiness | Untested | Готовність записує on_ready; live API не перевірено |
+| Відновлення після exceptions | Partial | Обмежений retry/backoff; kill/segfault не відновлює |
+| Git-оновлення | Partial | Fast-forward, backup, smoke; ZIP та PostgreSQL відхиляються |
+| SQLite backup/restore | Partial | Backup API, `.db.json` з SHA-256/UTC/розміром, перевірка знімка перед restore, legacy opt-in; [20] — підтверджене архівування без видалення, ручний Windows-сценарій не перевірено |
+| PostgreSQL | Partial | [23] native Core-backup/upgrade1→2/restore у порожню БД; Linux17.11 перевірено, native Windows/TLS/customschemas не підтверджені |
+| Автозапуск Windows | Partial | [15]: opt-in завдання після входу поточного SID, без пароля/admin, перевірка належності; реальне створення/видалення на Windows 10/11 потребує ручної перевірки |
+| Телеметрія / експорт діагностики | Partial | [4]/[18]: read-only SQLite/config/import checks і JSON без секретів; CPU/RAM/lag ще відсутні |
+| Версійовані міграції | Partial | Явний SQLite1→2 [21] і PostgreSQL1→2 [23], verifiedbackup/rollback; nativePGWindows і ручний Windows не перевірені |
+| Core V2 moderation | Partial | warn/warnings/unwarn, timeout/untimeout; kick/ban/unban/modhistory додано з fresh checks та atomic claim; clear/clear-status додано з manual confirm receipt; liveDiscord не перевірений |
+| XP | Partial | Текстовий XP/cooldown/rank; голосовий XP та rewards відсутні |
+| Нагадування | Partial | Збереження, lease/retry; можлива повторна доставка після crash |
+| Automod/welcome/autorole/role panels | Disconnected | Резерв конфігурації/схеми, активних модулів немає |
+| Старий yeboybot | Partial | [22]/run.bat, окреме .venv-legacy, offline load moderation/user/help/rank; music opt-in, live дії не перевірені |
+| Legacy entrypoint | Partial | run.bat без registry/global pip, run.py з guard і locks; Windows legacy CI45 passed на a6c8e49, ручний Windows/live не підтверджені; start_v2.bat лишився додатковим входом |
+
+## Найближчі завершувані етапи
+
+1. Перевірити bootstrap у Windows CI та вручну на Windows 10/11 без Python Launcher.
+2. Пройти ручний сценарій діагностики [4]/[18] та резервування/відновлення [7]/[8]/[20] на Windows.
+3. Перевірити native PostgreSQL workflow [23] на Windows/TLS; Core-backup у public не замінює повний backup кастомної БД.
+4. Перевірити opt-in Task Scheduler [15] вручну на Windows та реалізувати окремий supervisor аварій процесу.
+5. Після стабілізації лаунчера — міграції та модерація з перевіркою hierarchy.
+
+## Резервування: поточний обсяг реалізації
+
+[7] додає перевірений SQLite-знімок і маніфест; [8] перевіряє байти знімка,
+схему та згоду перед зміною БД і створює попередню копію. Копія без маніфесту
+потребує окремого `СТАРА КОПІЯ`, а неправильний маніфест або SHA-256 не обходяться
+цим підтвердженням. [20] показує метадані/стан і після `АРХІВУВАТИ` переносить
+старіші перевірені пари в архів, доступний для restore. Автоматичного видалення,
+фонового розкладу й звільнення місця немає; legacy/invalid/поточна БД захищені
+від включення до плану. Копії не шифруються; SHA-256 не є підтвердженням авторства.
+Нові результати тестів і CI слід звіряти зі звітом конкретного коміту.
+
+## Автозапуск: поточний обсяг реалізації
+
+[15] після явного підтвердження створює/вмикає завдання входу поточного
+користувача. Перед увімкненням потрібні venv, doctor та імпорти; завдання
+запускає `pythonw.exe -m core_v2.managed` з папки проєкту. Пароль і підвищення
+прав не використовуються. Вимкнення видаляє тільки перевірене власне завдання
+й не зупиняє вже запущений бот. Невдалий запит стану позначається «Невідомо»;
+це не перевірка Discord readiness. Scheduler retry після аварій не додається.
+Реальний сценарій створення, входу й видалення потребує ручної Windows-перевірки.
+
+## P0, 25.10.2026: перевірені відмови
+
+Початковий heartbeat regression відтворено реальним filesystem error;
+після виправлення клієнт закривається й OS lock звільняється. Перевірено також
+втрату контролю вже після ready, cancellation і збереження fatal auth типів.
+SQLite guard зберігає байти/таблиці несумісної БД; PostgreSQL перевірено в
+окремому локальному контейнері 17.11. Підсумки конкретного коміту — у STATUS.
+Старі Windows CI logs залишаються BlobNotFound; причину затримки не встановлено.
+
+## Оновлення після міграцій
+
+Поточна схема v2; підтримувані копії v1/v2. Нова БД v2, наявна v1 не
+оновлюється при запуску, доки оператор не застосує [21]. PostgreSQL v1
+безпечно відхиляється, native backup/upgrade workflow залишається Missing.
+Наскрізні тести перевіряють реальні дані, відновлення v1 зі safety copy v2,
+збої backup/DDL/report, locks, stale plan та зміну конфігурації під час backup.
+Повний огляд усіх частин репозиторію: [PROJECT_AUDIT_UA.md](PROJECT_AUDIT_UA.md).

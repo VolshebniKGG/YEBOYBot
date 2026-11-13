@@ -1,0 +1,7 @@
+# Active legacy cogs/helpers only; never install into Core V2 or system Python.
+# Legacy setup_* functions await add_cog, requiring discord.py rather than py-cord.
+discord.py[voice]==2.7.1
+Pillow==13.0.0
+spotipy==2.26.0
+yt-dlp==2026.10.21
+ConfigUpdater==3.2
