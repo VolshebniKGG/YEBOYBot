@@ -72,6 +72,23 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertTrue(b.python_path(self.root).is_file())
 
+    def test_windows_execution_denied_preserves_owned_venv_and_configuration(self):
+        b.prepare(self.root)
+        config = self.root / ".env.v2"
+        config.write_text("DISCORD_TOKEN=keep-existing\n")
+        denied = PermissionError(13, "private path")
+        denied.winerror = 5
+        error = b.command_failure(denied, "environment-probe")
+        with patch.object(b, "validate_environment", side_effect=error) as probe:
+            with self.assertRaises(b.BootstrapError) as caught:
+                b.prepare(self.root, repair=True)
+        self.assertEqual((caught.exception.category, caught.exception.winerror, caught.exception.errno),
+                         ("access-denied", 5, 13))
+        self.assertEqual(probe.call_count, 1)
+        self.assertTrue(b.python_path(self.root).is_file())
+        self.assertEqual(list(self.root.glob(".venv-v2.failed-*")), [])
+        self.assertEqual(config.read_text(), "DISCORD_TOKEN=keep-existing\n")
+
     def test_unowned_broken_interpreter_is_not_moved(self):
         b.prepare(self.root)
         (self.root / '.venv-v2/.yeboy-core-owner').unlink()
@@ -398,6 +415,24 @@ class WindowsBootstrapTests(unittest.TestCase):
 
 
 class DiagnosticsTests(unittest.TestCase):
+    def test_ambiguous_venv_redirector_failure_does_not_authorize_rebuild(self):
+        result = subprocess.CompletedProcess([], 101, "", "Unable to create process using private-path")
+        with patch.object(b.subprocess, "run", return_value=result):
+            with self.assertRaises(b.BootstrapError) as caught:
+                b.run(["python", "-I", "-c", b.ENVIRONMENT_PROBE], Path("."))
+        self.assertNotIn(caught.exception.category, b.REBUILDABLE_ENVIRONMENT_CATEGORIES)
+        self.assertEqual(caught.exception.exit_code, 101)
+        self.assertNotIn("private-path", str(caught.exception))
+
+    def test_child_winerror_577_is_not_access_denied_and_preserves_code(self):
+        result = subprocess.CompletedProcess([], 7, "", "[WinError 577] private-path")
+        with patch.object(b.subprocess, "run", return_value=result):
+            with self.assertRaises(b.BootstrapError) as caught:
+                b.run(["python", "-I", "-c", b.ENVIRONMENT_PROBE], Path("."))
+        self.assertEqual(caught.exception.category, "execution-policy")
+        self.assertEqual(caught.exception.winerror, 577)
+        self.assertEqual(caught.exception.exit_code, 7)
+
     def test_safe_failure_report(self):
         with tempfile.TemporaryDirectory() as directory:
             error = b.BootstrapError('secret-token https://private', stage='dependency-install',
@@ -409,6 +444,20 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertEqual(report['exit_code'], 7)
             self.assertNotIn('secret-token', content)
             self.assertNotIn('https://private', content)
+
+    def test_failure_report_preserves_only_valid_attempt_id_and_operation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "data/v2/install-report.json"
+            error = b.BootstrapError("private")
+            b.write_failure_report(directory, error, attempt_id="a" * 32, operation="repair")
+            report = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual((report["schema"], report["attempt_id"], report["operation"]),
+                             (2, "a" * 32, "repair"))
+            b.write_failure_report(directory, error, attempt_id="private-token", operation="private")
+            report = json.loads(path.read_text(encoding="utf-8"))
+            self.assertRegex(report["attempt_id"], r"^[a-f0-9]{32}$")
+            self.assertEqual(report["operation"], "install")
+            self.assertNotIn("private", path.read_text(encoding="utf-8"))
 
     def test_failed_process_exposes_stage_not_output(self):
         result = subprocess.CompletedProcess([], 7, '', 'CERTIFICATE_VERIFY_FAILED secret-token')

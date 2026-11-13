@@ -9,7 +9,7 @@ if not exist "%SETUP_PS%" goto missing
 if not exist "%~dp0tools\windows_setup.ps1" goto missing
 set "SETUP_MODE=Ensure"
 if "%~1"=="--repair" set "SETUP_MODE=Repair"
-"%SETUP_PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\windows_setup.ps1" -Mode %SETUP_MODE%
+"%SETUP_PS%" -NoLogo -NoProfile -File "%~dp0tools\windows_setup.ps1" -Mode %SETUP_MODE%
 exit /b %ERRORLEVEL%
 :missing
 echo Потрібні всі файли проєкту та Windows PowerShell 5.1. Повторно розпакуйте архів.

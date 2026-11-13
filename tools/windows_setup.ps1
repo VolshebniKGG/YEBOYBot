@@ -45,48 +45,64 @@ function Test-YeboySourceBundle {
     return $false
 }
 
+function Test-YeboyReportPath {
+    param([string]$Path)
+    foreach ($entry in @((Join-Path $script:YeboyRoot 'data'),
+            (Join-Path $script:YeboyRoot 'data\v2'), $Path)) {
+        $item = Get-Item -LiteralPath $entry -Force -ErrorAction SilentlyContinue
+        if ($null -ne $item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Test-YeboyFreshVenvDeniedReport {
-    # Distinguish the last Python child error from stale, unrelated install logs.
     $path = Join-Path $script:YeboyRoot 'data\v2\install-report.json'
     try {
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
-        if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { return $false }
+        if ($script:YeboyAttemptId -cnotmatch '^[a-f0-9]{32}$' -or
+            $null -eq $script:YeboyBootstrapStarted -or -not (Test-YeboyReportPath $path)) { return $false }
+        $file = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        if ($file.PSIsContainer -or $file.Length -gt 16384) { return $false }
         $data = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         $stamp = [DateTimeOffset]::Parse([string]$data.time_utc,
             [Globalization.CultureInfo]::InvariantCulture)
-        $age = ([DateTimeOffset]::UtcNow - $stamp).TotalMinutes
-        return ($age -ge -1 -and $age -le 5 -and
-            $data.stage -eq 'environment-probe' -and
-            $data.category -eq 'access-denied' -and
-            [int]$data.winerror -eq 5)
+        return ($data.schema -eq 2 -and $data.status -ceq 'failed' -and
+            $data.attempt_id -ceq $script:YeboyAttemptId -and
+            $stamp -ge $script:YeboyBootstrapStarted -and $stamp -le [DateTimeOffset]::UtcNow -and
+            $data.stage -ceq 'environment-probe' -and
+            $data.category -ceq 'access-denied' -and $data.winerror -eq 5)
     } catch { return $false }
 }
 
 function Get-YeboyVenvBlockEvents {
-    # Optional, read-only inspection of *recent* Windows event IDs.
-    # Match the failing venv Python, not unrelated python.exe processes.
-    # Raw events contain local paths and must NEVER be printed or saved.
-    $start = (Get-Date).AddMinutes(-15)
+    # Use named event payload fields. A process name in the display message
+    # may describe the caller or an unrelated installation on the same PC.
+    if ($null -eq $script:YeboyBootstrapStarted) { return }
+    $target = Join-Path $script:YeboyRoot '.venv-v2\Scripts\python.exe'
     $sources = @(
-        @{ Log = 'Microsoft-Windows-CodeIntegrity/Operational'; Id = 3077; Code = 'CodeIntegrity:3077' },
-        @{ Log = 'Microsoft-Windows-AppLocker/EXE and DLL'; Id = 8004; Code = 'AppLocker:8004' },
-        @{ Log = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1121; Code = 'Defender:1121' }
+        @{ Log = 'Microsoft-Windows-CodeIntegrity/Operational'; Id = 3077; Code = 'CodeIntegrity:3077'; Field = 'FileName' },
+        @{ Log = 'Microsoft-Windows-AppLocker/EXE and DLL'; Id = 8004; Code = 'AppLocker:8004'; Field = 'FilePath' },
+        @{ Log = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1121; Code = 'Defender:1121'; Field = 'Path' }
     )
     foreach ($source in $sources) {
         try {
-            $filter = @{ LogName = [string]$source.Log; Id = [int]$source.Id; StartTime = $start }
+            $filter = @{ LogName = [string]$source.Log; Id = [int]$source.Id
+                StartTime = $script:YeboyBootstrapStarted.LocalDateTime; EndTime = [DateTime]::Now }
             $events = @(Get-WinEvent -FilterHashtable $filter -MaxEvents 30 -ErrorAction Stop)
             foreach ($event in $events) {
-                $message = [string]$event.Message
-                if ($message -match '(?i)\.venv-v2' -and $message -match '(?i)pythonw?\.exe') {
-                    Write-Output ([string]$source.Code)
-                    break
-                }
+                try {
+                    [xml]$xml = $event.ToXml()
+                    foreach ($field in $xml.SelectNodes("//*[local-name()='EventData']/*[local-name()='Data']")) {
+                        if ($field.GetAttribute('Name') -ieq $source.Field -and
+                            $field.InnerText -ieq $target) {
+                            Write-Output ([string]$source.Code)
+                            break
+                        }
+                    }
+                } catch { continue }
             }
-        } catch {
-            # Empty/inaccessible event logs do not prove there was no block.
-            continue
-        }
+        } catch { continue }
     }
 }
 
@@ -103,19 +119,13 @@ function Write-YeboyLauncherReport {
     $destination = Join-Path $directory 'launcher-report.json'
     $temporary = $null
     try {
-        if ((Test-Path -LiteralPath $directory) -and
-            ((Get-Item -LiteralPath $directory -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-            throw 'Unsafe report directory'
-        }
+        if (-not (Test-YeboyReportPath $destination)) { throw 'Unsafe report path' }
         [void][IO.Directory]::CreateDirectory($directory)
-        if ((Test-Path -LiteralPath $destination) -and
-            ((Get-Item -LiteralPath $destination -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-            throw 'Unsafe report target'
-        }
         $allowed = @('CodeIntegrity:3077', 'AppLocker:8004', 'Defender:1121')
         $safeEvents = @($EventCodes | Where-Object { $allowed -ccontains $_ } | Select-Object -Unique)
         $report = [ordered]@{
             schema = 2
+            attempt_id = $script:YeboyAttemptId
             timestamp_utc = [DateTime]::UtcNow.ToString('o')
             status = 'failed'
             stage = $Stage
@@ -264,6 +274,13 @@ function Find-YeboyWinget {
     return $null
 }
 
+function Confirm-YeboyPackageInstall {
+    param([string]$Package)
+    Write-Host ('[i] WinGet встановить {0} для поточного користувача з офіційного каталогу.' -f $Package)
+    $choice = Read-Host 'Погоджуєтеся з умовами пакета й каталогу та дозволяєте встановлення? [1] Так, Enter — ні'
+    return ($null -ne $choice -and $choice.Trim() -eq '1')
+}
+
 function Invoke-YeboyWinget {
     param([Parameter(Mandatory)][string]$Executable)
     # Official catalog; WinGet validates its installer hash. Never bypass it.
@@ -285,9 +302,9 @@ function Invoke-YeboyWingetMedia {
         return 1
     }
     $package = if ($Name -eq 'ffmpeg') { 'Gyan.FFmpeg' } else { 'DenoLand.Deno' }
-    Write-Host ('[i] Windows заборонила запуск локального {0}. Пробуємо офіційний WinGet ({1}) для цього користувача...' -f $Name, $package)
-    # The user explicitly chose [1] setup, which explains this fallback
-    # before installation. Keep official source/hash/terms and per-user scope.
+    Write-Host ('[!] Windows відмовила у запуску локального {0} (WinError 5). Причина не підтверджена.' -f $Name)
+    if (-not (Confirm-YeboyPackageInstall -Package $package)) { return 2 }
+    # Keep official source/hash/terms and per-user scope.
     $arguments = @('install', '--id', $package, '--exact', '--source', 'winget',
                    '--scope', 'user', '--architecture', 'x64', '--silent',
                    '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
@@ -313,13 +330,19 @@ function Invoke-YeboyBootstrap {
     }
     $arguments = @('-I', '-X', 'utf8', $entry)
     if ($Repair) { $arguments += '--repair' }
+    if (-not $script:YeboyAttemptId) { $script:YeboyAttemptId = [guid]::NewGuid().ToString('N') }
+    $script:YeboyBootstrapStarted = [DateTimeOffset]::UtcNow
+    $previousAttempt = $env:YEBOY_INSTALL_ATTEMPT
     try {
+        $env:YEBOY_INSTALL_ATTEMPT = $script:YeboyAttemptId
         $global:LASTEXITCODE = 1
         & $Python @arguments | Out-Host
         return [int]$LASTEXITCODE
     } catch {
         Write-Host 'Не вдалося запустити встановлення бібліотек. Перевірте доступ до папки проєкту.'
         return 1
+    } finally {
+        $env:YEBOY_INSTALL_ATTEMPT = $previousAttempt
     }
 }
 
@@ -567,11 +590,15 @@ function Install-YeboyCore {
             Write-Host 'Після встановлення повторно відкрийте YEBOYBot.cmd. Дані бота збережено.'
             return 1
         }
+        if (-not (Confirm-YeboyPackageInstall -Package 'Python.Python.3.12')) {
+            Write-Host '[i] Встановлення Python скасовано.'
+            return 0
+        }
         Write-Host 'Встановлення Python для поточного користувача через офіційний каталог WinGet...'
         $installed = Invoke-YeboyWinget -Executable $winget
         if ($installed -ne 0) {
             Write-Host ('Встановлення Python не підтверджено (код {0}). Перевірте інтернет, App Installer і правила Windows; повторіть пізніше.' -f $installed)
-            return 1
+            return $installed
         }
         # A running console retains its old PATH. Probe registry/default paths too.
         $python = Find-YeboyPython
@@ -612,6 +639,7 @@ function Install-YeboyCore {
             if ($attempted[$name]) { break }
             $attempted[$name] = $true
             $wingetCode = Invoke-YeboyWingetMedia -Name $name
+            if ($wingetCode -eq 2) { break }
             # Even if WinGet returns 'already installed', resolve the actual
             # executable and verify its version via absolute path, not PATH.
             $report = Invoke-YeboySystemMediaProbe -Python $python
@@ -629,8 +657,7 @@ function Install-YeboyCore {
     $script:YeboyInstallStage = 'readiness'
     Write-Host '[4/4] Перевірка середовища та критичних бібліотек...'
     if (-not (Test-YeboyEnvironment)) {
-        Write-Host 'Перевірка бібліотек не пройдена. Для відновлення виконайте в папці бота:'
-        Write-Host 'powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows_setup.ps1 -Mode Repair'
+        Write-Host 'Перевірка бібліотек не пройдена. Відкрийте YEBOYBot.cmd та виберіть [1] початкового меню для повторної перевірки.'
         return 1
     }
     Write-Host 'ГОТОВО: Python, бібліотеки Core V2, FFmpeg і Deno перевірені.'
@@ -648,14 +675,12 @@ function Show-YeboySetup {
         Write-Host '[0] Закрити вікно без встановлення'
         Write-Host '[1] Перевірити й встановити потрібне для Core V2'
         Write-Host ''
-        Write-Host '[1] дозволяє встановити Python 3.12 x64 для цього користувача,'
-        Write-Host 'якщо його немає, через WinGet з погодженням умов Python і каталогу.'
+        Write-Host 'Якщо Python 3.12 x64 відсутній, перед WinGet буде окреме підтвердження.'
         Write-Host 'Спочатку буде перевірено Python, FFmpeg і Deno, показано версії та шляхи.'
         Write-Host 'Ви оберете: використовувати сумісні FFmpeg/Deno з ПК або локальні.'
         Write-Host 'Python-бібліотеки ізолюються в .venv-v2; глобальні пакети не змінюються.'
         Write-Host 'Якщо потрібні локальні програми, архіви перевіряються за SHA-256.'
-        Write-Host 'Якщо Windows заблокує запуск локального FFmpeg/Deno, [1] дозволяє'
-        Write-Host 'резервне встановлення офіційного пакета через WinGet для користувача.'
+        Write-Host 'У разі відмови запуску FFmpeg/Deno WinGet потребуватиме окремого підтвердження.'
         Write-Host 'Нічого вручну в PowerShell робити не потрібно; PATH не змінюємо самі.'
         Write-Host 'Потрібні інтернет і дозвіл Windows на встановлення програм.'
         $choice = Read-Host 'Номер дії (Enter — вихід)'
@@ -664,6 +689,8 @@ function Show-YeboySetup {
             Write-Host 'Оберіть [1] для встановлення або [0] для виходу.'
             continue
         }
+        $script:YeboyAttemptId = [guid]::NewGuid().ToString('N')
+        $script:YeboyBootstrapStarted = $null
         $script:YeboyInstallStage = 'source-bundle'
         if (-not (Test-YeboySourceBundle)) {
             Write-YeboyLauncherReport -Stage 'source-bundle' -ExitCode 1

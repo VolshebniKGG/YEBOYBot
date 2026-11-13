@@ -85,12 +85,13 @@ foreach ($name in @('Find-YeboyPython', 'Find-YeboyWinget', 'Invoke-YeboyWinget'
 
 @WINDOWS
 def test_main_cmd_without_python_displays_panel_and_can_exit_from_arbitrary_cwd(tmp_path):
-    root = tmp_path / "Порожній ПК O'Connor & бот"
+    root = tmp_path / "Порожній ПК O'Connor & бот (!)"
     (root / "tools").mkdir(parents=True)
     shutil.copy2(ROOT / "YEBOYBot.cmd", root)
     shutil.copy2(SOURCE, root / "tools/windows_setup.ps1")
     environment = dict(os.environ)
     environment["PATH"] = str(tmp_path / "empty-path")
+    environment["PSExecutionPolicyPreference"] = "RemoteSigned"
     result = subprocess.run(
         _cmd_entry(root / "YEBOYBot.cmd"),
         cwd=tmp_path, env=environment, input="0\n", text=True,
@@ -111,7 +112,8 @@ def test_main_cmd_enters_real_prepared_core_menu_from_arbitrary_cwd(tmp_path):
         pytest.skip("CI Core installation not prepared")
     result = subprocess.run(
         _cmd_entry(ROOT / "YEBOYBot.cmd"),
-        cwd=tmp_path, input="0\n", text=True, encoding="utf-8", errors="replace",
+        cwd=tmp_path, env={**os.environ, "PSExecutionPolicyPreference": "RemoteSigned"},
+        input="0\n", text=True, encoding="utf-8", errors="replace",
         capture_output=True, timeout=60,
     )
     assert result.returncode == 0, result.stdout + result.stderr
@@ -152,6 +154,7 @@ def test_python_install_failure_never_runs_bootstrap(tmp_path, installer_code):
     _run_ps(tmp_path, r"""
 function Find-YeboyPython { return $null }
 function Find-YeboyWinget { return 'fake-winget' }
+function Confirm-YeboyPackageInstall { return $true }
 function Invoke-YeboyWinget { return INSTALLER_CODE }
 function Invoke-YeboyBootstrap { throw 'Bootstrap after failed Python install' }
 $code = Install-YeboyCore -AllowPythonInstall
@@ -160,11 +163,25 @@ Assert-True ($code -ne 0) 'Installer failure cannot report success'
 
 
 @WINDOWS
+def test_declining_python_package_never_runs_installer_or_bootstrap(tmp_path):
+    _run_ps(tmp_path, r"""
+function Find-YeboyPython { return $null }
+function Find-YeboyWinget { return 'fake-winget' }
+function Read-Host { return '0' }
+function Invoke-YeboyWinget { throw 'Declined installer must never run' }
+function Invoke-YeboyBootstrap { throw 'No verified Python' }
+$code = Install-YeboyCore -AllowPythonInstall
+Assert-True ($code -eq 0) 'Declining Python is a user cancellation'
+""")
+
+
+@WINDOWS
 def test_installer_success_without_discoverable_python_never_runs_bootstrap(tmp_path):
     _run_ps(tmp_path, r"""
 $script:FindCalls = 0
 function Find-YeboyPython { $script:FindCalls++; return $null }
 function Find-YeboyWinget { return 'fake-winget' }
+function Confirm-YeboyPackageInstall { return $true }
 function Invoke-YeboyWinget { return 0 }
 function Invoke-YeboyBootstrap { throw 'No interpreter was verified' }
 $code = Install-YeboyCore -AllowPythonInstall
@@ -186,6 +203,7 @@ function Find-YeboyPython {
     return $script:ExpectedPython
 }
 function Find-YeboyWinget { return 'fake-winget' }
+function Confirm-YeboyPackageInstall { return $true }
 function Invoke-YeboyWinget([string] $Executable) {
     Assert-True ($Executable -eq 'fake-winget') 'Use discovered package manager'
     $script:InstallCalls++
@@ -376,7 +394,8 @@ def test_bootstrap_entry_launches_real_verified_python_in_isolated_mode(tmp_path
     (root / "tools/__init__.py").write_text("", encoding="utf-8")
     (launcher / "__init__.py").write_text("", encoding="utf-8")
     (launcher / "bootstrap.py").write_text(
-        "import sys\n"
+        "import os, re, sys\n"
+        "assert re.fullmatch(r'[0-9a-f]{32}', os.environ['YEBOY_INSTALL_ATTEMPT'])\n"
         "from pathlib import Path\n"
         "assert sys.flags.isolated, 'Python isolation must stay active'\n"
         f"assert sys.argv[1:] == {['--repair'] if repair else []!r}, sys.argv\n"
@@ -494,10 +513,16 @@ def test_fresh_access_denial_report_is_required_before_querying_security_events(
 $script:YeboyRoot = ROOT_LITERAL
 $path = Join-Path $script:YeboyRoot 'data/v2/install-report.json'
 [void][IO.Directory]::CreateDirectory((Split-Path -Parent $path))
-$sample = @{time_utc = [DateTimeOffset]::UtcNow.ToString('o');
+$script:YeboyAttemptId = [guid]::NewGuid().ToString('N')
+$script:YeboyBootstrapStarted = [DateTimeOffset]::UtcNow.AddSeconds(-1)
+$sample = @{schema = 2; status = 'failed'; attempt_id = $script:YeboyAttemptId; time_utc = [DateTimeOffset]::UtcNow.ToString('o');
     stage = 'environment-probe'; category = 'access-denied'; winerror = 5}
 $sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
 Assert-True (Test-YeboyFreshVenvDeniedReport) 'Fresh matching WinError 5'
+$sample.attempt_id = [guid]::NewGuid().ToString('N')
+$sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
+Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'Fresh report from another launcher'
+$sample.attempt_id = $script:YeboyAttemptId
 $sample.time_utc = [DateTimeOffset]::UtcNow.AddDays(-1).ToString('o')
 $sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
 Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'No stale event scan'
@@ -511,15 +536,24 @@ Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'Do not confuse locked file
 @WINDOWS
 def test_execution_log_probe_filters_target_and_never_displays_raw_messages(tmp_path):
     result = _run_ps(tmp_path, r"""
+$script:YeboyBootstrapStarted = [DateTimeOffset]::UtcNow.AddSeconds(-1)
+$script:ExpectedTarget = Join-Path $script:YeboyRoot '.venv-v2\Scripts\python.exe'
+function New-TestEvent([string]$Field, [string]$Value) {
+    $event = [pscustomobject]@{ Payload = ('<Event><EventData><Data Name="{0}">{1}</Data></EventData></Event>' -f
+        $Field, [Security.SecurityElement]::Escape($Value)) }
+    $event | Add-Member -MemberType ScriptMethod -Name ToXml -Value { $this.Payload }
+    return $event
+}
 function Get-WinEvent {
     param($FilterHashtable, [int]$MaxEvents, [string]$ErrorAction)
-    if ($FilterHashtable.Id -eq 3077) {
-        return [pscustomobject]@{Message = 'private-token: C:\\Test\\.venv-v2\\Scripts\\python.exe rejected'}
-    }
+    Assert-True ($FilterHashtable.StartTime -eq $script:YeboyBootstrapStarted.LocalDateTime) 'Only current attempt window'
+    if ($FilterHashtable.Id -eq 3077) { return (New-TestEvent 'FileName' $script:ExpectedTarget) }
     if ($FilterHashtable.Id -eq 8004) {
-        return [pscustomobject]@{Message = 'Another unrelated program blocked'}
+        return (New-TestEvent 'FilePath' 'C:\Other Bot\.venv-v2\Scripts\python.exe')
     }
-    if ($FilterHashtable.Id -eq 1121) { throw 'Not accessible' }
+    if ($FilterHashtable.Id -eq 1121) {
+        return (New-TestEvent 'Process Name' $script:ExpectedTarget)
+    }
 }
 $codes = @(Get-YeboyVenvBlockEvents)
 Assert-True ($codes.Count -eq 1) 'Only matching executable and a known event ID'
@@ -537,18 +571,24 @@ def test_setup_records_only_allowlisted_security_event_codes_after_denied_venv(t
 $script:YeboyRoot = ROOT_LITERAL
 $path = Join-Path $script:YeboyRoot 'data/v2/install-report.json'
 [void][IO.Directory]::CreateDirectory((Split-Path -Parent $path))
-@{time_utc = [DateTimeOffset]::UtcNow.ToString('o'); stage = 'environment-probe';
-  category = 'access-denied'; winerror = 5} |
-    ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
 function Test-YeboySourceBundle { return $true }
 function Read-Host { return '1' }
-function Install-YeboyCore { $script:YeboyInstallStage = 'bootstrap'; return 1 }
+function Install-YeboyCore {
+    $script:YeboyInstallStage = 'bootstrap'
+    $script:YeboyBootstrapStarted = [DateTimeOffset]::UtcNow
+    @{schema = 2; status = 'failed'; attempt_id = $script:YeboyAttemptId;
+      time_utc = [DateTimeOffset]::UtcNow.ToString('o'); stage = 'environment-probe';
+      category = 'access-denied'; winerror = 5} |
+        ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
+    return 1
+}
 function Get-YeboyVenvBlockEvents { return @('CodeIntegrity:3077','private-token') }
 $code = Show-YeboySetup
 Assert-True ($code -eq 1) 'Setup error is retained'
 $report = Get-Content -LiteralPath (Join-Path $script:YeboyRoot 'data/v2/launcher-report.json') -Raw |
     ConvertFrom-Json
 Assert-True ($report.stage -eq 'bootstrap') 'Stage preserved'
+Assert-True ($report.attempt_id -ceq $script:YeboyAttemptId) 'Attempt ID preserved'
 Assert-True ($report.matched_security_events.Count -eq 1) 'Untrusted event IDs discarded'
 Assert-True ($report.matched_security_events[0] -eq 'CodeIntegrity:3077') 'Only known event evidence recorded'
 """.replace("ROOT_LITERAL", _literal(root)))
@@ -687,6 +727,7 @@ def test_media_winget_fallback_uses_pinned_official_package_and_user_scope(tmp_p
     _run_ps(tmp_path, r"""
 $script:Captured = @()
 function Find-YeboyWinget { return 'Invoke-TestWinget' }
+function Confirm-YeboyPackageInstall { return $true }
 function Invoke-TestWinget {
     $script:Captured = @($args)
     $global:LASTEXITCODE = 0
@@ -708,6 +749,17 @@ foreach ($bad in @('--force', '--ignore-security-hash', '--override')) {
     Assert-True (-not ($argsSeen -contains $bad)) ('No security bypass ' + $bad)
 }
 """.replace("NAME_PLACEHOLDER", _literal(name)).replace("PACKAGE_PLACEHOLDER", _literal(package)))
+
+
+@WINDOWS
+def test_media_winget_decline_never_executes_installer(tmp_path):
+    _run_ps(tmp_path, r"""
+function Find-YeboyWinget { return 'Invoke-TestWinget' }
+function Invoke-TestWinget { throw 'Declined installer must never run' }
+function Read-Host { return '' }
+$code = Invoke-YeboyWingetMedia -Name ffmpeg
+Assert-True ($code -eq 2) 'Declining WinGet ends the fallback'
+""")
 
 
 @WINDOWS

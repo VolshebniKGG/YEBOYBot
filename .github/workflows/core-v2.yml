@@ -27,6 +27,8 @@ jobs:
       - name: Windows first and repeat installation
         if: runner.os == 'Windows'
         shell: cmd
+        env:
+          PSExecutionPolicyPreference: RemoteSigned
         run: |
           call install_v2.bat
           if errorlevel 1 exit /b 1
