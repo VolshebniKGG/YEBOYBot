@@ -250,3 +250,8 @@ def test_redirector_winerror_5_preserves_code_and_names_venv(tmp_path, monkeypat
     assert caught.value.exit_code == 91
     assert ".venv-v2" in str(caught.value)
     assert PRIVATE not in str(caught.value)
+
+
+def test_incidental_missing_python_text_does_not_authorize_rebuild():
+    assert b.failure_hint('Error: project named "No Python at home"')[0] == "unknown"
+    assert b.failure_hint("No Python at 'C:\\Python312\\python.exe'")[0] == "broken-interpreter"

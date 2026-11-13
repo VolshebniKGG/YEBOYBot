@@ -203,8 +203,6 @@ def output_failure(output):
          "Не вдалося отримати пакети через мережу. Перевірте DNS, HTTPS-доступ до pypi.org і files.pythonhosted.org, брандмауер та проксі."),
         (("sslerror", "tlsv1 alert", "tls handshake"), "tls",
          "Захищене TLS-з'єднання не встановлено. Перевірте Windows, сертифікати та мережевий фільтр; не вимикайте перевірку TLS."),
-        (("no python at",), "broken-interpreter",
-         "Середовище посилається на відсутній Python. Потрібне відновлення .venv-v2 зі справного Python 3.12 x64."),
         (("no module named", "modulenotfounderror", "packagenotfounderror"), "missing-module",
          "Не знайдено потрібний модуль. Запустіть відновлення бібліотек після перевірки середовища."),
         (("permission denied", "access is denied"), "access-denied",
@@ -219,6 +217,10 @@ def output_failure(output):
     ):
         if any(pattern in value for pattern in patterns):
             return category, hint, first_code
+    if re.match(r"""^no python at ['"]""", value.lstrip()):
+        return "broken-interpreter", (
+            "Середовище посилається на відсутній Python. Потрібне відновлення .venv-v2 зі справного Python 3.12 x64."
+        ), first_code
     return "unknown", "Причину не визначено автоматично. Передайте безпечний install-report.json для діагностики; не повторюйте встановлення навмання.", first_code
 
 
