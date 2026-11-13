@@ -130,9 +130,10 @@ def command_failure(error, stage):
     elif isinstance(error, OSError):
         category, hint = os_failure_hint(error)
     else:
-        output = str(getattr(error, "output", "") or "") + str(getattr(error, "stderr", "") or "")
+        output = str(getattr(error, "output", "") or "") + "\n" + str(getattr(error, "stderr", "") or "")
+        win = reported_winerror(output)
         category, hint = failure_hint(output)
-    if stage == "environment-probe" and category == "access-denied":
+    if stage == "environment-probe" and category == "access-denied" and isinstance(error, OSError):
         hint = (
             "Системний Python працює, але Windows відмовила у запуску Python "
             "з ізольованої .venv-v2 (WinError 5 або EACCES). "
@@ -161,18 +162,19 @@ def command_stage(args):
     return "dependency-install" if "install" in args else "subprocess"
 
 
-def failure_hint(output):
-    """Map pip's untrusted output to a fixed, secret-free diagnostic.
+def reported_winerror(output):
+    """Extract an unambiguous code from Python's standard exception format."""
+    codes = {int(code) for code in re.findall(r"\[WinError (\d{1,10})\]", output, re.IGNORECASE)}
+    return next(iter(codes)) if len(codes) == 1 else None
 
-    A failed index lookup often ends with "No matching distribution" even
-    when the underlying cause is DNS, TLS or a broken proxy. Check those
-    signatures first, without copying any URLs or exception details.
-    """
+
+def failure_hint(output):
+    """Classify child failures without publishing the child's output."""
     value = output.lower()
-    # Match complete numeric tokens: WinError 577 is not WinError 5.
-    for match in re.finditer(r"\bwinerror\s+(\d{1,10})\b", value):
+    winerror = reported_winerror(output)
+    if winerror is not None:
         error = OSError()
-        error.winerror = int(match.group(1))
+        error.winerror = winerror
         category, hint = os_failure_hint(error)
         if category != "filesystem":
             return category, hint
@@ -193,8 +195,6 @@ def failure_hint(output):
          "Не вдалося отримати пакети через мережу. Перевірте DNS, HTTPS-доступ до pypi.org і files.pythonhosted.org, брандмауер та проксі."),
         (("sslerror", "tlsv1 alert", "tls handshake"), "tls",
          "Захищене TLS-з'єднання не встановлено. Перевірте Windows, сертифікати та мережевий фільтр; не вимикайте перевірку TLS."),
-        (("no python at", "unable to create process"), "broken-interpreter",
-         "Середовище посилається на відсутній Python. Потрібне відновлення .venv-v2 зі справного Python 3.12 x64."),
         (("no module named", "modulenotfounderror", "packagenotfounderror"), "missing-module",
          "Не знайдено потрібний модуль. Запустіть відновлення бібліотек після перевірки середовища."),
         (("permission denied", "access is denied"), "access-denied",
@@ -207,9 +207,12 @@ def failure_hint(output):
     ):
         if any(pattern in value for pattern in patterns):
             return category, hint
+    if re.match(r"^no python at ['\"]", value.lstrip()):
+        return "broken-interpreter", (
+            "Середовище посилається на відсутній Python. Потрібне відновлення .venv-v2 зі справного Python 3.12 x64.")
     return "unknown", "Причину не визначено автоматично. Передайте безпечний install-report.json для діагностики; не повторюйте встановлення навмання."
 
-def write_failure_report(root, error):
+def write_failure_report(root, error, *, attempt_id=None):
     error = normalize_failure(error)
     path = Path(root) / "data/v2/install-report.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -222,13 +225,18 @@ def write_failure_report(root, error):
               "exit_code": numeric_code(getattr(error, "exit_code", None)),
               "errno": numeric_code(getattr(error, "errno", None)),
               "winerror": numeric_code(getattr(error, "winerror", None))}
+    if isinstance(attempt_id, str) and re.fullmatch(r"[0-9a-f]{32}", attempt_id):
+        report["attempt_id"] = attempt_id
     temporary = path.with_name("install-report-" + uuid.uuid4().hex + ".tmp")
     try:
         with temporary.open("x", encoding="utf-8") as stream:
             json.dump(report, stream, ensure_ascii=False, indent=2)
         os.replace(temporary, path)
     finally:
-        temporary.unlink(missing_ok=True)
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass  # Preserve the original diagnostic/report failure.
 
 
 def run(args, root):
@@ -239,14 +247,15 @@ def run(args, root):
     except (OSError, subprocess.SubprocessError) as exc:
         raise command_failure(exc, stage) from exc
     if result.returncode:
-        category, hint = failure_hint((result.stdout or "") + "\n" + (result.stderr or ""))
-        if stage == "pip-upgrade" and category == "package-unavailable":
-            hint = ("Фіксована версія pip " + PIP_VERSION +
-                    " існує на PyPI, але її не вдалося отримати з цього ПК. " 
-                    "Перевірте https://pypi.org/simple/pip/ у браузері та доступ до "
-                    "files.pythonhosted.org; перевстановлення Python зазвичай не потрібне.")
-        raise BootstrapError(hint,
-                             stage=stage, category=category, exit_code=result.returncode)
+        error = command_failure(subprocess.CalledProcessError(
+            result.returncode, args, output=result.stdout, stderr=result.stderr), stage)
+        if stage == "pip-upgrade" and error.category == "package-unavailable":
+            error.args = (
+                f"Фіксована версія pip {PIP_VERSION} існує на PyPI, але її не вдалося отримати з цього ПК. "
+                "Перевірте https://pypi.org/simple/pip/ у браузері та доступ до "
+                "files.pythonhosted.org; перевстановлення Python зазвичай не потрібне.",
+            )
+        raise error
     return result.stdout or ""
 
 
@@ -459,7 +468,7 @@ def main():
         exc = normalize_failure(exc)
         print(render_failure(exc))
         try:
-            write_failure_report(ROOT, exc)
+            write_failure_report(ROOT, exc, attempt_id=os.environ.get("YEBOY_BOOTSTRAP_ATTEMPT_ID"))
             print("Безпечний звіт: data/v2/install-report.json (без токена, URL і вмісту конфігурації).")
         except OSError:
             print("Не вдалося записати новий звіт; попередній файл може бути застарілим. Збережіть наведений вище блок помилки.")
