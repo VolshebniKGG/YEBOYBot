@@ -317,3 +317,56 @@ async def test_configuration_after_unload_is_refused_without_sql(context):
     with pytest.raises(UserError, match='завершує'):
         await Community.welcome.callback(c.cog, c.interaction, c.channel)
     c.bot.db.configure.assert_not_awaited()
+
+
+@pytest.mark.parametrize("members_enabled", [True, False])
+async def test_status_reports_configured_targets_without_writes(context, members_enabled):
+    c = context
+    role = MagicMock(spec=discord.Role, guild=c.guild, permissions=c.role.permissions)
+    role.is_default.return_value = False
+    role.__ge__.side_effect = c.role.__ge__
+    role.managed = False
+    c.guild.get_role = lambda _: role
+    c.bot.intents.members = members_enabled
+
+    await Community.status.callback(c.cog, c.interaction)
+
+    message = c.interaction.followup.send.await_args
+    assert message.kwargs["ephemeral"]
+    assert message.kwargs["allowed_mentions"].to_dict()["parse"] == []
+    assert "<#50>" in message.args[0] and "<@&30>" in message.args[0]
+    assert ("очікує Server Members Intent" in message.args[0]) is not members_enabled
+    assert ("доступні події ролей і каналів" in message.args[0]) is not members_enabled
+    c.bot.db.configure.assert_not_awaited()
+    c.member.add_roles.assert_not_awaited()
+    c.channel.send.assert_not_awaited()
+
+
+async def test_status_explains_missing_target_and_revoked_permissions(context):
+    c = context
+    c.settings["welcome_channel"] = 900
+    c.settings["autorole"] = None
+    c.channel.permissions_for.return_value = discord.Permissions.none()
+
+    await Community.status.callback(c.cog, c.interaction)
+
+    message = c.interaction.followup.send.await_args.args[0]
+    assert "ціль недоступна (ID 900)" in message
+    assert "**Автороль** · вимкнено" in message
+    assert "View Channel і Send Messages" in message
+
+
+async def test_status_requires_manage_guild(context):
+    c = context
+    c.actor.guild_permissions = discord.Permissions.none()
+    with pytest.raises(UserError):
+        await Community.status.callback(c.cog, c.interaction)
+    c.bot.db.get_settings.assert_not_awaited()
+
+
+async def test_status_handles_database_failure_without_details(context):
+    c = context
+    c.bot.db.get_settings.side_effect = RuntimeError("private database details")
+    await Community.status.callback(c.cog, c.interaction)
+    assert "Не вдалося прочитати" in c.interaction.followup.send.await_args.args[0]
+    assert "private" not in c.interaction.followup.send.await_args.args[0]

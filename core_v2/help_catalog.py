@@ -48,6 +48,7 @@ _CATEGORIES = {
     "role-panel remove": "community",
     "automod": "community", "community welcome": "community",
     "community autorole": "community", "community logs": "community",
+    "community status": "community",
     "help": "general", "modules": "general", "status": "general",
     "rank": "rank", "levels": "rank", "leaderboard": "rank",
     "kick": "moderation", "ban": "moderation", "unban": "moderation",

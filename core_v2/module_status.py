@@ -270,7 +270,7 @@ async def collect_module_status(bot, guild):
         community_status = "Невідомо: стан модуля не підтверджено."
         if community is not _UNKNOWN:
             community_status = _feature_ready(available, ready) or (
-                "Модуль підключено. Налаштування: `/community welcome`, `/community autorole`, `/community logs`. "
+                "Модуль підключено. Стан: `/community status`. Налаштування: `/community welcome`, `/community autorole`, `/community logs`. "
                 + ("Події учасників дозволені intent." if member_intent is True else
                    "Для привітань, авторолей і входів/виходів потрібен Members Intent."))
         embed.add_field(name="Спільнота", value=community_status, inline=False)

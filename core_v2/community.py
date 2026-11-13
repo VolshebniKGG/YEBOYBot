@@ -124,6 +124,55 @@ class Community(commands.Cog):
         if channel is not None and not self.bot.intents.members:
             await interaction.followup.send("Входи/виходи учасників потребують Server Members Intent та ENABLE_MEMBERS=true. Події ролей і каналів уже доступні.", ephemeral=True)
 
+    @community.command(name="status", description="Перевірити стан і права для автоматизації спільноти")
+    async def status(self, interaction: discord.Interaction):
+        guild = permission(interaction, "manage_guild")
+        await interaction.response.defer(ephemeral=True)
+        async with self._slot() as admitted:
+            if not admitted:
+                raise UserError("Модуль завершує роботу або зайнятий. Спробуйте пізніше.")
+            settings = await self._settings(guild)
+            if settings is None:
+                message = "Не вдалося прочитати налаштування спільноти. Спробуйте пізніше."
+            else:
+                message = self._status_message(guild, settings)
+            async with asyncio.timeout(TIMEOUT):
+                await interaction.followup.send(message, ephemeral=True,
+                                                allowed_mentions=discord.AllowedMentions.none())
+
+    def _status_message(self, guild, settings):
+        lines = ["**Автоматизація спільноти**"]
+        members_enabled = self.bot.intents.members
+        for label, key, mention, lookup, expected, validate in (
+            ("Привітання", "welcome_channel", "#", guild.get_channel, discord.TextChannel, validate_channel),
+            ("Автороль", "autorole", "@&", guild.get_role, discord.Role, validate_autorole),
+            ("Журнал подій", "log_channel", "#", guild.get_channel, discord.TextChannel, validate_channel),
+        ):
+            target_id = settings.get(key)
+            if not target_id:
+                lines.append(f"**{label}** · вимкнено")
+                continue
+            target = lookup(target_id)
+            if not isinstance(target, expected):
+                lines.append(f"**{label}** · ціль недоступна (ID {target_id})")
+                continue
+            try:
+                validate(guild, target)
+            except UserError as error:
+                detail = str(error)
+            else:
+                if members_enabled:
+                    detail = "налаштовано"
+                elif key == "log_channel":
+                    detail = "доступні події ролей і каналів"
+                else:
+                    detail = "очікує Server Members Intent"
+            lines.append(f"**{label}** · <{mention}{target_id}> · {detail}")
+        if not members_enabled:
+            lines.append("Для подій учасників увімкніть Server Members Intent і `ENABLE_MEMBERS=true`, "
+                         "потім перезапустіть бота.")
+        return "\n".join(lines)
+
     async def _settings(self, guild):
         if guild.unavailable or self.bot.get_guild(guild.id) is not guild:
             return None

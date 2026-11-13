@@ -18,7 +18,7 @@ async def test_community_commands_registered_and_discoverable(tmp_path):
         await bot.add_cog(Community(bot))
         await bot.add_cog(AutoMod(bot))
         entries = {entry.name: entry for entry in collect_commands(bot.tree)}
-        for name in ('community welcome', 'community autorole', 'community logs', 'automod'):
+        for name in ('community welcome', 'community autorole', 'community logs', 'community status', 'automod'):
             assert entries[name].category == 'community'
         assert bot._connection.member_cache_flags.joined
     finally:
