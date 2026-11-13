@@ -473,15 +473,89 @@ Write-YeboyLauncherReport -Stage media -ExitCode 31
 $report = Get-Content -LiteralPath (Join-Path $script:YeboyRoot 'data/v2/launcher-report.json') -Raw | ConvertFrom-Json
 Assert-True ($report.stage -eq 'media') 'Last failed stage is recorded'
 Assert-True ($report.exit_code -eq 31) 'Last child code is recorded'
-Assert-True ($report.schema -eq 1 -and $report.status -eq 'failed') 'Minimal versioned diagnostic format'
+Assert-True ($report.schema -eq 2 -and $report.status -eq 'failed') 'Versioned diagnostic format'
 """.replace("FIXTURE_ROOT", _literal(root)))
     report = report_path.read_text(encoding="utf-8-sig")
     import json
     payload = json.loads(report)
-    assert set(payload) == {"schema", "timestamp_utc", "status", "stage", "exit_code"}
+    assert set(payload) == {"schema", "timestamp_utc", "status", "stage", "exit_code",
+                            "matched_security_events"}
+    assert payload["matched_security_events"] == []
     assert "private-token" not in report and "O'Connor" not in report
     assert "password" not in report and "DISCORD_TOKEN" not in report
     assert not list(report_path.parent.glob("launcher-report-*.tmp"))
+
+
+@WINDOWS
+def test_fresh_access_denial_report_is_required_before_querying_security_events(tmp_path):
+    root = tmp_path / "Бот з пробілами"
+    root.mkdir()
+    _run_ps(tmp_path, r"""
+$script:YeboyRoot = ROOT_LITERAL
+$path = Join-Path $script:YeboyRoot 'data/v2/install-report.json'
+[void][IO.Directory]::CreateDirectory((Split-Path -Parent $path))
+$sample = @{time_utc = [DateTimeOffset]::UtcNow.ToString('o');
+    stage = 'environment-probe'; category = 'access-denied'; winerror = 5}
+$sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
+Assert-True (Test-YeboyFreshVenvDeniedReport) 'Fresh matching WinError 5'
+$sample.time_utc = [DateTimeOffset]::UtcNow.AddDays(-1).ToString('o')
+$sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
+Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'No stale event scan'
+$sample.time_utc = [DateTimeOffset]::UtcNow.ToString('o')
+$sample.winerror = 32
+$sample | ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
+Assert-True (-not (Test-YeboyFreshVenvDeniedReport)) 'Do not confuse locked file and execution denial'
+""".replace("ROOT_LITERAL", _literal(root)))
+
+
+@WINDOWS
+def test_execution_log_probe_filters_target_and_never_displays_raw_messages(tmp_path):
+    result = _run_ps(tmp_path, r"""
+function Get-WinEvent {
+    param($FilterHashtable, [int]$MaxEvents, [string]$ErrorAction)
+    if ($FilterHashtable.Id -eq 3077) {
+        return [pscustomobject]@{Message = 'private-token: C:\\Test\\.venv-v2\\Scripts\\python.exe rejected'}
+    }
+    if ($FilterHashtable.Id -eq 8004) {
+        return [pscustomobject]@{Message = 'Another unrelated program blocked'}
+    }
+    if ($FilterHashtable.Id -eq 1121) { throw 'Not accessible' }
+}
+$codes = @(Get-YeboyVenvBlockEvents)
+Assert-True ($codes.Count -eq 1) 'Only matching executable and a known event ID'
+Assert-True ($codes[0] -eq 'CodeIntegrity:3077') 'Untrusted messages never leave the event reader'
+""")
+    assert "private-token" not in result.stdout
+    assert ".venv-v2" not in result.stdout
+
+
+@WINDOWS
+def test_setup_records_only_allowlisted_security_event_codes_after_denied_venv(tmp_path):
+    root = tmp_path / "Бот O'Connor"
+    root.mkdir()
+    result = _run_ps(tmp_path, r"""
+$script:YeboyRoot = ROOT_LITERAL
+$path = Join-Path $script:YeboyRoot 'data/v2/install-report.json'
+[void][IO.Directory]::CreateDirectory((Split-Path -Parent $path))
+@{time_utc = [DateTimeOffset]::UtcNow.ToString('o'); stage = 'environment-probe';
+  category = 'access-denied'; winerror = 5} |
+    ConvertTo-Json -Compress | Set-Content -LiteralPath $path -Encoding UTF8
+function Test-YeboySourceBundle { return $true }
+function Read-Host { return '1' }
+function Install-YeboyCore { $script:YeboyInstallStage = 'bootstrap'; return 1 }
+function Get-YeboyVenvBlockEvents { return @('CodeIntegrity:3077','private-token') }
+$code = Show-YeboySetup
+Assert-True ($code -eq 1) 'Setup error is retained'
+$report = Get-Content -LiteralPath (Join-Path $script:YeboyRoot 'data/v2/launcher-report.json') -Raw |
+    ConvertFrom-Json
+Assert-True ($report.stage -eq 'bootstrap') 'Stage preserved'
+Assert-True ($report.matched_security_events.Count -eq 1) 'Untrusted event IDs discarded'
+Assert-True ($report.matched_security_events[0] -eq 'CodeIntegrity:3077') 'Only known event evidence recorded'
+""".replace("ROOT_LITERAL", _literal(root)))
+    report = (root / "data/v2/launcher-report.json").read_text(encoding="utf-8")
+    assert "private-token" not in report
+    assert "private-token" not in result.stdout
+    assert "O'Connor" not in report
 
 
 @WINDOWS

@@ -45,11 +45,57 @@ function Test-YeboySourceBundle {
     return $false
 }
 
+function Test-YeboyFreshVenvDeniedReport {
+    # Distinguish the last Python child error from stale, unrelated install logs.
+    $path = Join-Path $script:YeboyRoot 'data\v2\install-report.json'
+    try {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+        if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { return $false }
+        $data = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $stamp = [DateTimeOffset]::Parse([string]$data.time_utc,
+            [Globalization.CultureInfo]::InvariantCulture)
+        $age = ([DateTimeOffset]::UtcNow - $stamp).TotalMinutes
+        return ($age -ge -1 -and $age -le 5 -and
+            $data.stage -eq 'environment-probe' -and
+            $data.category -eq 'access-denied' -and
+            [int]$data.winerror -eq 5)
+    } catch { return $false }
+}
+
+function Get-YeboyVenvBlockEvents {
+    # Optional, read-only inspection of *recent* Windows event IDs.
+    # Match the failing venv Python, not unrelated python.exe processes.
+    # Raw events contain local paths and must NEVER be printed or saved.
+    $start = (Get-Date).AddMinutes(-15)
+    $sources = @(
+        @{ Log = 'Microsoft-Windows-CodeIntegrity/Operational'; Id = 3077; Code = 'CodeIntegrity:3077' },
+        @{ Log = 'Microsoft-Windows-AppLocker/EXE and DLL'; Id = 8004; Code = 'AppLocker:8004' },
+        @{ Log = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1121; Code = 'Defender:1121' }
+    )
+    foreach ($source in $sources) {
+        try {
+            $filter = @{ LogName = [string]$source.Log; Id = [int]$source.Id; StartTime = $start }
+            $events = @(Get-WinEvent -FilterHashtable $filter -MaxEvents 30 -ErrorAction Stop)
+            foreach ($event in $events) {
+                $message = [string]$event.Message
+                if ($message -match '(?i)\.venv-v2' -and $message -match '(?i)pythonw?\.exe') {
+                    Write-Output ([string]$source.Code)
+                    break
+                }
+            }
+        } catch {
+            # Empty/inaccessible event logs do not prove there was no block.
+            continue
+        }
+    }
+}
+
 function Write-YeboyLauncherReport {
     param(
         [Parameter(Mandatory)][ValidateSet('source-bundle', 'python', 'media-probe',
             'bootstrap', 'media', 'readiness', 'launcher')][string]$Stage,
-        [Parameter(Mandatory)][int]$ExitCode
+        [Parameter(Mandatory)][int]$ExitCode,
+        [string[]]$EventCodes = @()
     )
     # Persist only a controlled stage, process code, and timestamp. Never
     # serialize exceptions, stdout, user paths, private configuration or tokens.
@@ -66,12 +112,15 @@ function Write-YeboyLauncherReport {
             ((Get-Item -LiteralPath $destination -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
             throw 'Unsafe report target'
         }
+        $allowed = @('CodeIntegrity:3077', 'AppLocker:8004', 'Defender:1121')
+        $safeEvents = @($EventCodes | Where-Object { $allowed -ccontains $_ } | Select-Object -Unique)
         $report = [ordered]@{
-            schema = 1
+            schema = 2
             timestamp_utc = [DateTime]::UtcNow.ToString('o')
             status = 'failed'
             stage = $Stage
             exit_code = $ExitCode
+            matched_security_events = $safeEvents
         } | ConvertTo-Json -Compress
         $temporary = Join-Path $directory ('launcher-report-' + [guid]::NewGuid().ToString('N') + '.tmp')
         [IO.File]::WriteAllText($temporary, $report + "`n", [Text.UTF8Encoding]::new($false))
@@ -631,7 +680,21 @@ function Show-YeboySetup {
             }
         } finally { $script:YeboyInteractiveInstall = $false }
         if ($result -eq 0) { return 0 }
-        Write-YeboyLauncherReport -Stage $script:YeboyInstallStage -ExitCode ([int]$result)
+        $evidence = @()
+        if ($script:YeboyInstallStage -eq 'bootstrap' -and (Test-YeboyFreshVenvDeniedReport)) {
+            Write-Host 'Автоматична перевірка журналів Windows для .venv-v2\Scripts\python.exe…'
+            # Never print or persist a free-form event message: accept only
+            # the three fixed, expected event IDs.
+            $allowedEvents = @('CodeIntegrity:3077', 'AppLocker:8004', 'Defender:1121')
+            $evidence = @(Get-YeboyVenvBlockEvents | Where-Object { $allowedEvents -ccontains $_ } | Select-Object -Unique)
+            if ($evidence.Count -gt 0) {
+                Write-Host ('[!] Знайдені можливі події блокування: {0}.' -f ($evidence -join ', '))
+                Write-Host 'Перевірте політику з адміністратором ПК; захист Windows не змінювався.'
+            } else {
+                Write-Host '[i] Подій блокування не підтверджено. Це не виключає заборону доступу чи сторонній захист.'
+            }
+        }
+        Write-YeboyLauncherReport -Stage $script:YeboyInstallStage -ExitCode ([int]$result) -EventCodes $evidence
         Write-Host ''
         Write-Host ('Встановлення зупинено (код {0}). Причина наведена вище.' -f $result)
         Write-Host 'Усуньте вказану причину й відкрийте YEBOYBot.cmd знову.'

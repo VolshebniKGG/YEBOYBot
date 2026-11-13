@@ -64,6 +64,10 @@ NO_AUTOMATIC_REPAIR = frozenset({
     "access-denied", "file-locked", "execution-policy", "security-blocked",
     "disk-full", "path-too-long", "filesystem", "timeout",
 })
+# Only this explicit signature is evidence of an owned venv pointing at a
+# missing Python install. An unknown process failure or syntax/import error
+# must never cause a rename and duplicate venv creation.
+REBUILDABLE_ENVIRONMENT_CATEGORIES = frozenset({"broken-interpreter"})
 
 
 class BootstrapError(RuntimeError):
@@ -128,6 +132,14 @@ def command_failure(error, stage):
     else:
         output = str(getattr(error, "output", "") or "") + str(getattr(error, "stderr", "") or "")
         category, hint = failure_hint(output)
+    if stage == "environment-probe" and category == "access-denied":
+        hint = (
+            "Системний Python працює, але Windows відмовила у запуску Python "
+            "з ізольованої .venv-v2 (WinError 5 або EACCES). "
+            "YEBOYBot.cmd перевірить доступні журнали блокувань автоматично. "
+            "Це може бути політика виконання програм або права доступу; "
+            "не вимикайте захист Windows і не перевстановлюйте Python навмання."
+        )
     return BootstrapError(hint, stage=stage, category=category,
                           exit_code=exit_code, errno=code, winerror=win)
 
@@ -352,7 +364,7 @@ def prepare(root=ROOT, *, repair=False):
         except BootstrapError as error:
             owner = target / ".yeboy-core-owner"
             if (error.stage != "environment-probe"
-                    or error.category in NO_AUTOMATIC_REPAIR
+                    or error.category not in REBUILDABLE_ENVIRONMENT_CATEGORIES
                     or owner.is_symlink() or not owner.is_file()
                     or owner.read_text(encoding="utf-8") != str(root)):
                 raise

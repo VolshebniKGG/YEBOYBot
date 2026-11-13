@@ -140,7 +140,8 @@ def test_importlib_package_not_found_is_recognized_as_missing_pip():
 
 
 @pytest.mark.parametrize("category", [
-    "access-denied", "execution-policy", "security-blocked", "disk-full", "timeout",
+    "access-denied", "file-locked", "execution-policy", "security-blocked",
+    "disk-full", "timeout", "unknown", "missing-module", "probe-syntax",
 ])
 def test_known_external_failure_does_not_move_owned_environment(tmp_path, monkeypatch, category):
     root = tmp_path.resolve()
@@ -165,6 +166,36 @@ def test_known_external_failure_does_not_move_owned_environment(tmp_path, monkey
     assert owner.read_text(encoding="utf-8") == str(root)
     assert (root / ".env.v2").read_text(encoding="utf-8") == "DISCORD_TOKEN=private-value"
     assert list(root.glob(".venv-v2.failed-*")) == []
+    assert not (root / ".venv-v2/yeboy-requirements.sha256").exists()
+
+
+def test_only_explicit_broken_interpreter_attempts_one_owned_rebuild(tmp_path, monkeypatch):
+    root = tmp_path.resolve()
+    (root / "core_v2").mkdir()
+    (root / "core_v2/requirements.txt").write_text("unused==1\n", encoding="utf-8")
+    interpreter = b.python_path(root)
+    interpreter.parent.mkdir(parents=True)
+    interpreter.write_bytes(b"stale but owned python placeholder")
+    (root / ".venv-v2/.yeboy-core-owner").write_text(str(root), encoding="utf-8")
+    sentinel = root / ".venv-v2/keep.txt"
+    sentinel.write_text("untouched backup", encoding="utf-8")
+    broken = b.BootstrapError("Known broken interpreter", stage="environment-probe",
+                              category="broken-interpreter")
+    denied = b.BootstrapError("Access denied", stage="environment-probe",
+                              category="access-denied", errno=13, winerror=5)
+    validator = Mock(side_effect=[broken, denied])
+    creator = Mock()
+    monkeypatch.setattr(b, "validate_environment", validator)
+    monkeypatch.setattr(b, "create_environment", creator)
+    monkeypatch.setattr(b, "ensure_pip", Mock(side_effect=AssertionError("Pip must not be started")))
+    with pytest.raises(b.BootstrapError) as caught:
+        b.prepare(root)
+    assert caught.value is denied
+    assert validator.call_count == 2
+    creator.assert_called_once()
+    backups = list(root.glob(".venv-v2.failed-*"))
+    assert len(backups) == 1
+    assert (backups[0] / "keep.txt").read_text(encoding="utf-8") == "untouched backup"
     assert not (root / ".venv-v2/yeboy-requirements.sha256").exists()
 
 

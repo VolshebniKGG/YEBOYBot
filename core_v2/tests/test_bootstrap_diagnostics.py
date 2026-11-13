@@ -19,6 +19,18 @@ def windows_error(code, windows_code):
     return error
 
 
+def test_environment_probe_access_denied_gives_specific_context_without_paths():
+    error = PermissionError(13, PRIVATE)
+    error.winerror = 5
+    result = b.command_failure(error, "environment-probe")
+    assert result.stage == "environment-probe"
+    assert result.category == "access-denied"
+    assert result.errno == 13 and result.winerror == 5
+    assert ".venv-v2" in str(result)
+    assert "системний python" in str(result).lower()
+    assert PRIVATE not in str(result)
+
+
 @pytest.mark.parametrize("windows_code,category", [
     (5, "access-denied"),
     (32, "file-locked"),
