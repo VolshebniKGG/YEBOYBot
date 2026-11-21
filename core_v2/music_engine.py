@@ -26,11 +26,13 @@ else:
             self.code = code
 
 log = logging.getLogger(__name__)
-CLEANUP_RETRY_INTERVAL = 1
+CLEANUP_RETRY_INTERVAL = 0.1  # Reduced from 1s for faster track transitions
 MAX_WORKER_INPUT = 16_384
 MAX_WORKER_OUTPUT = 64_000
 MAX_LIVE_RETRIES = 6
 LIVE_STABLE_SECONDS = 60
+# Minimal delay between autoplay tracks (seconds)
+AUTOPLAY_TRANSITION_DELAY = 0.05
 
 FAILURE_MESSAGES = {
     "network": "Мережа не дала отримати трек. Перевірте інтернет, DNS і налаштований proxy; спробуйте пізніше.",
@@ -233,16 +235,22 @@ def validate_source(source: str) -> str:
     return source
 
 
-def validate_stream_url(value: str) -> str:
-    """Never pass arbitrary protocols, hosts or credentials to FFmpeg."""
+def validate_stream_url(value: str, *, is_live: bool = False) -> str:
+    """Never pass arbitrary protocols, hosts or credentials to FFmpeg.
+    For live streams, allow any HTTPS host (CDN varies). For bounded tracks, restrict to known CDNs.
+    """
     try:
         url = urlsplit(value)
         if (not isinstance(value, str) or len(value) > 16_000 or
                 any(ord(c) < 32 or ord(c) == 127 for c in value) or
                 url.scheme != "https" or url.username is not None or url.password is not None or
-                url.port not in (None, 443) or
-                not _host_is((url.hostname or "").lower(), ("googlevideo.com", "sndcdn.com"))):
+                url.port not in (None, 443)):
             raise ValueError
+        if not is_live:
+            # Non-live tracks must come from known CDNs
+            if not _host_is((url.hostname or "").lower(), ("googlevideo.com", "sndcdn.com")):
+                raise ValueError
+        # For live streams: any HTTPS host is allowed (basic security checks above still apply)
     except (TypeError, ValueError, AttributeError):
         raise MusicError("Джерело не повернуло дозволений захищений аудіопотік.") from None
     return value
@@ -269,7 +277,7 @@ def extractor_payload(info):
         duration = None
     elif type(duration) not in (int, float) or not 0 < duration <= 14_400:
         raise ValueError
-    stream = validate_stream_url(info["url"])
+    stream = validate_stream_url(info["url"], is_live=is_live)
     return {"title": str(info.get("title") or "Трек")[:500],
             "stream_url": stream, "duration": duration, "is_live": is_live}
 
@@ -308,10 +316,10 @@ class YTDLPResolver:
                     raise MusicError(failure_message(code), code=code)
                 if process.returncode:
                     raise ValueError
-                stream_url = validate_stream_url(payload["stream_url"])
+                is_live = payload.get("is_live", False)
+                stream_url = validate_stream_url(payload["stream_url"], is_live=is_live)
                 title = payload["title"]
                 duration = payload["duration"]
-                is_live = payload.get("is_live", False)
                 if not isinstance(title, str) or not title or len(title) > 500 or type(is_live) is not bool:
                     raise ValueError
                 if is_live:
@@ -400,6 +408,10 @@ class GuildPlayer:
         self.manual_paused = False
         self._pause_started = None
         self._pause_seconds = 0.0
+        # Pre-loaded next autoplay track (resolved while current plays)
+        self._preloaded_track: Track | None = None
+        self._preloaded_request: TrackRequest | None = None
+        self._preload_task: asyncio.Task | None = None
         self._task = asyncio.create_task(self._run(), name=f"music-{guild_id}")
 
     async def enqueue(self, source, requester_id, *, next_up=False):
@@ -422,6 +434,12 @@ class GuildPlayer:
             self.queue.appendleft(request)
         else:
             self.queue.append(request)
+        # Cancel pre-load when user adds a track (their track takes priority)
+        if self._preload_task and not self._preload_task.done():
+            self._preload_task.cancel()
+            self._preload_task = None
+        self._preloaded_track = None
+        self._preloaded_request = None
         if self.request and self.request.requester_id is None and self.options.autoplay_auto_skip:
             self._interrupted = True
         self._changed.set()
@@ -440,6 +458,12 @@ class GuildPlayer:
             self.queue.clear()
             self._live_retry = None
             self._live_retry_count = 0
+            # Cancel pre-load when queue is cleared
+            if self._preload_task and not self._preload_task.done():
+                self._preload_task.cancel()
+                self._preload_task = None
+            self._preloaded_track = None
+            self._preloaded_request = None
             self._changed.set()
         return count
 
@@ -526,6 +550,12 @@ class GuildPlayer:
         self._repeat_one = None
         self._live_retry = None
         self._live_retry_count = 0
+        # Cancel pre-load on skip
+        if self._preload_task and not self._preload_task.done():
+            self._preload_task.cancel()
+            self._preload_task = None
+        self._preloaded_track = None
+        self._preloaded_request = None
         if self.request is not None:
             self._interrupted = True
         self._changed.set()
@@ -561,6 +591,12 @@ class GuildPlayer:
             if self._live_retry is not None and self._live_retry.requester_id is None:
                 self._live_retry = None
                 self._live_retry_count = 0
+            # Cancel any pre-loaded autoplay track
+            if self._preload_task and not self._preload_task.done():
+                self._preload_task.cancel()
+                self._preload_task = None
+            self._preloaded_track = None
+            self._preloaded_request = None
         self._changed.set()
 
     async def set_manual_paused(self, enabled):
@@ -629,6 +665,16 @@ class GuildPlayer:
         """Release player state even when the voice adapter fails to stop."""
         self._closed = True
         self._changed.set()
+        # Cancel preload task
+        if self._preload_task and not self._preload_task.done():
+            self._preload_task.cancel()
+            try:
+                await self._preload_task
+            except asyncio.CancelledError:
+                pass
+            self._preload_task = None
+        self._preloaded_track = None
+        self._preloaded_request = None
         self._task.cancel()
         await asyncio.gather(self._task, return_exceptions=True)
         try:
@@ -715,6 +761,50 @@ class GuildPlayer:
         if wait is not None:
             self._cleaning = not await wait()
 
+    async def _preload_next_autoplay(self):
+        """Pre-resolve next autoplay track while current plays.
+
+        Runs in background; result stored in _preloaded_track/_preloaded_request.
+        Cancelled if user adds a track or player stops.
+        """
+        try:
+            # Small delay to not compete with current track's extractor slot
+            await asyncio.sleep(AUTOPLAY_TRANSITION_DELAY)
+            if self._closed or self._interrupted or not self.autoplay_enabled:
+                return
+            if self.queue:  # User added a track
+                return
+
+            # Get next autoplay source (same logic as _next)
+            items = self.manager.autoplaylist
+            if not items:
+                return
+            if self.options.autoplay_random:
+                source = random.choice(items)
+            else:
+                source = items[self._ap_index % len(items)]
+                self._ap_index += 1
+
+            request = TrackRequest(source, None)
+
+            # Resolve in background (uses shared semaphore slot)
+            track = await self._resolve(source)
+            if track is None or self._interrupted or self._closed:
+                return
+
+            validate_stream_url(track.stream_url, is_live=track.is_live)
+
+            # Store pre-loaded track
+            self._preloaded_track = track
+            self._preloaded_request = request
+            log.debug("Pre-loaded autoplay track for guild=%s: %s", self.guild_id, track.title[:50])
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.debug("Preload failed guild=%s type=%s", self.guild_id, type(e).__name__)
+            self._preloaded_track = None
+            self._preloaded_request = None
+
     async def _run(self):
         try:
             while not self._closed:
@@ -738,104 +828,143 @@ class GuildPlayer:
                 self._changed.clear()
                 if not await self._wait_for_resume():
                     continue
-                self.request = self._next()
-                if self.request is None:
-                    self.state = "idle"
-                    await self._changed.wait()
-                    continue
-                self.state = "resolving"
-                self.error = None
-                self.error_code = None
-                failed = False
-                try:
-                    while True:
-                        track = await self._until_changed(self._resolve(self.request.source))
-                        if track is None or self._interrupted or not self.manual_paused:
-                            break
-                        if not await self._wait_for_resume():
-                            track = None
-                            break
-                        # A signed URL may expire while paused. Resolve the same
-                        # held request afresh; do not consume another queue item.
-                        self.state = "resolving"
-                    if track is None or self._interrupted:
+
+                # Check if we have a pre-loaded autoplay track ready
+                use_preloaded = (
+                    self._preloaded_track is not None
+                    and self._preloaded_request is not None
+                    and self._preloaded_request.requester_id is None  # autoplay track
+                    and not self.queue  # no user tracks waiting
+                    and self.autoplay_enabled
+                )
+
+                if use_preloaded:
+                    self.request = self._preloaded_request
+                    track = self._preloaded_track
+                    self._preloaded_track = None
+                    self._preloaded_request = None
+                    if self._preload_task:
+                        self._preload_task.cancel()
+                        self._preload_task = None
+                else:
+                    self.request = self._next()
+                    if self.request is None:
+                        self.state = "idle"
+                        await self._changed.wait()
                         continue
-                    # Injected resolvers cannot bypass the FFmpeg URL policy either.
-                    validate_stream_url(track.stream_url)
-                    self.current = track
-                    self.state = "playing"
-                    loop = asyncio.get_running_loop()
-                    finished = loop.create_future()
+                    self.state = "resolving"
+                    self.error = None
+                    self.error_code = None
+                    failed = False
+                    try:
+                        while True:
+                            track = await self._until_changed(self._resolve(self.request.source))
+                            if track is None or self._interrupted or not self.manual_paused:
+                                break
+                            if not await self._wait_for_resume():
+                                track = None
+                                break
+                            # A signed URL may expire while paused. Resolve the same
+                            # held request afresh; do not consume another queue item.
+                            self.state = "resolving"
+                        if track is None or self._interrupted:
+                            continue
 
-                    def finish(error, future=finished):
-                        def deliver():
-                            if not future.done():
-                                future.set_result(error)
-                        if not loop.is_closed():
-                            loop.call_soon_threadsafe(deliver)
+                        # Injected resolvers cannot bypass the FFmpeg URL policy either.
+                        validate_stream_url(track.stream_url, is_live=track.is_live)
+                        self.current = track
+                        self.state = "playing"
+                        loop = asyncio.get_running_loop()
+                        finished = loop.create_future()
 
-                    # Source lookup and waiting for an extractor slot are not
-                    # playback. They must not hide an immediate successful EOF.
-                    started = self.manager.clock()
-                    paused_before = self._paused_seconds()
-                    self.backend.play(track, finish)
-                    result = await self._until_changed(finished)
-                    elapsed = (self.manager.clock() - started
-                               - (self._paused_seconds() - paused_before))
-                    failed = result is not None or (not self._interrupted and
-                                                    elapsed < 1)
-                    if failed:
-                        self.error_code = "playback_error"
+                        def finish(error, future=finished):
+                            def deliver():
+                                if not future.done():
+                                    future.set_result(error)
+                            if not loop.is_closed():
+                                loop.call_soon_threadsafe(deliver)
+
+                        # Start pre-loading next autoplay track if conditions are met
+                        if (self.autoplay_enabled and not self.queue
+                                and self.request.requester_id is None  # current is autoplay
+                                and not getattr(track, "is_live", False)  # not live
+                                and self._preload_task is None):
+                            self._preload_task = asyncio.create_task(
+                                self._preload_next_autoplay(), name=f"preload-{self.guild_id}"
+                            )
+
+                        # Source lookup and waiting for an extractor slot are not
+                        # playback. They must not hide an immediate successful EOF.
+                        started = self.manager.clock()
+                        paused_before = self._paused_seconds()
+                        self.backend.play(track, finish)
+                        result = await self._until_changed(finished)
+                        elapsed = (self.manager.clock() - started
+                                   - (self._paused_seconds() - paused_before))
+                        failed = result is not None or (not self._interrupted and
+                                                        elapsed < 1)
+                        if failed:
+                            self.error_code = "playback_error"
+                            self.error = failure_message(self.error_code)
+                        if not self._interrupted and getattr(track, "is_live", False) is True:
+                            # A live endpoint may close after a CDN URL expires.
+                            # Resolve the original public page again after backoff;
+                            # a temporary signed stream URL must never be reused.
+                            if elapsed >= LIVE_STABLE_SECONDS:
+                                self._live_retry_count = 0
+                                self._failures = 0
+                            self._live_retry_count += 1
+                            if self._live_retry_count <= MAX_LIVE_RETRIES:
+                                self._live_retry = self.request
+                            else:
+                                self.error_code = "live_unavailable"
+                                self.error = failure_message(self.error_code)
+                            failed = True
+                        elif (not failed and not self._interrupted
+                              and self.request.requester_id is not None):
+                            # Repeat only completed bounded user requests, not live,
+                            # skipped or failed streams. No cached signed media URLs.
+                            if self.repeat_mode == "one":
+                                self._repeat_one = self.request
+                            elif self.repeat_mode == "all" and len(self.queue) < self.options.max_queue:
+                                self.queue.append(self.request)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as error:
+                        # Do not expose URLs, tokens, subprocess stderr or raw API errors.
+                        self.error_code = (normalize_failure_code(error.code) if isinstance(error, MusicError)
+                                           else "extractor_timeout" if isinstance(error, TimeoutError)
+                                           else "playback_error")
                         self.error = failure_message(self.error_code)
-                    if not self._interrupted and getattr(track, "is_live", False) is True:
-                        # A live endpoint may close after a CDN URL expires.
-                        # Resolve the original public page again after backoff;
-                        # a temporary signed stream URL must never be reused.
-                        if elapsed >= LIVE_STABLE_SECONDS:
-                            self._live_retry_count = 0
-                            self._failures = 0
-                        self._live_retry_count += 1
-                        if self._live_retry_count <= MAX_LIVE_RETRIES:
-                            self._live_retry = self.request
-                        else:
-                            self.error_code = "live_unavailable"
-                            self.error = failure_message(self.error_code)
                         failed = True
-                    elif (not failed and not self._interrupted
-                          and self.request.requester_id is not None):
-                        # Repeat only completed bounded user requests, not live,
-                        # skipped or failed streams. No cached signed media URLs.
-                        if self.repeat_mode == "one":
-                            self._repeat_one = self.request
-                        elif self.repeat_mode == "all" and len(self.queue) < self.options.max_queue:
-                            self.queue.append(self.request)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as error:
-                    # Do not expose URLs, tokens, subprocess stderr or raw API errors.
-                    self.error_code = (normalize_failure_code(error.code) if isinstance(error, MusicError)
-                                       else "extractor_timeout" if isinstance(error, TimeoutError)
-                                       else "playback_error")
-                    self.error = failure_message(self.error_code)
-                    failed = True
-                    if self._resuming_live and not self._interrupted and not self._closed:
-                        # Failed live URL refresh also counts toward the bounded
-                        # retry budget. The opt-in autoplaylist may still retry
-                        # its entry later, with normal exponential backoff.
-                        self._live_retry_count += 1
-                        if self._live_retry_count <= MAX_LIVE_RETRIES:
-                            self._live_retry = self.request
-                        else:
-                            self.error_code = "live_unavailable"
-                            self.error = failure_message(self.error_code)
-                    log.warning("Music track failed guild=%s code=%s", self.guild_id, self.error_code)
-                finally:
-                    await self._stop()
-                    self.current = self.request = None
-                if failed:
-                    await self._backoff()
-                elif not self._interrupted:
-                    self._failures = 0
+                        if self._resuming_live and not self._interrupted and not self._closed:
+                            # Failed live URL refresh also counts toward the bounded
+                            # retry budget. The opt-in autoplaylist may still retry
+                            # its entry later, with normal exponential backoff.
+                            self._live_retry_count += 1
+                            if self._live_retry_count <= MAX_LIVE_RETRIES:
+                                self._live_retry = self.request
+                            else:
+                                self.error_code = "live_unavailable"
+                                self.error = failure_message(self.error_code)
+                        log.warning("Music track failed guild=%s code=%s", self.guild_id, self.error_code)
+                    finally:
+                        # Cancel preload task on any exit
+                        if self._preload_task:
+                            self._preload_task.cancel()
+                            try:
+                                await self._preload_task
+                            except asyncio.CancelledError:
+                                pass
+                            self._preload_task = None
+                        self._preloaded_track = None
+                        self._preloaded_request = None
+                        await self._stop()
+                        self.current = self.request = None
+                    if failed:
+                        await self._backoff()
+                    elif not self._interrupted:
+                        self._failures = 0
         except asyncio.CancelledError:
             raise
         except Exception as error:

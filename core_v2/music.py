@@ -60,15 +60,20 @@ class _OwnedVoiceClient(discord.VoiceClient):
             raise
 
 
-def _stream_url(value):
-    """Only the resolver's supported HTTPS audio CDNs reach FFmpeg."""
+def _stream_url(value: str, *, is_live: bool = False) -> str:
+    """Only the resolver's supported HTTPS audio CDNs reach FFmpeg.
+    For live streams, allow any HTTPS host (CDN varies). For bounded tracks, restrict to known CDNs.
+    """
     try:
         parsed = urlsplit(value)
         host = (parsed.hostname or "").lower()
         valid = (parsed.scheme == "https" and not parsed.username and not parsed.password
-                 and parsed.port in {None, 443} and not parsed.fragment
-                 and any(host.endswith("." + domain) or host == domain
-                         for domain in ("googlevideo.com", "sndcdn.com")))
+                 and parsed.port in {None, 443} and not parsed.fragment)
+        if not is_live:
+            # Non-live tracks must come from known CDNs
+            valid = valid and any(host.endswith("." + domain) or host == domain
+                                  for domain in ("googlevideo.com", "sndcdn.com"))
+        # For live streams: any HTTPS host is allowed (basic security checks above still apply)
     except (TypeError, ValueError):
         valid = False
     if not valid:
@@ -191,10 +196,10 @@ class FFmpegVoiceBackend:
             raise MusicError("Попередній аудіопотік ще завершується.")
         if self.voice.is_playing() or self.voice.is_paused():
             raise MusicError("Попередній аудіопотік ще завершується.")
-        stream = _stream_url(track.stream_url)
-        if type(getattr(track, "is_live", False)) is not bool:
-            raise MusicError("Не вдалося визначити тип аудіопотоку.")
         is_live = getattr(track, "is_live", False)
+        if type(is_live) is not bool:
+            raise MusicError("Не вдалося визначити тип аудіопотоку.")
+        stream = _stream_url(track.stream_url, is_live=is_live)
         loop = asyncio.get_running_loop()
         source = None
         try:

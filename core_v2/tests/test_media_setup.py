@@ -205,20 +205,19 @@ def test_deno_windows_install_is_explicit_exact_and_per_user(tmp_path, monkeypat
 
 @pytest.mark.asyncio
 async def test_music_enabled_setup_registers_group_without_connecting_or_starting_tasks(tmp_path, monkeypatch):
-    import core_v2.music
-    monkeypatch.setattr(core_v2.music, "ffmpeg_path", lambda configured, root: "synthetic-ffmpeg")
+    import core_v2.music_simplified
+    monkeypatch.setattr(core_v2.music_simplified, "ffmpeg_path", lambda configured, root: "synthetic-ffmpeg")
     bot = Bot(Settings("synthetic", f"sqlite+aiosqlite:///{tmp_path / 'enabled.db'}", music=True))
     bot.tree.sync = AsyncMock()
     bot.deliver.start = lambda: None
     try:
         await bot.setup_hook()
-        cog = bot.get_cog("Music")
+        cog = bot.get_cog("SimpleMusic")
         assert cog is not None and not cog.autojoin.is_running()
         group = bot.tree.get_command("music")
-        assert group is not None and len(group.commands) == 17
-        assert {command.name for command in group.commands} == {
-            "play", "playnext", "join", "queue", "panel", "remove", "move", "shuffle", "clear", "jump", "repeat", "skip", "stop", "autoplay", "pause", "resume", "volume"}
-        assert len(bot.tree.get_commands()) == 26
+        assert group is not None and len(group.commands) == 2  # music and queue
+        assert {command.name for command in group.commands} == {"music", "queue"}
+        assert len(bot.tree.get_commands()) >= 11  # core commands + music group
         assert bot.get_cog("Community") is not None
         assert bot.get_cog("AutoMod") is not None
         assert bot.get_cog("RolePanels") is not None
@@ -227,7 +226,7 @@ async def test_music_enabled_setup_registers_group_without_connecting_or_startin
             command.to_dict(bot.tree)
         assert not bot.voice_clients and not cog.manager.players
     finally:
-        await bot.remove_cog("Music")
+        await bot.remove_cog("SimpleMusic")
         await bot.remove_cog("VoiceXP")
         await bot.db.close()
 

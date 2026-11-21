@@ -445,7 +445,7 @@ def test_windows_missing_python_returns_failure_without_installing(tmp_path):
     environment = os.environ.copy()
     environment["PATH"] = str(tmp_path / "empty-path")
     # Execute only the replacement batch; no registry/global package operations exist there.
-    result = subprocess.run([os.environ["COMSPEC"], "/d", "/c", "run.bat"], cwd=tmp_path,
+    result = subprocess.run([os.environ["COMSPEC"], "/d", "/c", str(script)], cwd=tmp_path,
                             env=environment, input="\n", capture_output=True, text=True,
                             encoding="utf-8", errors="replace", timeout=30)
     assert result.returncode != 0

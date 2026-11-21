@@ -388,7 +388,7 @@ class WindowsBootstrapTests(unittest.TestCase):
             env = os.environ.copy()
             env["PATH"] = str(Path(directory) / "empty-path")
             result = subprocess.run(
-                [os.environ["COMSPEC"], "/d", "/c", "install_v2.bat"],
+                [os.environ["COMSPEC"], "/d", "/c", str(script)],
                 cwd=directory, env=env, capture_output=True,
                 text=True, encoding="utf-8", errors="replace", timeout=30)
             self.assertEqual(result.returncode, 1)

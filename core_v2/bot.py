@@ -103,8 +103,8 @@ class Bot(commands.AutoShardedBot):
         from .voice_xp import VoiceXP
         await self.add_cog(VoiceXP(self))
         if self.settings.music:
-            from .music import Music
-            await self.add_cog(Music(self))
+            from .music_simplified import SimpleMusic
+            await self.add_cog(SimpleMusic(self))
         from .guide import Guide
         await self.add_cog(Guide(self))
         if self.settings.prefix_commands:
@@ -202,7 +202,7 @@ class Bot(commands.AutoShardedBot):
         await self.wait_until_ready()
 
     async def close(self):
-        for name in ("PrefixCommands", "Guide", "Music", "VoiceXP", "Community", "AutoMod", "RolePanels", "LevelRewards"):
+        for name in ("PrefixCommands", "Guide", "SimpleMusic", "VoiceXP", "Community", "AutoMod", "RolePanels", "LevelRewards"):
             await self.remove_cog(name)
         self.deliver.cancel()
         task = self.deliver.get_task()
